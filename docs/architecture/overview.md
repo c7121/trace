@@ -484,97 +484,29 @@ Full DDL for all tables:
 
 ## PII and User Data
 
-PII = address labels, saved queries, alert definitions.
-
-All PII tables have: `org_id`, `user_id`, `visibility` (see [capabilities/pii.md](../capabilities/pii.md)).
-
-**Rules:**
-- Visibility enforced via `visibility` (see [capabilities/pii.md](../capabilities/pii.md))
-- Reads logged to `pii_access_log`
-- Hard delete only (GDPR)
+PII is a column-level classification with visibility controls and audit logging. See [capabilities/pii.md](../capabilities/pii.md) for visibility semantics (including org-defined roles) and `pii_access_log`.
 
 ---
 
 ## Job Lifecycle
 
-### Job Properties
+Jobs are defined in DAG YAML and synced into Postgres. The Dispatcher creates task instances for reactive jobs when upstream datasets update; source jobs run continuously and emit upstream events.
 
-Every job has two key properties:
-
-| Property | Description | Values |
-|----------|-------------|--------|
-| `activation` | How the job is started | `source`, `reactive` |
-| `runtime` | Where code executes | `lambda`, `ecs_rust`, `ecs_python`, `dispatcher` |
-
-Reactive jobs can also set:
-
-| Property | Description | Values |
-|----------|-------------|--------|
-| `idle_timeout` | How long to stay alive with no work | `never`, duration (`5m`), or `0` |
-
-**Activation behavior:**
-
-| Activation | Behavior | Example |
-|------------|----------|--------|
-| `source` | Emits events; not scheduled by Dispatcher | `block_follower` (always_on) |
-| `reactive` | Runs from Dispatcher tasks | `alert_evaluate` — reacts to new blocks |
-
-**Source kinds:** `always_on`, `cron`, `webhook`, `manual`.
-
-**Cron and manual:** They are source kinds that emit events. Reactive jobs subscribe
-to `input_datasets` and are scheduled by the Dispatcher.
-
-### Execution Strategies
-
-How work is divided for reactive jobs:
-
-| Strategy | Description | Use Case |
-|----------|-------------|----------|
-| `PerUpdate` | One task per upstream event | Alert evaluation |
-| `PerPartition` | One task per partition | Historical backfills |
-| `Bulk` | Single task for all pending work | Compaction, aggregations |
-
-Source jobs do not have an execution strategy — they emit events directly.
-
-### Task & Job Lifecycle
-
-Tasks move through states (Queued → Running → Completed/Failed). Source jobs run continuously with heartbeat monitoring. Reactive jobs scale based on events.
-
-See [orchestration.md](../capabilities/orchestration.md#task-lifecycle) for state diagrams and retry behavior.
-
-### Staleness, Memoization & Reorgs
-
-See [data_versioning.md](data_versioning.md) for full specification of:
-- Partition vs. cursor-based incremental processing
-- Staleness detection and memoization
-- Reorg handling and invalidations
-- Alert deduplication
-
-### Scaling
-
-Dispatcher-controlled, not AWS auto-scaling.
-
-| Mode | Behavior |
-|------|----------|
-| `backfill` | Max parallelism (e.g., 20 concurrent) |
-| `steady` | Single worker |
-
-```yaml
-scaling:
-  mode: backfill
-  max_concurrency: 20
-```
-
-Dispatcher tracks in-flight jobs and only releases work when slots available.
+- Job fields and configuration: [dag_configuration.md](../../capabilities/dag_configuration.md)
+- Task lifecycle, retries, heartbeats: [orchestration.md](../capabilities/orchestration.md#task-lifecycle)
+- Incremental processing, staleness, reorg invalidations: [data_versioning.md](data_versioning.md)
+- Operator contract (task input/output + emit event): [operators/README.md](operators/README.md)
 
 ---
 
 ## DAG Configuration
 
 See [dag_configuration.md](../../capabilities/dag_configuration.md) for:
-- Directory structure
 - YAML schema with examples
-- Deploy process and SQL logic
+
+See [dag_deployment.md](dag_deployment.md) for:
+- Deploy/sync flow and upsert semantics
+- Source provisioning
 
 ---
 

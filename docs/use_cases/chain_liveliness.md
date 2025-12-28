@@ -17,19 +17,4 @@ Track time since last block. Alert when gap exceeds threshold for the chain's ex
 - **Output**: `liveliness_events`
 - **Alert**: trigger when block gap exceeds threshold
 
-## Example Job
-
-```yaml
-- name: chain_liveliness
-  activation: source
-  runtime: ecs_rust
-  operator: liveliness_monitor
-  source:
-    kind: always_on
-  output_dataset: liveliness_events
-  secrets: [monad_rpc_key]
-  config:
-    chain_id: 10143
-    expected_block_time_ms: 500
-    alert_threshold_ms: 5000
-```
+Configure this as a source DAG job using `operator: liveliness_monitor` with `source.kind: always_on`. See [dag_configuration.md](../capabilities/dag_configuration.md) for the job YAML schema.

@@ -17,17 +17,4 @@ Run parallel queries against multiple RPC endpoints. Compare block hashes, trans
 - **Output**: `rpc_divergence_events`
 - **Alert**: trigger when providers disagree on block hash
 
-## Example Job
-
-```yaml
-- name: rpc_integrity
-  activation: reactive
-  runtime: ecs_rust
-  operator: rpc_integrity_check
-  input_datasets: [hot_blocks]
-  output_dataset: rpc_divergence_events
-  secrets: [rpc_key_primary, rpc_key_secondary]
-  config:
-    providers: [primary, secondary]
-    compare_fields: [block_hash, tx_count, state_root]
-```
+Configure this as a reactive DAG job using `operator: rpc_integrity_check`. See [dag_configuration.md](../capabilities/dag_configuration.md) for the job YAML schema.

@@ -277,50 +277,6 @@ See [alerting.md](../../capabilities/alerting.md#deduplication) for the dedupe s
 
 ---
 
-## Job Configuration Reference
-
-```yaml
-jobs:
-  - name: block_follower
-    # Source, no incremental config (always at tip)
-    output_dataset: hot_blocks
-
-  - name: alert_evaluate
-    incremental:
-      mode: cursor
-      cursor_column: block_number
-      unique_key: [alert_definition_id, block_hash, tx_hash]
-    update_strategy: append
-    input_datasets: [hot_blocks]
-    output_dataset: alert_events
-
-  - name: enrich_transfers
-    incremental:
-      mode: cursor
-      cursor_column: block_number
-    update_strategy: replace          # replaces rows for affected block range
-    input_datasets: [hot_blocks, hot_logs]
-    output_dataset: enriched_transfers
-
-  - name: parquet_compact
-    incremental:
-      mode: partition
-    update_strategy: replace
-    input_datasets: [hot_blocks]
-    output_dataset: cold_blocks
-    config:
-      finality_threshold: 100         # only compact blocks older than tip - 100
-
-  - name: daily_summary
-    incremental:
-      mode: partition
-    update_strategy: replace
-    input_datasets: [cold_blocks]
-    output_dataset: daily_summaries
-```
-
----
-
 ## Dispatcher Integration
 
 The Dispatcher watches for:
@@ -348,6 +304,6 @@ Jobs declare their input datasets in the DAG. When an invalidation is created fo
 | Cold storage (S3) | Partition-level versioning |
 | Hot storage (Postgres) | Cursor-based high-water mark |
 | Reorg handling | Row-range invalidations, scoped reprocessing |
-| Alert deduplication | Unique key on `(def_id, block_hash, tx_hash)`, append-only |
+| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../../capabilities/alerting.md#deduplication)) |
 | Code changes | Config hash tracking, manual backfill |
 | Efficiency | Never full-table scan; use partition or row_filter |

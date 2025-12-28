@@ -2,22 +2,12 @@
 
 How DAGs are defined in YAML and deployed to the system.
 
-## Directory Structure
-
-```
-/dags
-  /monad
-    dag.yaml
-  /ethereum
-    dag.yaml
-  /ml-pipeline
-    dag.yaml
-```
+Users create and edit DAG configurations via the API or UI. Each DAG is stored and versioned by the system.
 
 ## YAML Schema
 
 ```yaml
-name: monad
+name: cross-chain-analytics
 
 defaults:
   heartbeat_timeout_seconds: 60
@@ -144,34 +134,6 @@ Every job must declare `update_strategy`:
 
 If `update_strategy: append`, `unique_key` is **required** and must be deterministic (derived from input data only). See [data_versioning.md](../architecture/data_versioning.md#unique-key-requirements) for the full specification.
 
-## Deploy Process
+## Deployment
 
-```mermaid
-flowchart LR
-    YAML[dag.yaml] --> PARSE[Parse YAML]
-    PARSE --> VALIDATE[Validate Schema]
-    VALIDATE --> DEACTIVATE[Deactivate existing jobs]
-    DEACTIVATE --> UPSERT[Upsert by name]
-    UPSERT --> ACTIVATE[Set active=true]
-    ACTIVATE --> PROVISION[Provision Lambda/EventBridge for sources]
-```
-
-## SQL Logic
-
-```sql
-UPDATE jobs SET active = false WHERE dag_name = 'monad';
-
-INSERT INTO jobs (name, dag_name, activation, runtime, operator, source, execution_strategy, idle_timeout, ...)
-VALUES ('block_follower', 'monad', 'source', 'ecs_rust', 'block_follower', '{"kind":"always_on"}', NULL, NULL, ...)
-ON CONFLICT (dag_name, name) DO UPDATE SET
-  activation = EXCLUDED.activation,
-  runtime = EXCLUDED.runtime,
-  operator = EXCLUDED.operator,
-  source = EXCLUDED.source,
-  execution_strategy = EXCLUDED.execution_strategy,
-  idle_timeout = EXCLUDED.idle_timeout,
-  config = EXCLUDED.config,
-  config_hash = EXCLUDED.config_hash,
-  active = true,
-  updated_at = now();
-```
+DAG YAML is parsed, validated, and synced into the `jobs` table. See [dag_deployment.md](../architecture/dag_deployment.md) for the deploy/sync flow and database semantics.

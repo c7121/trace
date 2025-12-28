@@ -194,4 +194,5 @@ stateDiagram-v2
 ## Related
 
 - [Architecture Overview](../architecture/overview.md) — system design and component diagrams
-- [DAG Configuration](dag_configuration.md) — YAML schema and deploy process
+- [DAG Configuration](dag_configuration.md) — YAML schema
+- [DAG Deployment](../architecture/dag_deployment.md) — deploy/sync flow

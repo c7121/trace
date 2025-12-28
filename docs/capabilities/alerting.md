@@ -115,29 +115,14 @@ Per-channel throttling prevents spam. See [backlog](../plan/backlog.md#alerting)
 
 ## DAG Configuration
 
-```yaml
-# Evaluate alerts on new blocks
-- name: alert_evaluate
-  activation: reactive
-  runtime: ecs_rust      # or lambda, ecs_python
-  operator: alert_evaluate_rs
-  execution_strategy: PerUpdate
-  idle_timeout: 5m
-  input_datasets: [hot_blocks, alert_definitions]
-  output_dataset: triggered_alerts
-  timeout_seconds: 60
+See operator docs for example DAG job entries:
 
-# Deliver triggered alerts
-- name: alert_deliver
-  activation: reactive
-  runtime: lambda
-  operator: alert_deliver
-  execution_strategy: PerUpdate
-  idle_timeout: 5m
-  input_datasets: [triggered_alerts]
-  output_dataset: alert_deliveries
-  timeout_seconds: 60
-```
+- [alert_evaluate_ts](../architecture/operators/alert_evaluate_ts.md#example-dag-config)
+- [alert_evaluate_py](../architecture/operators/alert_evaluate_py.md#example-dag-config)
+- [alert_evaluate_rs](../architecture/operators/alert_evaluate_rs.md#example-dag-config)
+- [alert_deliver](../architecture/operators/alert_deliver.md#example-dag-config)
+
+See [dag_configuration.md](dag_configuration.md) for the job field reference.
 
 ## Related
 
@@ -145,4 +130,4 @@ Per-channel throttling prevents spam. See [backlog](../plan/backlog.md#alerting)
 - [alert_evaluate_py](../architecture/operators/alert_evaluate_py.md)
 - [alert_evaluate_rs](../architecture/operators/alert_evaluate_rs.md)
 - [alert_deliver](../architecture/operators/alert_deliver.md)
-- [data_versioning.md](../architecture/data_versioning.md) — deduplication details
+- [data_versioning.md](../architecture/data_versioning.md) — incremental processing and `unique_key` requirements
