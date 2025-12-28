@@ -9,6 +9,10 @@ Non-phase-specific items deferred from v1.
 - Multiple chains — Monad only initially
 - Aggregator (fan-in) virtual operator — requires correlation state per partition
 
+## Data Lineage
+
+- Column-level lineage for selective re-materialization — track which columns each job reads from upstream datasets; when only specific columns change, re-process only jobs that depend on those columns (reduces over-processing for wide tables with narrow consumers)
+
 ## DAG Configuration
 
 - Schema versioning for forward compatibility

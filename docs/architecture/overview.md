@@ -346,12 +346,11 @@ dataset as an input receive the event.
 
 **Backpressure:**
 
-Propagates upstream through DAG edges. When a queue trips its threshold (depth or age), dispatcher pauses upstream producers recursively until pressure clears.
+Propagates upstream through DAG edges. When a queue trips its threshold (depth or age), Dispatcher pauses upstream producers recursively. When pressure clears (depth drops below threshold), Dispatcher unpauses and producers resume.
 
 - Per-job thresholds: `max_queue_depth`, `max_queue_age`
-- Modes: `pause` (default), `coalesce`, `drop_oldest`
-- Priority tiers: `high` (alerts/ingest), `normal`, `low` (backfill) — shed low first
-- Deferred tasks held in Postgres (`pending_backpressure`) until promoted to SQS
+- Mode: `pause` (stop task creation until queue drains)
+- Priority tiers: `normal`, `backfill` — shed `backfill` first when under pressure
 
 **Does NOT:**
 - Execute compute tasks (that's workers)
