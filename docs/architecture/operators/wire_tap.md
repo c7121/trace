@@ -8,8 +8,8 @@ See [Wire Tap pattern](https://www.enterpriseintegrationpatterns.com/patterns/me
 
 | Property | Value |
 |----------|-------|
-| **Operator Type** | `virtual` |
-| **Trigger** | `upstream` |
+| **Runtime** | `dispatcher` |
+| **Activation** | `reactive` |
 | **Execution** | Dispatcher (no worker) |
 
 ## Description
@@ -53,17 +53,17 @@ Given our event-based system, wire taps operate on **events**, not raw data:
 ```yaml
 # Tap all block events for debugging
 - name: debug_blocks_tap
-  operator_type: virtual
+  activation: reactive
+  runtime: dispatcher
   operator: wire_tap
-  trigger: upstream
   input_datasets: [hot_blocks]
   tap_destination: cloudwatch  # or s3://bucket/taps/
 
 # Tap alert events to SNS for external monitoring
 - name: alert_audit_tap
-  operator_type: virtual
+  activation: reactive
+  runtime: dispatcher
   operator: wire_tap
-  trigger: upstream
   input_datasets: [alert_results]
   tap_destination: sns://alert-audit-topic
 ```

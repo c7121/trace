@@ -6,7 +6,8 @@ Compact hot storage data into cold Parquet files.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | Rust |
+| **Runtime** | `ecs_rust` |
+| **Activation** | `reactive` |
 | **Execution Strategy** | Bulk |
 | **Image** | `parquet_compact:latest` |
 
@@ -61,9 +62,9 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 
 ```yaml
 - name: parquet_compact
-  operator_type: transform
+  activation: reactive
+  runtime: ecs_rust
   operator: parquet_compact
-  trigger: upstream
   execution_strategy: Bulk
   config:
     dataset: blocks

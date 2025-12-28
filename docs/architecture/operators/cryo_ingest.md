@@ -6,8 +6,8 @@ Archive historical on-chain data using [Cryo](https://github.com/paradigmxyz/cry
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | Rust |
-| **Trigger** | `manual` or `cron` |
+| **Runtime** | `ecs_rust` |
+| **Activation** | `reactive` |
 | **Execution Strategy** | PerPartition |
 | **Idle Timeout** | `0` (batch) |
 | **Image** | `cryo_ingest:latest` |
@@ -36,8 +36,8 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ## Execution
 
 - **Threshold**: When hot storage reaches N blocks
-- **Manual**: Backfill requests
-- **Cron**: Scheduled archival runs
+- **Manual**: Backfill requests (manual source emits events)
+- **Cron**: Scheduled archival runs (cron source emits events)
 
 ## Behavior
 
@@ -54,11 +54,12 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 
 ```yaml
 - name: cryo_backfill
-  operator_type: ingest
+  activation: reactive
+  runtime: ecs_rust
   operator: cryo_ingest
-  trigger: upstream
   execution_strategy: PerPartition
   idle_timeout: 0
+  input_datasets: [backfill_requests]
   config:
     chain_id: 10143
     datasets: [blocks, transactions, logs]
@@ -66,7 +67,6 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
   scaling:
     mode: backfill        # or 'steady' for single-partition
     max_concurrency: 20   # dispatcher limits parallel jobs
-  input_datasets: []
   output_dataset: cold_blocks
   timeout_seconds: 3600
 ```

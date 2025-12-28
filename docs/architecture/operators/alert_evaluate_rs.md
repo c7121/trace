@@ -6,8 +6,8 @@ Evaluate alert conditions against data (Rust/Polars implementation).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | Rust |
-| **Trigger** | `upstream` |
+| **Runtime** | `ecs_rust` |
+| **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
 | **Image** | `alert_evaluate_rs:latest` |
@@ -63,9 +63,9 @@ Evaluates user-defined alert conditions against incoming or historical data. Rus
 
 ```yaml
 - name: alert_evaluate_rs
-  operator_type: transform
+  activation: reactive
+  runtime: ecs_rust
   operator: alert_evaluate_rs
-  trigger: upstream
   execution_strategy: PerUpdate
   idle_timeout: 5m
   config: {}

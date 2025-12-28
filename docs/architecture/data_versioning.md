@@ -233,7 +233,7 @@ When config changes:
 1. New jobs run with new `config_hash`
 2. Old partitions have old `config_hash`
 3. System can report: "partition X is stale (config changed)"
-4. User triggers backfill manually
+4. User initiates a manual backfill
 
 ### Backfill API
 
@@ -338,7 +338,7 @@ The Dispatcher watches for:
 
 1. **Upstream events** → route to dependent jobs based on DAG
 2. **Unprocessed invalidations** → create tasks with invalidation context
-3. **Manual triggers** → create tasks via API
+3. **Manual sources** → create tasks via API
 
 ### Invalidation Handling
 

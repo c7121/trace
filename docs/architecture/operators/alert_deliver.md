@@ -6,8 +6,8 @@ Deliver triggered alerts to configured channels.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | TypeScript |
-| **Trigger** | `upstream` |
+| **Runtime** | `lambda` |
+| **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
 | **Image** | `alert_deliver:latest` |
@@ -63,9 +63,9 @@ Takes triggered alert events and delivers notifications to configured channels (
 
 ```yaml
 - name: alert_deliver
-  operator_type: transform
+  activation: reactive
+  runtime: lambda
   operator: alert_deliver
-  trigger: upstream
   execution_strategy: PerUpdate
   idle_timeout: 5m
   config: {}

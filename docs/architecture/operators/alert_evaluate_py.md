@@ -6,8 +6,8 @@ Evaluate alert conditions against data (Python implementation).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | Python |
-| **Trigger** | `upstream` |
+| **Runtime** | `ecs_python` |
+| **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
 | **Image** | `alert_evaluate_py:latest` |
@@ -64,9 +64,9 @@ Evaluates user-defined alert conditions against incoming or historical data. Pyt
 
 ```yaml
 - name: alert_evaluate_py
-  operator_type: transform
+  activation: reactive
+  runtime: ecs_python
   operator: alert_evaluate_py
-  trigger: upstream
   execution_strategy: PerUpdate
   idle_timeout: 5m
   config: {}

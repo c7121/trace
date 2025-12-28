@@ -1,21 +1,24 @@
 # Operator Catalog
 
-Operators are job implementations. One container image per operator type.
+Operators are job implementations. One container image per runtime.
+
+Runtimes are registered in the Dispatcher runtime registry (image + queue +
+capabilities). See `docs/architecture/architecture.md` for details.
 
 ## Index
 
-| Operator | Operator Type | Trigger | Execution | Description |
-|----------|---------------|---------|-----------|-------------|
-| [block_follower](block_follower.md) | ingest | none | — | Follow chain tip, write to hot storage |
-| [cryo_ingest](cryo_ingest.md) | ingest | upstream | PerPartition | Backfill historical data to S3 |
-| [wire_tap](wire_tap.md) | virtual | upstream | — | Copy events to secondary destination |
-| [parquet_compact](parquet_compact.md) | polars | upstream | Bulk | Compact hot → cold Parquet |
-| [integrity_check](integrity_check.md) | polars | upstream | Bulk | Verify cold storage integrity |
-| [alert_evaluate_ts](alert_evaluate_ts.md) | lambda | upstream | PerUpdate | Evaluate alerts (TypeScript) |
-| [alert_evaluate_py](alert_evaluate_py.md) | python | upstream | PerUpdate | Evaluate alerts (Python) |
-| [alert_evaluate_rs](alert_evaluate_rs.md) | polars | upstream | PerUpdate | Evaluate alerts (Rust) |
-| [alert_deliver](alert_deliver.md) | lambda | upstream | PerUpdate | Deliver alerts to channels |
-| [duckdb_query](duckdb_query.md) | polars | upstream | Bulk | Execute federated queries |
+| Operator | Runtime | Activation | Execution | Description |
+|----------|---------|------------|-----------|-------------|
+| [block_follower](block_follower.md) | ecs_rust | source | — | Follow chain tip, write to hot storage |
+| [cryo_ingest](cryo_ingest.md) | ecs_rust | reactive | PerPartition | Backfill historical data to S3 |
+| [wire_tap](wire_tap.md) | dispatcher | reactive | — | Copy events to secondary destination |
+| [parquet_compact](parquet_compact.md) | ecs_rust | reactive | Bulk | Compact hot to cold Parquet |
+| [integrity_check](integrity_check.md) | ecs_rust | reactive | Bulk | Verify cold storage integrity |
+| [alert_evaluate_ts](alert_evaluate_ts.md) | lambda | reactive | PerUpdate | Evaluate alerts (TypeScript) |
+| [alert_evaluate_py](alert_evaluate_py.md) | ecs_python | reactive | PerUpdate | Evaluate alerts (Python) |
+| [alert_evaluate_rs](alert_evaluate_rs.md) | ecs_rust | reactive | PerUpdate | Evaluate alerts (Rust) |
+| [alert_deliver](alert_deliver.md) | lambda | reactive | PerUpdate | Deliver alerts to channels |
+| [query](duckdb_query.md) | ecs_rust | reactive | Bulk | Batch query execution (DuckDB) |
 
 ## Operator Contract
 
@@ -27,7 +30,7 @@ Operators are job implementations. One container image per operator type.
 
 ## Adding a New Operator
 
-1. Implement in appropriate operator type image
+1. Implement in appropriate runtime image
 2. Add to ECR
 3. Create doc in `operators/`
 4. Reference in DAG YAML

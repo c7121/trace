@@ -6,8 +6,8 @@ Evaluate alert conditions against data (TypeScript implementation).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | TypeScript |
-| **Trigger** | `upstream` |
+| **Runtime** | `lambda` |
+| **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
 | **Image** | `alert_evaluate_ts:latest` |
@@ -63,9 +63,9 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 
 ```yaml
 - name: alert_evaluate_ts
-  operator_type: transform
+  activation: reactive
+  runtime: lambda
   operator: alert_evaluate_ts
-  trigger: upstream
   execution_strategy: PerUpdate
   idle_timeout: 5m
   config: {}

@@ -1,4 +1,4 @@
-# duckdb_query
+# query (DuckDB)
 
 Execute federated queries across hot and cold storage.
 
@@ -6,13 +6,16 @@ Execute federated queries across hot and cold storage.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | Rust |
+| **Runtime** | `ecs_rust` |
+| **Activation** | `reactive` |
 | **Execution Strategy** | Bulk |
 | **Image** | `duckdb_query:latest` |
 
 ## Description
 
-Executes SQL queries that span both hot storage (Postgres) and cold storage (S3 Parquet) using DuckDB's federation capabilities. Returns unified results as if querying a single database.
+Executes SQL queries that span both hot storage (Postgres) and cold storage (S3 Parquet)
+using DuckDB's federation capabilities. This is the batch query operator; interactive
+queries use the query service endpoint.
 
 ## Inputs
 
@@ -64,9 +67,9 @@ Executes SQL queries that span both hot storage (Postgres) and cold storage (S3 
 
 ```yaml
 - name: daily_summary
-  operator_type: transform
-  operator: duckdb_query
-  trigger: upstream
+  activation: reactive
+  runtime: ecs_rust
+  operator: query
   execution_strategy: Bulk
   config:
     query: |

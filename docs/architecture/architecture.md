@@ -28,7 +28,7 @@ A general-purpose ETL orchestration system designed for:
 - **Multi-runtime support** — Rust, Python, R, TypeScript, Scala
 - **Asset-based lineage** — Everything produces trackable assets
 - **Flexible partitioning** — Data-driven, not static time-based
-- **Source jobs** — Long-running services with no trigger (e.g., blockchain followers)
+- **Source jobs** — Long-running services with `activation: source` (e.g., blockchain followers)
 - **Config-as-code** — DAGs defined in YAML, version controlled
 
 ### Design Principles
@@ -51,9 +51,9 @@ Phased approach: prove orchestration and data flow before user-facing features.
 | 1 | Dispatcher + Lambda sources + Worker wrapper | Orchestration layer |
 | 2 | `block_follower` → Postgres | Real-time ingestion to hot storage |
 | 2 | `cryo_ingest` → S3 (parallel) | Historical backfill to cold storage |
-| 3 | `duckdb_query` (hot only) | Query path works |
+| 3 | Query service + `query` job (hot only) | Query path works |
 | 4 | `parquet_compact` | Hot → cold compaction lifecycle |
-| 5 | `duckdb_query` (federated) | Query spans hot + cold |
+| 5 | Query service + `query` job (federated) | Query spans hot + cold |
 | 6 | `alert_evaluate` + `alert_deliver` | User-facing alerting |
 | 7 | `integrity_check` | Cold storage verification |
 
@@ -105,11 +105,11 @@ Central orchestration coordinator. The only platform service.
 - Route all upstream events to dependent jobs
 - Create tasks and enqueue to operator queues (SQS)
 - Handle virtual operators (e.g., `aggregator`) directly — no worker needed
-- Monitor source job health (ECS workers with `trigger: none`)
+- Monitor source job health (ECS workers with `activation: source`, `source.kind: always_on`)
 - Track in-flight jobs per operator (scaling control)
 - Run reaper for dead tasks
 - Publish queue depth metrics to CloudWatch
-- Expose manual trigger API
+- Expose manual source API (emits events)
 
 **Event model:**
 
@@ -119,13 +119,20 @@ Every job emits an event when it writes to its `output_dataset`. The event is si
 {"dataset": "hot_blocks", "cursor": 12345}
 ```
 
-The Dispatcher routes based on dataset name alone. Downstream jobs with `trigger: upstream` receive the event.
+Events can also include partition or row-range context when relevant:
+
+```json
+{"dataset": "cold_blocks", "partition_key": "1000000-1010000"}
+```
+
+The Dispatcher routes based on dataset name alone. Reactive jobs that list the
+dataset as an input receive the event.
 
 **Event routing:**
 1. Worker emits event: `{dataset: "hot_blocks", cursor: 12345}`
 2. Dispatcher queries: jobs where `input_datasets` includes `"hot_blocks"`
-3. For each dependent job with `trigger: upstream`:
-   - If `operator_type: virtual` → Dispatcher handles directly
+3. For each dependent reactive job:
+   - If `runtime: dispatcher` → Dispatcher handles directly
    - Else → create task, enqueue to SQS
 
 **Does NOT:**
@@ -135,7 +142,7 @@ The Dispatcher routes based on dataset name alone. Downstream jobs with `trigger
 
 ### 2. SQS Queues
 
-Task dispatch mechanism. One queue per operator type.
+Task dispatch mechanism. One queue per runtime.
 
 **Why SQS over Postgres-as-queue:**
 - Push to workers (no polling loop in workers)
@@ -150,21 +157,36 @@ Task dispatch mechanism. One queue per operator type.
 
 ### 3. Workers
 
-Executors. One worker image per operator type.
+Executors. One worker image per runtime.
 
-| Operator Type | Runtime | Use Case |
-|---------------|---------|----------|
-| `virtual` | Dispatcher | Routing patterns (aggregator) — no worker |
-| `lambda` | AWS Lambda | Cron/webhook sources |
-| `polars` | ECS (Rust) | Data transforms |
-| `python` | ECS (Python) | ML, pandas |
-| `ingest` | ECS (Rust) | RPC connections |
+| Runtime | Execution | Use Case |
+|---------|-----------|----------|
+| `dispatcher` | In-process | Virtual operators (aggregator, wire_tap) |
+| `lambda` | AWS Lambda | Cron/webhook/manual sources |
+| `ecs_rust` | ECS (Rust) | Ingest, transforms, compaction |
+| `ecs_python` | ECS (Python) | ML, pandas |
 
-**Queue model:** One SQS queue per operator type (except `virtual`). Task payload includes `operator`, `config`, `cursor`.
+**Queue model:** One SQS queue per runtime (except `dispatcher`). Task payload includes
+`operator`, `config`, and event context (`cursor` or `partition_key`).
 
 **Lambda:** Invoked by EventBridge/API Gateway, emits event to Dispatcher.
 
 **ECS:** Long-polls SQS, stays warm per `idle_timeout`, heartbeats to Dispatcher.
+
+### Runtime Registry (Extensible)
+
+Runtimes are identifiers used by the Dispatcher to select a worker image and queue.
+They are modeled as strings (not a fixed enum) to allow future additions.
+
+**Registry responsibilities:**
+- Map `runtime` → worker image and SQS queue.
+- Declare capabilities (e.g., supports long-running tasks, source jobs, GPU, etc.).
+- Define default resource limits and heartbeat expectations.
+
+**Adding a new runtime:**
+1. Build a worker image (e.g., `ecs_r` for R).
+2. Register it in the Dispatcher config with queue + capabilities.
+3. Use `runtime: ecs_r` in job YAML.
 
 ### 4. Postgres
 
@@ -232,9 +254,10 @@ erDiagram
         uuid org_id FK
         text name UK
         text dag_name
-        text operator_type
+        text activation
+        text runtime
         text operator
-        text trigger
+        jsonb source
         text execution_strategy
         text idle_timeout
         jsonb config
@@ -355,12 +378,13 @@ CREATE TABLE jobs (
     org_id UUID NOT NULL REFERENCES orgs(id),
     name TEXT NOT NULL,
     dag_name TEXT NOT NULL,
-    operator_type TEXT NOT NULL,        -- 'lambda', 'polars', 'python', 'ingest'
-    operator TEXT NOT NULL,             -- 'cron_source', 'block_follower', 'alert_evaluate', etc.
-    trigger TEXT NOT NULL,              -- 'none', 'upstream'
+    activation TEXT NOT NULL,           -- 'source', 'reactive'
+    runtime TEXT NOT NULL,              -- 'lambda', 'ecs_rust', 'ecs_python', 'dispatcher'
+    operator TEXT NOT NULL,             -- 'block_follower', 'alert_evaluate', etc.
+    source JSONB,                       -- { "kind": "cron", "schedule": "0 0 * * *" }
     execution_strategy TEXT,            -- NULL for sources, else 'PerUpdate', 'PerPartition', 'Bulk'
-    idle_timeout TEXT NOT NULL,         -- 'never', '5m', '0', etc.
-    config JSONB NOT NULL DEFAULT '{}',
+    idle_timeout TEXT,                  -- reactive only: 'never', '5m', '0', etc.
+    config JSONB NOT NULL DEFAULT '{}', -- operator config
     config_hash TEXT NOT NULL,
     input_datasets TEXT[],
     output_dataset TEXT,
@@ -543,21 +567,30 @@ Every job has two key properties:
 
 | Property | Description | Values |
 |----------|-------------|--------|
-| `trigger` | What activates the job | `none` (source), `upstream` (event-driven) |
+| `activation` | How the job is started | `source`, `reactive` |
+| `runtime` | Where code executes | `lambda`, `ecs_rust`, `ecs_python`, `dispatcher` |
+
+Reactive jobs can also set:
+
+| Property | Description | Values |
+|----------|-------------|--------|
 | `idle_timeout` | How long to stay alive with no work | `never`, duration (`5m`), or `0` |
 
-**Trigger behavior:**
+**Activation behavior:**
 
-| Trigger | Behavior | Example |
-|---------|----------|--------|
-| `none` | Always running, no external activation | `block_follower` — holds RPC connection |
-| `upstream` | Activated by event from another job | `alert_evaluate` — reacts to new blocks |
+| Activation | Behavior | Example |
+|------------|----------|--------|
+| `source` | Emits events; not scheduled by Dispatcher | `block_follower` (always_on) |
+| `reactive` | Runs from Dispatcher tasks | `alert_evaluate` — reacts to new blocks |
 
-**How cron and manual work:** They're just Lambda sources with `trigger: none` that emit events. Downstream jobs have `trigger: upstream`. There's no special cron/manual trigger type.
+**Source kinds:** `always_on`, `cron`, `webhook`, `manual`.
+
+**Cron and manual:** They are source kinds that emit events. Reactive jobs subscribe
+to `input_datasets` and are scheduled by the Dispatcher.
 
 ### Execution Strategies
 
-How work is divided for `trigger: upstream` jobs:
+How work is divided for reactive jobs:
 
 | Strategy | Description | Use Case |
 |----------|-------------|----------|
@@ -565,7 +598,7 @@ How work is divided for `trigger: upstream` jobs:
 | `PerPartition` | One task per partition | Historical backfills |
 | `Bulk` | Single task for all pending work | Compaction, aggregations |
 
-Jobs with `trigger: none` don't have an execution strategy — they run continuously.
+Source jobs do not have an execution strategy — they emit events directly.
 
 ### Task States
 
@@ -580,7 +613,7 @@ stateDiagram-v2
     Completed --> [*]
 ```
 
-### Source Job Lifecycle (trigger: none)
+### Source Job Lifecycle (activation: source)
 
 ```mermaid
 stateDiagram-v2
@@ -593,7 +626,7 @@ stateDiagram-v2
     Draining --> [*]: Graceful stop
 ```
 
-### Reactive Job Lifecycle (trigger: upstream)
+### Reactive Job Lifecycle (activation: reactive)
 
 ```mermaid
 stateDiagram-v2
@@ -657,31 +690,41 @@ defaults:
 jobs:
   # Source: Lambda cron emits daily event
   - name: daily_trigger
-    operator_type: lambda
+    activation: source
+    runtime: lambda
     operator: cron_source
-    trigger: none
-    idle_timeout: 0
-    config:
+    source:
+      kind: cron
       schedule: "0 0 * * *"
     output_dataset: daily_events
 
   # Source: always-running block follower
   - name: block_follower
-    operator_type: ingest
+    activation: source
+    runtime: ecs_rust
     operator: block_follower
-    trigger: none
-    idle_timeout: never
+    source:
+      kind: always_on
     config:
       chain_id: 10143
       rpc_pool: monad
     output_dataset: hot_blocks
     heartbeat_timeout_seconds: 60
+
+  # Source: manual backfill requests
+  - name: backfill_request
+    activation: source
+    runtime: lambda
+    operator: manual_source
+    source:
+      kind: manual
+    output_dataset: backfill_requests
     
   # Reactive: evaluate alerts on new blocks
   - name: alert_evaluate
-    operator_type: polars
+    activation: reactive
+    runtime: ecs_rust
     operator: alert_evaluate
-    trigger: upstream
     execution_strategy: PerUpdate
     idle_timeout: 5m
     input_datasets: [hot_blocks]
@@ -690,22 +733,23 @@ jobs:
     
   # Batch: compact triggered by daily cron
   - name: compact_blocks
-    operator_type: polars
+    activation: reactive
+    runtime: ecs_rust
     operator: parquet_compact
-    trigger: upstream
     execution_strategy: Bulk
     idle_timeout: 0
     input_datasets: [hot_blocks, daily_events]
     output_dataset: cold_blocks
     timeout_seconds: 1800
     
-  # Backfill: manual trigger, parallel partitions
+  # Backfill: manual source emits partitioned backfill requests
   - name: cryo_backfill
-    operator_type: ingest
+    activation: reactive
+    runtime: ecs_rust
     operator: cryo_ingest
-    trigger: upstream  # triggered via manual API
     execution_strategy: PerPartition
     idle_timeout: 0
+    input_datasets: [backfill_requests]
     config:
       chain_id: 10143
       datasets: [blocks, transactions, logs]
@@ -732,12 +776,13 @@ flowchart LR
 ```sql
 UPDATE jobs SET active = false WHERE dag_name = 'monad';
 
-INSERT INTO jobs (name, dag_name, operator_type, operator, trigger, execution_strategy, idle_timeout, ...)
-VALUES ('block_follower', 'monad', 'ingest', 'block_follower', 'none', NULL, 'never', ...)
+INSERT INTO jobs (name, dag_name, activation, runtime, operator, source, execution_strategy, idle_timeout, ...)
+VALUES ('block_follower', 'monad', 'source', 'ecs_rust', 'block_follower', '{"kind":"always_on"}', NULL, NULL, ...)
 ON CONFLICT (dag_name, name) DO UPDATE SET
-  operator_type = EXCLUDED.operator_type,
+  activation = EXCLUDED.activation,
+  runtime = EXCLUDED.runtime,
   operator = EXCLUDED.operator,
-  trigger = EXCLUDED.trigger,
+  source = EXCLUDED.source,
   execution_strategy = EXCLUDED.execution_strategy,
   idle_timeout = EXCLUDED.idle_timeout,
   config = EXCLUDED.config,
@@ -879,8 +924,8 @@ Key resources per module:
 |------|------------|
 | Operator | Job implementation (e.g., `block_follower`, `alert_evaluate`) |
 | Operator Type | Runtime category: `lambda`, `polars`, `python`, `ingest` |
-| Trigger | `none` (always running) or `upstream` (event-driven) |
-| Source | Job with `trigger: none` — maintains connections, emits events |
+| Activation | `source` (emits events) or `reactive` (runs from tasks) |
+| Source | Job with `activation: source` — maintains connections, emits events |
 | Asset | Output of a job — Parquet file, table rows |
 | Partition | A subset of an asset (e.g., blocks 0-10000) |
 

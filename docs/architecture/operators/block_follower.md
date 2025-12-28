@@ -6,9 +6,9 @@ Follow chain tip in real-time, writing new blocks to hot storage.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | Rust |
-| **Trigger** | `none` (source) |
-| **Idle Timeout** | `never` |
+| **Runtime** | `ecs_rust` |
+| **Activation** | `source` |
+| **Source Kind** | `always_on` |
 | **Image** | `block_follower:latest` |
 
 ## Description
@@ -38,7 +38,7 @@ Long-running service that subscribes to new blocks at chain tip and writes them 
 
 ## Behavior
 
-- Source: only one instance runs at a time (trigger: none)
+- Source: only one instance runs at a time (activation: source)
 - Emits heartbeat every 30s
 - Handles RPC disconnects with automatic reconnection
 - Emits upstream event to Dispatcher when new blocks written
@@ -62,10 +62,11 @@ Long-running service that subscribes to new blocks at chain tip and writes them 
 
 ```yaml
 - name: block_follower
-  operator_type: ingest
+  activation: source
+  runtime: ecs_rust
   operator: block_follower
-  trigger: none
-  idle_timeout: never
+  source:
+    kind: always_on
   config:
     chain_id: 10143
     rpc_pool: monad

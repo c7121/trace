@@ -1,6 +1,6 @@
 # Query Service
 
-Stateless service for interactive SQL queries across hot and cold storage.
+Stateless service for interactive and batch SQL queries across hot and cold storage.
 
 ## Overview
 
@@ -12,9 +12,9 @@ Stateless service for interactive SQL queries across hot and cold storage.
 
 ## Description
 
-Accepts SQL queries via REST API, executes against federated hot (Postgres) and cold (S3 Parquet) storage using embedded DuckDB, and returns results directly. Designed for interactive, ad-hoc exploration.
-
-For long-running or large-scale queries, use the batch query API (earmarked).
+Accepts SQL queries via REST API and executes against federated hot (Postgres) and cold
+(S3 Parquet) storage using embedded DuckDB. Designed for interactive, ad-hoc exploration,
+with a batch mode that enqueues a `query` job when limits are exceeded.
 
 ## Endpoint
 
@@ -29,6 +29,7 @@ Content-Type: application/json
 ```json
 {
   "sql": "SELECT * FROM transactions WHERE block_number > 1000000 LIMIT 100",
+  "mode": "interactive",
   "format": "json",
   "timeout_seconds": 30
 }
@@ -37,10 +38,11 @@ Content-Type: application/json
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `sql` | string | required | SQL query (SELECT only) |
+| `mode` | string | `interactive` | `interactive` or `batch` |
 | `format` | string | `json` | Response format: `json`, `csv`, `parquet` |
 | `timeout_seconds` | int | 30 | Max execution time (capped at 30s) |
 
-### Response (inline result)
+### Response (interactive, inline result)
 
 For results ≤ 10,000 rows:
 
@@ -61,7 +63,7 @@ For results ≤ 10,000 rows:
 }
 ```
 
-### Response (large result)
+### Response (interactive, large result)
 
 For results > 10,000 rows, written to S3 and returned as presigned URL:
 
@@ -76,6 +78,19 @@ For results > 10,000 rows, written to S3 and returned as presigned URL:
 }
 ```
 
+### Response (batch)
+
+Returned when `mode: batch` is requested or when interactive limits are exceeded:
+
+```json
+{
+  "mode": "batch",
+  "job_id": "uuid",
+  "reason": "query exceeds interactive limits",
+  "output_path": "s3://bucket/results/{org_id}/{job_id}/"
+}
+```
+
 ### Error Response
 
 ```json
@@ -86,7 +101,7 @@ For results > 10,000 rows, written to S3 and returned as presigned URL:
 }
 ```
 
-## Query Constraints
+## Interactive Constraints
 
 | Constraint | Value | Rationale |
 |------------|-------|-----------|
@@ -145,15 +160,10 @@ Virtual tables (e.g., `transactions`) unify hot and cold transparently.
 
 Logs include: query hash (not full SQL for PII), org_id, user_id, duration, row_count, error (if any).
 
-## Earmarked: Batch Query API
+## Batch Mode
 
-For queries that exceed interactive limits:
-
-```
-POST /v1/query/batch
-```
-
-Returns a job ID; results written to S3; poll or webhook for completion. Design TBD.
+Batch mode creates a `query` job using the same operator as the interactive path.
+Results are written to S3; clients poll job status or use webhooks for completion.
 
 ## Earmarked: Rate Limiting
 

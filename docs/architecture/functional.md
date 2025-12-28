@@ -10,13 +10,9 @@ Jobs are the universal primitive. All operations — ingestion, transformation, 
 - **Standard contract**: jobs receive inputs, produce outputs, and return metadata for the system to track.
 - **Composable**: jobs can depend on outputs of other jobs, forming DAGs.
 
-### Job triggering
-- **Time-based**: scheduled via cron or interval.
-- **Event-based**: triggered by webhooks or external signals.
-- **Data-driven**: triggered by new data arrival (e.g., new block) or threshold conditions.
-- **Dependency-based**: triggered when upstream job completes.
-- **Composite**: triggered by boolean conditions (e.g., A AND B, A OR timeout).
-- **Manual**: user-initiated on demand.
+### Job activation
+- **Source jobs**: emit events directly. Source kinds include `always_on`, `cron`, `webhook`, and `manual`.
+- **Reactive jobs**: run from Dispatcher tasks when events arrive for `input_datasets`.
 
 ### Job types
 - **Ingest**: pull data from on-chain (real-time, backfill) or off-chain sources.
@@ -42,7 +38,7 @@ Jobs are the universal primitive. All operations — ingestion, transformation, 
 ## Alerting
 
 - **Definitions**: users create alert rules (stored as config/rows) specifying conditions on data.
-- **Evaluation**: alerts can trigger on real-time incoming data or historical data.
+- **Evaluation**: alerts can run on real-time incoming data or historical data.
 - **Delivery**: separate job relays alerts over appropriate channels (email, SMS, webhook, etc.).
 
 ## Data Access and Querying
@@ -62,7 +58,7 @@ System tracks:
 - **Materialization metadata**: when, how long, row counts, custom metadata.
 - **Partitions**: logical slices (by date, block range, etc.).
 - **Schema**: column names, types, structure of each asset.
-- **Run history**: who triggered, parameters, config, success/failure, logs.
+- **Run history**: who initiated, parameters, config, success/failure, logs.
 
 ### Versioning and rollback
 - **Core chain data**: immutable in cold storage (S3 Parquet) after finality; hot storage (Postgres) is mutable to handle reorgs at chain tip.
@@ -74,7 +70,7 @@ System tracks:
 ### Debugging and iteration
 - **Inspectable outputs**: every DAG node's output is viewable.
 - **Error visibility**: failed jobs expose error messages, stack traces, logs.
-- **Edit and re-run**: users can modify a job/node and trigger downstream re-runs.
+- **Edit and re-run**: users can modify a job/node and re-run downstream jobs.
 - **Selective re-run**: re-run a single job without re-running upstream.
 
 ## Storage
@@ -83,7 +79,7 @@ System tracks:
 - Jobs can write anywhere, provided downstream jobs can access the output as input.
 - Filenames/paths follow conventions defined per dataset or job.
 - Manifests emitted per job run for integrity verification.
-- External data ingestion happens at DAG entry points (triggers), not mid-job.
+- External data ingestion happens at DAG entry points (sources), not mid-job.
 
 ## Access Control
 

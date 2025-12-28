@@ -6,7 +6,8 @@ Verify cold storage integrity against canonical chain state.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | Rust |
+| **Runtime** | `ecs_rust` |
+| **Activation** | `reactive` |
 | **Execution Strategy** | Bulk |
 | **Image** | `integrity_check:latest` |
 
@@ -64,9 +65,9 @@ This operator targets **finalized data only**. It does not check hot storage (Po
 
 ```yaml
 - name: integrity_check
-  operator_type: check
+  activation: reactive
+  runtime: ecs_rust
   operator: integrity_check
-  trigger: upstream
   execution_strategy: Bulk
   config:
     chain_id: 10143
