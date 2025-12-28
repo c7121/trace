@@ -42,9 +42,10 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 - Reads from Postgres hot tables
 - **Only compacts finalized blocks** — waits for finality threshold before compacting
 - Writes Parquet with snappy compression
-- Partitions by block range
+- Partitions by block-number range (e.g., `1000000-1010000`)
 - Optionally deletes compacted rows from hot storage
 - Idempotent: safe to re-run for same range
+- Uses `update_strategy: replace` so reruns overwrite the same partition (used for repair/recompaction)
 
 ### Finality
 
@@ -72,5 +73,6 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
     delete_after_compact: true
   input_datasets: [hot_blocks]
   output_dataset: cold_blocks
+  update_strategy: replace
   timeout_seconds: 1800
 ```

@@ -33,4 +33,6 @@ External data ingestion happens at DAG entry points (sources), not mid-job.
 
 - [block_follower operator](../architecture/operators/block_follower.md)
 - [cryo_ingest operator](../architecture/operators/cryo_ingest.md)
+- [parquet_compact operator](../architecture/operators/parquet_compact.md) — finalize and compact hot → cold
+- [integrity_check operator](../architecture/operators/integrity_check.md) — defense-in-depth verification and repair
 - [data_versioning.md](../architecture/data_versioning.md) — reorg handling

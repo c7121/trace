@@ -1,6 +1,6 @@
 # integrity_check
 
-Verify cold storage integrity against canonical chain state.
+Defense-in-depth verification and repair against canonical chain state.
 
 ## Overview
 
@@ -13,7 +13,7 @@ Verify cold storage integrity against canonical chain state.
 
 ## Description
 
-Validates that finalized data in cold storage (S3 Parquet) matches canonical chain. Catches any corruption, incomplete compaction, or rare post-finality reorgs (51% attacks). This is a defense-in-depth measure—realtime reorgs are handled by `block_follower`.
+Validates that finalized data in cold storage (S3 Parquet) matches the canonical chain. Intended to catch corruption, incomplete compaction, downtime gaps, or rare post-finality reorgs. This is not the primary tip reorg mechanism — realtime reorg reconciliation is handled by `block_follower`.
 
 ## Inputs
 
@@ -33,8 +33,8 @@ Validates that finalized data in cold storage (S3 Parquet) matches canonical cha
 
 ## Execution
 
-- **Cron**: Periodic checks (e.g., daily, weekly)
-- **Manual**: On-demand verification after incidents
+- **Periodic**: Triggered by a cron source job (e.g., daily/weekly)
+- **Manual**: Triggered on-demand after incidents
 
 ## Behavior
 
@@ -45,7 +45,7 @@ Validates that finalized data in cold storage (S3 Parquet) matches canonical cha
   - Mismatch: flag for recompaction
 - If issues found:
   - Logs affected block numbers
-  - Triggers `parquet_compact` job for affected ranges
+  - Triggers `parquet_compact` for affected partitions (typically via a `data_invalidations` partition invalidation; see [data_versioning.md](../data_versioning.md#data-invalidations))
   - Alerts ops channel
 - Supports sampling for large datasets
 - Idempotent: safe to run repeatedly
@@ -59,7 +59,7 @@ This operator targets **finalized data only**. It does not check hot storage (Po
 - RPC provider access
 - S3 read access to Parquet files
 - Read access to hot/cold storage
-- Write access to reorg_checks table
+- Postgres write access to `integrity_checks`
 
 ## Example DAG Config
 
@@ -71,9 +71,10 @@ This operator targets **finalized data only**. It does not check hot storage (Po
   execution_strategy: Bulk
   config:
     chain_id: 10143
-    check_depth: 100
+    check_range: last_30d_finalized
     rpc_pool: monad
-  input_datasets: [hot_blocks, cold_blocks]
+    sample_rate: 0.01
+  input_datasets: [daily_events]
   output_dataset: null
   timeout_seconds: 300
 ```

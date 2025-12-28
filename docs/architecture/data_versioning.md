@@ -6,6 +6,8 @@ How the system tracks data changes, handles reorgs, and efficiently reprocesses 
 
 **Delivery semantics:** Tasks may be delivered more than once (at-least-once via SQS). Idempotency is achieved through `update_strategy`: `replace` overwrites the scope; `append` dedupes via `unique_key`. The combination provides exactly-once *effect*.
 
+**Chain identity:** For on-chain datasets, `block_hash` is the stable identifier. `block_number` is an ordering/partitioning field and may be reused during reorgs. Hot datasets like `hot_blocks` are therefore mutable: the platform reconciles reorgs by rewriting the affected block-number range and emitting a `data_invalidations` record so downstream jobs can rematerialize impacted outputs.
+
 The system supports two granularities of change tracking:
 
 | Level | Use Case | Storage Type |
@@ -143,8 +145,8 @@ How jobs write their output:
 
 | Strategy | Behavior | Use Case |
 |----------|----------|----------|
-| `replace` | Delete existing output for scope, write new | Aggregations, compaction |
-| `append` | Insert new rows, dedupe by `unique_key` | Alerts, event logs |
+| `replace` | Overwrite a materialized scope (partition/range) | Compaction, rollups, derived views |
+| `append` | Append immutable facts, dedupe by `unique_key` | Event logs, audit trails |
 
 ### Append with Deduplication
 

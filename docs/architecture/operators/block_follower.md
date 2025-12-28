@@ -43,15 +43,18 @@ Long-running service that subscribes to new blocks at chain tip and writes them 
 - Handles RPC disconnects with automatic reconnection
 - Emits upstream event to Dispatcher when new blocks written
 
-### Reorg Handling (Real-time)
+### Tip Continuity
 
-- Maintains local chain of recent block hashes (in memory)
-- On new block: checks parent hash against local tip
-- If mismatch (reorg detected):
-  - Identifies fork point (common ancestor)
-  - Deletes/rolls back orphaned blocks from hot storage
-  - Re-indexes canonical chain from fork point
-- Hot storage is mutable — reorgs are handled immediately
+- Tracks the last ingested chain tip (height + hash)
+- If head jumps forward, backfills missing blocks by number (`last+1..head`)
+- Verifies continuity by checking `parent_hash` between successive blocks
+
+### Reorg Handling (Tip)
+
+- Detects a reorg when the next block’s `parent_hash` does not match the stored tip hash
+- Walks backwards by height (via RPC) until it finds a common ancestor where `rpc.hash == stored.hash`
+- Deletes orphaned blocks from hot storage, then ingests the canonical branch forward
+- Records a `data_invalidations` row-range invalidation for downstream reprocessing (see [data_versioning.md](../data_versioning.md#reorg-handling))
 
 ## Dependencies
 
