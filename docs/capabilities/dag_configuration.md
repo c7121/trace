@@ -1,0 +1,183 @@
+# DAG Configuration
+
+How DAGs are defined in YAML and deployed to the system.
+
+## Directory Structure
+
+```
+/dags
+  /monad
+    dag.yaml
+  /ethereum
+    dag.yaml
+  /ml-pipeline
+    dag.yaml
+```
+
+## YAML Schema
+
+```yaml
+name: monad
+
+defaults:
+  heartbeat_timeout_seconds: 60
+  max_attempts: 3
+  priority: normal
+  max_queue_depth: 1000
+  max_queue_age: 5m
+  backpressure_mode: pause
+
+jobs:
+  # Source: Lambda cron emits daily event
+  - name: daily_trigger
+    activation: source
+    runtime: lambda
+    operator: cron_source
+    source:
+      kind: cron
+      schedule: "0 0 * * *"
+    output_dataset: daily_events
+
+  # Source: always-running block follower
+  - name: block_follower
+    activation: source
+    runtime: ecs_rust
+    operator: block_follower
+    source:
+      kind: always_on
+    config:
+      chain_id: 10143
+      rpc_pool: monad
+    output_dataset: hot_blocks
+    heartbeat_timeout_seconds: 60
+
+  # Source: manual backfill requests
+  - name: backfill_request
+    activation: source
+    runtime: lambda
+    operator: manual_source
+    source:
+      kind: manual
+    output_dataset: backfill_requests
+    
+  # Reactive: evaluate alerts on new blocks
+  - name: alert_evaluate
+    activation: reactive
+    runtime: ecs_rust
+    operator: alert_evaluate
+    execution_strategy: PerUpdate
+    idle_timeout: 5m
+    input_datasets: [hot_blocks]
+    output_dataset: triggered_alerts
+    update_strategy: append
+    unique_key: [alert_definition_id, block_hash, tx_hash]
+    timeout_seconds: 60
+    
+  # Batch: compact triggered by daily cron
+  - name: compact_blocks
+    activation: reactive
+    runtime: ecs_rust
+    operator: parquet_compact
+    execution_strategy: Bulk
+    idle_timeout: 0
+    input_datasets: [hot_blocks, daily_events]
+    output_dataset: cold_blocks
+    update_strategy: replace
+    timeout_seconds: 1800
+    
+  # Backfill: manual source emits partitioned backfill requests
+  - name: cryo_backfill
+    activation: reactive
+    runtime: ecs_rust
+    operator: cryo_ingest
+    execution_strategy: PerPartition
+    idle_timeout: 0
+    input_datasets: [backfill_requests]
+    config:
+      chain_id: 10143
+      datasets: [blocks, transactions, logs]
+    scaling:
+      mode: backfill
+      max_concurrency: 20
+    output_dataset: cold_blocks
+    timeout_seconds: 3600
+```
+
+## Job Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | ✅ | Unique job name within DAG |
+| `activation` | ✅ | `source` or `reactive` |
+| `runtime` | ✅ | `lambda`, `ecs_rust`, `ecs_python`, `dispatcher` |
+| `operator` | ✅ | Operator implementation to run |
+| `output_dataset` | ✅ | Dataset this job produces |
+| `update_strategy` | ✅ | `append` or `replace` — how outputs are written |
+| `unique_key` | if append | Required for `append` — columns for dedupe |
+| `input_datasets` | reactive | Datasets this job consumes |
+| `execution_strategy` | reactive | `PerUpdate`, `PerPartition`, `Bulk` |
+| `source` | source | Source config: `kind`, `schedule`, etc. |
+| `config` | | Operator-specific config |
+| `secrets` | | Secret names to inject as env vars |
+| `timeout_seconds` | | Max execution time |
+
+### Secrets
+
+Jobs that need credentials declare them with `secrets`:
+
+```yaml
+jobs:
+  - name: block_follower
+    operator: block_follower
+    secrets: [monad_rpc_key]
+    config:
+      chain_id: 10143
+```
+
+See [security.md](../standards/security.md#secrets-injection) for how secrets are injected.
+
+### Update Strategy & Unique Key
+
+Every job must declare `update_strategy`:
+- `replace` — overwrites output for the processed scope (partition or cursor range)
+- `append` — inserts rows, dedupes by `unique_key`
+
+If `update_strategy: append`, `unique_key` is **required**. DAG validation rejects `append` without `unique_key`.
+
+**`unique_key` must be deterministic** — derived from input data only:
+- ✅ Valid: any field from input data (e.g., `block_hash`, `tx_hash`, `record_id`, `external_id`)
+- ❌ Invalid: execution context (`created_at`, `task_id`, `worker_id`, `now()`, `random()`)
+
+See [data_versioning.md](../architecture/data_versioning.md#unique-key-requirements) for details.
+
+## Deploy Process
+
+```mermaid
+flowchart LR
+    YAML[dag.yaml] --> PARSE[Parse YAML]
+    PARSE --> VALIDATE[Validate Schema]
+    VALIDATE --> DEACTIVATE[Deactivate existing jobs]
+    DEACTIVATE --> UPSERT[Upsert by name]
+    UPSERT --> ACTIVATE[Set active=true]
+    ACTIVATE --> PROVISION[Provision Lambda/EventBridge for sources]
+```
+
+## SQL Logic
+
+```sql
+UPDATE jobs SET active = false WHERE dag_name = 'monad';
+
+INSERT INTO jobs (name, dag_name, activation, runtime, operator, source, execution_strategy, idle_timeout, ...)
+VALUES ('block_follower', 'monad', 'source', 'ecs_rust', 'block_follower', '{"kind":"always_on"}', NULL, NULL, ...)
+ON CONFLICT (dag_name, name) DO UPDATE SET
+  activation = EXCLUDED.activation,
+  runtime = EXCLUDED.runtime,
+  operator = EXCLUDED.operator,
+  source = EXCLUDED.source,
+  execution_strategy = EXCLUDED.execution_strategy,
+  idle_timeout = EXCLUDED.idle_timeout,
+  config = EXCLUDED.config,
+  config_hash = EXCLUDED.config_hash,
+  active = true,
+  updated_at = now();
+```
