@@ -5,11 +5,11 @@
 
 ## Decision
 - Build a **custom orchestration system** with:
-  - **Dispatcher** — central coordinator, creates tasks, manages state
-  - **Trigger Service** — evaluates cron, webhooks, threshold events; emits job requests
+  - **Dispatcher** — central coordinator, creates tasks, routes upstream events, manages state
+  - **Lambda Sources** — cron and webhook triggers implemented as Lambda operator type
   - **Workers** — polyglot containers (Rust, Python, R, Scala, etc.) that execute jobs
   - **SQS** — task queue for push-based dispatch to workers
-  - **Postgres** — source of truth for jobs, tasks, triggers, assets, lineage
+  - **Postgres** — source of truth for jobs, tasks, assets, lineage
 
 ## Context
 - Initially considered Dagster for its asset model and UI.

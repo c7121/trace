@@ -7,7 +7,8 @@ Follow chain tip in real-time, writing new blocks to hot storage.
 | Property | Value |
 |----------|-------|
 | **Runtime** | Rust |
-| **Execution Strategy** | Singleton |
+| **Trigger** | `none` (source) |
+| **Idle Timeout** | `never` |
 | **Image** | `block_follower:latest` |
 
 ## Description
@@ -30,17 +31,17 @@ Long-running service that subscribes to new blocks at chain tip and writes them 
 | Log data | `postgres://hot_logs` | Rows |
 | Threshold events | Dispatcher | Event |
 
-## Triggers
+## Execution
 
 - **Startup**: Dispatcher launches on deploy
 - **Auto-restart**: Dispatcher restarts on failure/heartbeat timeout
 
 ## Behavior
 
-- Singleton: only one instance runs at a time
+- Source: only one instance runs at a time (trigger: none)
 - Emits heartbeat every 30s
 - Handles RPC disconnects with automatic reconnection
-- Emits threshold event to Trigger Service when block count reached
+- Emits upstream event to Dispatcher when new blocks written
 
 ### Reorg Handling (Real-time)
 
@@ -61,14 +62,14 @@ Long-running service that subscribes to new blocks at chain tip and writes them 
 
 ```yaml
 - name: block_follower
-  job_type: Ingest
-  execution_strategy: Singleton
-  runtime: Rust
-  entrypoint: block_follower
+  operator_type: ingest
+  operator: block_follower
+  trigger: none
+  idle_timeout: never
   config:
     chain_id: 10143
     rpc_pool: monad
-    threshold_blocks: 10000
+    emit_strategy: per_update  # emit downstream event per block
   input_datasets: []
   output_dataset: hot_blocks
   heartbeat_timeout_seconds: 60

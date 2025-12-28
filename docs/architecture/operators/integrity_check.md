@@ -30,7 +30,7 @@ Validates that finalized data in cold storage (S3 Parquet) matches canonical cha
 | Integrity alerts | Dispatcher | Job request (for recompaction) |
 | Check results | `postgres://integrity_checks` | Rows |
 
-## Triggers
+## Execution
 
 - **Cron**: Periodic checks (e.g., daily, weekly)
 - **Manual**: On-demand verification after incidents
@@ -63,11 +63,11 @@ This operator targets **finalized data only**. It does not check hot storage (Po
 ## Example DAG Config
 
 ```yaml
-- name: reorg_check
-  job_type: Check
+- name: integrity_check
+  operator_type: check
+  operator: integrity_check
+  trigger: upstream
   execution_strategy: Bulk
-  runtime: Rust
-  entrypoint: reorg_check
   config:
     chain_id: 10143
     check_depth: 100

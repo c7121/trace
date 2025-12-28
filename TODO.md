@@ -30,12 +30,12 @@ Move to "In Progress" when starting, "Done" when complete.
 **Acceptance**: `terraform apply` succeeds; ECS tasks in private subnets reach S3/SQS/RDS via endpoints; outbound to non-allowlisted internet blocked; CloudWatch logs ingest a test entry.
 
 ### Phase 1: Orchestration
-- [ ] **Postgres schema** — jobs, tasks, triggers, data_partitions, orgs, users tables. See [architecture.md Data Model](docs/architecture/architecture.md#data-model).
-- [ ] **Dispatcher service** — Create tasks, enqueue to SQS, reaper, singleton monitor. See [architecture.md](docs/architecture/architecture.md#2-dispatcher).
-- [ ] **Trigger service** — Cron evaluator, webhook handler, threshold listener. See [architecture.md](docs/architecture/architecture.md#1-trigger-service).
-- [ ] **Worker wrapper** — Fetch task, fetch/inject secrets, heartbeat, execute operator, ack. See [architecture.md](docs/architecture/architecture.md#4-workers).
+- [ ] **Postgres schema** — jobs, tasks, data_partitions, orgs, users tables. See [architecture.md Data Model](docs/architecture/architecture.md#data-model).
+- [ ] **Dispatcher service** — Create tasks, enqueue to SQS, reaper, singleton monitor, upstream event routing. See [architecture.md](docs/architecture/architecture.md#dispatcher).
+- [ ] **Lambda sources** — Cron source (EventBridge), webhook source (API Gateway). See [architecture.md](docs/architecture/architecture.md#workers).
+- [ ] **Worker wrapper** — Fetch task, fetch/inject secrets, heartbeat, execute operator, ack. See [architecture.md](docs/architecture/architecture.md#workers).
 
-**Acceptance**: Dispatcher/Trigger create tasks; worker wrapper executes a noop operator; task status transitions Queued→Running→Completed recorded; heartbeat + reaper kill a stalled task.
+**Acceptance**: Lambda emits event → Dispatcher creates tasks → worker executes noop operator; task status transitions Queued→Running→Completed recorded; heartbeat + reaper kill a stalled task.
 
 ### Phase 2: Ingestion
 - [ ] **block_follower operator** — Follow chain tip, write to Postgres, handle reorgs. See [operator spec](docs/architecture/operators/block_follower.md).
@@ -91,6 +91,14 @@ Move to "In Progress" when starting, "Done" when complete.
 - [ ] Multi-chain support beyond Monad
 - [ ] Physical tenant isolation (per-org infra)
 - [ ] UI/dashboard
+
+### EIP Backlog (Enterprise Integration Patterns)
+
+Patterns needed for full EIP compliance. See [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/).
+
+- [ ] **Aggregator operator** — Fan-in virtual operator for composite triggers (A AND B, N-of-M, timeout). Requires correlation state per partition. Enables "wait for multiple inputs" workflows. See [Aggregator pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/Aggregator.html).
+- [ ] **Correlation ID** — Add `correlation_id` to tasks for end-to-end tracing of logical units across job chains. Enables distributed tracing and debugging.
+- [ ] **Message History** — Track the path each event takes through the DAG. Store `job_path[]` on tasks or separate `event_history` table. Essential for debugging complex pipelines and audit trails.
 
 ---
 

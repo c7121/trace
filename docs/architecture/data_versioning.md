@@ -102,7 +102,7 @@ For jobs operating on partitioned data (typically cold storage).
 
 **On invalidation:**
 1. Invalidation created with `scope: partition`
-2. Trigger Service detects unprocessed invalidation
+2. Dispatcher detects unprocessed invalidation
 3. Job re-runs for that partition
 4. Output partition is replaced entirely
 
@@ -118,7 +118,7 @@ For jobs operating on unpartitioned data (typically hot storage).
 
 **On invalidation:**
 1. Invalidation created with `scope: row_range` and `row_filter`
-2. Trigger Service fires job with invalidation context
+2. Dispatcher creates task with invalidation context
 3. Job queries using `row_filter` (not full table scan)
 4. Job processes affected rows
 5. Invalidation marked processed for this job
@@ -169,15 +169,15 @@ sequenceDiagram
     participant BF as block_follower
     participant PG as Postgres (hot)
     participant INV as data_invalidations
-    participant TS as Trigger Service
+    participant DISP as Dispatcher
     participant DS as Downstream Jobs
 
     BF->>BF: Detect reorg (parent hash mismatch)
     BF->>PG: DELETE orphaned blocks (995-1005)
     BF->>PG: INSERT canonical blocks (995-1005)
     BF->>INV: INSERT invalidation (row_range, blocks 995-1005)
-    TS->>INV: Poll for unprocessed invalidations
-    TS->>DS: Trigger downstream jobs with row_filter
+    DISP->>INV: Poll for unprocessed invalidations
+    DISP->>DS: Create tasks for downstream jobs with row_filter
     DS->>PG: Query with row_filter (not full scan)
     DS->>DS: Process, write output (append/replace)
     DS->>INV: Mark invalidation processed
@@ -214,8 +214,8 @@ VALUES (
 
 | Staleness Type | Detection | Auto-Rerun? |
 |----------------|-----------|-------------|
-| **Data stale** | New input partition/rows since last run | Yes (trigger fires) |
-| **Invalidation** | `data_invalidations` record | Yes (Trigger Service) |
+| **Data stale** | New input partition/rows since last run | Yes (upstream event) |
+| **Invalidation** | `data_invalidations` record | Yes (Dispatcher) |
 | **Config stale** | `config_hash` changed | No (mark stale, manual backfill) |
 
 ### Config Hash Tracking
@@ -293,7 +293,7 @@ The `alert_events` table is **append-only**:
 ```yaml
 jobs:
   - name: block_follower
-    # Singleton, no incremental config (always at tip)
+    # Source, no incremental config (always at tip)
     output_dataset: hot_blocks
 
   - name: alert_evaluate
@@ -332,29 +332,23 @@ jobs:
 
 ---
 
-## Trigger Service Integration
+## Dispatcher Integration
 
-The Trigger Service watches for:
+The Dispatcher watches for:
 
-1. **New partitions** → fire partition-mode jobs
-2. **Cursor advancement** (threshold events) → fire cursor-mode jobs
-3. **Unprocessed invalidations** → fire jobs with invalidation context
+1. **Upstream events** → route to dependent jobs based on DAG
+2. **Unprocessed invalidations** → create tasks with invalidation context
+3. **Manual triggers** → create tasks via API
 
-### Invalidation Trigger
+### Invalidation Handling
 
-```yaml
-triggers:
-  - name: reorg_reprocess
-    trigger_type: invalidation
-    watch_dataset: hot_blocks
-    job: alert_evaluate
-```
+Jobs declare their input datasets in the DAG. When an invalidation is created for a dataset, the Dispatcher:
 
-When invalidation detected:
-1. Create task with `invalidation_id` in context
-2. Job receives `row_filter` from invalidation
-3. Job processes only affected rows
-4. Job marks invalidation as processed (appends job_id to `processed_by`)
+1. Finds all jobs that depend on the invalidated dataset
+2. Creates tasks with `invalidation_id` in context
+3. Jobs receive `row_filter` from the invalidation record
+4. Jobs process only affected rows
+5. Jobs mark invalidation as processed (appends job_id to `processed_by`)
 
 ---
 

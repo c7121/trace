@@ -30,7 +30,7 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 | Compacted data | `s3://{bucket}/cold/{dataset}/` | Parquet |
 | Manifest | `s3://{bucket}/cold/{dataset}/manifest.json` | JSON |
 
-## Triggers
+## Execution
 
 - **Threshold**: When hot storage reaches N blocks (from block_follower)
 - **Cron**: Scheduled compaction runs
@@ -61,10 +61,10 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 
 ```yaml
 - name: parquet_compact
-  job_type: Transform
+  operator_type: transform
+  operator: parquet_compact
+  trigger: upstream
   execution_strategy: Bulk
-  runtime: Rust
-  entrypoint: parquet_compact
   config:
     dataset: blocks
     chunk_size: 10000

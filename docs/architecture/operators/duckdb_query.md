@@ -29,7 +29,7 @@ Executes SQL queries that span both hot storage (Postgres) and cold storage (S3 
 | Query results | `s3://{bucket}/results/{job_id}/` | Parquet/JSON/CSV |
 | Query metadata | `postgres://query_results` | Rows |
 
-## Triggers
+## Execution
 
 - **Manual**: User-initiated queries
 - **Dependency**: Downstream job needs materialized view
@@ -64,10 +64,10 @@ Executes SQL queries that span both hot storage (Postgres) and cold storage (S3 
 
 ```yaml
 - name: daily_summary
-  job_type: Transform
+  operator_type: transform
+  operator: duckdb_query
+  trigger: upstream
   execution_strategy: Bulk
-  runtime: Rust
-  entrypoint: duckdb_query
   config:
     query: |
       SELECT date_trunc('day', block_timestamp) as day,

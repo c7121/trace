@@ -7,7 +7,9 @@ Evaluate alert conditions against data (Python implementation).
 | Property | Value |
 |----------|-------|
 | **Runtime** | Python |
-| **Execution Strategy** | PerPartition |
+| **Trigger** | `upstream` |
+| **Execution Strategy** | PerUpdate |
+| **Idle Timeout** | `5m` |
 | **Image** | `alert_evaluate_py:latest` |
 
 ## Description
@@ -28,7 +30,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Pyt
 | Triggered alerts | `postgres://triggered_alerts` | Rows |
 | Evaluation log | `postgres://alert_evaluations` | Rows |
 
-## Triggers
+## Execution
 
 - **Data-driven**: New data arrives in watched dataset
 - **Cron**: Periodic evaluation of time-based alerts
@@ -62,10 +64,11 @@ Evaluates user-defined alert conditions against incoming or historical data. Pyt
 
 ```yaml
 - name: alert_evaluate_py
-  job_type: Transform
-  execution_strategy: PerPartition
-  runtime: Python
-  entrypoint: alert_evaluate.main:evaluate
+  operator_type: transform
+  operator: alert_evaluate_py
+  trigger: upstream
+  execution_strategy: PerUpdate
+  idle_timeout: 5m
   config: {}
   input_datasets: [hot_blocks, alert_definitions]
   output_dataset: triggered_alerts

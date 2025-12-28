@@ -7,7 +7,9 @@ Deliver triggered alerts to configured channels.
 | Property | Value |
 |----------|-------|
 | **Runtime** | TypeScript |
-| **Execution Strategy** | PerPartition |
+| **Trigger** | `upstream` |
+| **Execution Strategy** | PerUpdate |
+| **Idle Timeout** | `5m` |
 | **Image** | `alert_deliver:latest` |
 
 ## Description
@@ -28,7 +30,7 @@ Takes triggered alert events and delivers notifications to configured channels (
 | Delivery status | `postgres://alert_deliveries` | Rows |
 | Delivery confirmation | External channels | Varies |
 
-## Triggers
+## Execution
 
 - **Dependency**: Runs after alert_evaluate produces triggered alerts
 - **Manual**: Re-deliver failed alerts
@@ -61,10 +63,11 @@ Takes triggered alert events and delivers notifications to configured channels (
 
 ```yaml
 - name: alert_deliver
-  job_type: Transform
-  execution_strategy: PerPartition
-  runtime: TypeScript
-  entrypoint: alert_deliver/index.ts
+  operator_type: transform
+  operator: alert_deliver
+  trigger: upstream
+  execution_strategy: PerUpdate
+  idle_timeout: 5m
   config: {}
   input_datasets: [triggered_alerts]
   output_dataset: alert_deliveries

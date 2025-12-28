@@ -21,7 +21,7 @@ BDD-driven testing for agent-based development. Feature files serve as both spec
       sqs.feature
     /phase1_orchestration
       dispatcher.feature
-      trigger_service.feature
+      lambda_sources.feature
       worker.feature
     /phase2_ingestion
       block_follower.feature

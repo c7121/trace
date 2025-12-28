@@ -7,7 +7,9 @@ Evaluate alert conditions against data (TypeScript implementation).
 | Property | Value |
 |----------|-------|
 | **Runtime** | TypeScript |
-| **Execution Strategy** | PerPartition |
+| **Trigger** | `upstream` |
+| **Execution Strategy** | PerUpdate |
+| **Idle Timeout** | `5m` |
 | **Image** | `alert_evaluate_ts:latest` |
 
 ## Description
@@ -28,7 +30,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 | Triggered alerts | `postgres://triggered_alerts` | Rows |
 | Evaluation log | `postgres://alert_evaluations` | Rows |
 
-## Triggers
+## Execution
 
 - **Data-driven**: New data arrives in watched dataset
 - **Cron**: Periodic evaluation of time-based alerts
@@ -61,10 +63,11 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 
 ```yaml
 - name: alert_evaluate_ts
-  job_type: Transform
-  execution_strategy: PerPartition
-  runtime: TypeScript
-  entrypoint: alert_evaluate/index.ts
+  operator_type: transform
+  operator: alert_evaluate_ts
+  trigger: upstream
+  execution_strategy: PerUpdate
+  idle_timeout: 5m
   config: {}
   input_datasets: [hot_blocks, alert_definitions]
   output_dataset: triggered_alerts
