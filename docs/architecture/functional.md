@@ -37,18 +37,11 @@ Jobs are the universal primitive. All operations — ingestion, transformation, 
 
 ## Alerting
 
-- **Definitions**: users create alert rules (stored as config/rows) specifying conditions on data.
-- **Evaluation**: alerts can run on real-time incoming data or historical data.
-- **Delivery**: separate job relays alerts over appropriate channels (email, SMS, webhook, etc.).
+See [features/alerting.md](features/alerting.md) for alerting specification.
 
 ## Data Access and Querying
 
-- **Query interface**: users query data via SQL or API; spans historical and recent data seamlessly.
-- **Ad-hoc exploration**: interactive queries for analysis and debugging.
-- **Downloads**: users can export query results or datasets.
-- **Summarization and modeling**: users can run aggregations, summaries, and models against the data.
-- **Saved queries/views**: users can save and share queries for reuse.
-- **Discovery and catalog**: users can browse and search available datasets, jobs, and assets within their org.
+See [services/query_service.md](services/query_service.md) for querying specification.
 
 ## Metadata and Lineage
 

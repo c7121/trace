@@ -1,0 +1,36 @@
+# Data Ingestion
+
+How data enters the platform — on-chain and off-chain, real-time and historical.
+
+## Overview
+
+- System ingests on-chain data continuously (real-time at chain tip) and via backfills (historical ranges)
+- System can ingest off-chain data feeds
+- Ingestion is a job type — pluggable, not hardcoded to a specific tool
+
+## On-Chain Ingestion
+
+| Mode | Operator | Storage | Use Case |
+|------|----------|---------|----------|
+| Real-time | `block_follower` | Postgres (hot) | Chain tip, reorg handling |
+| Historical | `cryo_ingest` | S3 Parquet (cold) | Backfills, archive |
+
+### Requirements
+
+- Archive historical on-chain data (e.g., Cryo datasets to Parquet)
+- Ingest recent blocks at high frequency (e.g., 400ms block time on Monad)
+- May use streaming formats (Avro) or transactional stores (Postgres)
+- Unified query across historical and recent data (via DuckDB federation)
+- Reorg detection and correction
+
+## Off-Chain Ingestion
+
+Off-chain feeds (price data, labels, external APIs) enter as source jobs at DAG entry points.
+
+External data ingestion happens at DAG entry points (sources), not mid-job.
+
+## Related
+
+- [block_follower operator](../architecture/operators/block_follower.md)
+- [cryo_ingest operator](../architecture/operators/cryo_ingest.md)
+- [data_versioning.md](../architecture/data_versioning.md) — reorg handling

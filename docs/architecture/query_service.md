@@ -165,6 +165,22 @@ Logs include: query hash (not full SQL for PII), org_id, user_id, duration, row_
 Batch mode creates a `query` job using the same operator as the interactive path.
 Results are written to S3; clients poll job status or use webhooks for completion.
 
+## Query Capabilities
+
+| Feature | Support |
+|---------|---------|
+| Federated joins (hot + cold) | ✅ |
+| Aggregations | ✅ |
+| Window functions | ✅ |
+| Parquet pushdown | ✅ |
+| Postgres pushdown | ✅ |
+| Export formats (JSON, CSV, Parquet) | ✅ |
+
+## Future: Saved Queries & Discovery
+
+- **Saved queries** — Save and share queries for reuse (not yet implemented)
+- **Discovery** — Browse available datasets, jobs, assets within org (not yet implemented)
+
 ## Earmarked: Rate Limiting
 
 Per-org and per-user rate limits. Design TBD.

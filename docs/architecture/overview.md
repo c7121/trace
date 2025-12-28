@@ -39,6 +39,25 @@ A general-purpose ETL orchestration system designed for:
 4. **YAML is source of truth** — Definitions in git, state in Postgres
 5. **Single dispatcher** — Simple, stateless, restartable
 
+### Job Characteristics
+
+- **Containerized**: jobs run as containers or services, called remotely (not co-located)
+- **Polyglot**: any runtime — Rust, Python, TypeScript, etc. — packaged as a container
+- **Standard contract**: jobs receive inputs, produce outputs, return metadata
+- **Composable**: jobs can depend on outputs of other jobs, forming DAGs
+
+### Job Types
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| Ingest | Pull data from on-chain or off-chain sources | `block_follower`, `cryo_ingest` |
+| Transform | Alter, clean, reshape data | decode logs |
+| Combine | Join or merge datasets | on-chain + off-chain |
+| Enrich | Add labels, annotations, computed fields | address tagging |
+| Summarize | Aggregate, roll up, compute metrics | daily volumes |
+| Validate | Check invariants, data quality | `integrity_check` |
+| Alert | Evaluate conditions, deliver notifications | `alert_evaluate`, `alert_deliver` |
+
 ---
 
 ## Build Plan
@@ -407,6 +426,8 @@ Source of truth for all state.
 - Immutable partitions
 - Analytics optimized
 
+**Manifests:** Emitted per job run for integrity verification.
+
 **Query layer:** DuckDB
 - Spans both Postgres and S3
 - Federated queries
@@ -694,9 +715,11 @@ CREATE INDEX idx_pii_access_log_time ON pii_access_log(accessed_at);
 
 **Identity:** Users authenticate via external IdP (OIDC/SAML). `external_id` links to IdP subject.
 
-**Enforcement:** All API requests include org context. Jobs, tasks, assets scoped by `org_id`.
+**Enforcement:** All actions (job execution, data access, config changes) require authn/authz. All API requests include org context. Jobs, tasks, assets scoped by `org_id`.
 
-**Tenant isolation:** Logical by default (queries filtered by `org_id`). Physical isolation optional (separate Terraform deployment).
+**Tenant isolation:** Logical by default (queries filtered by `org_id`). Physical isolation optional (separate Terraform deployment). One org's workload cannot starve another's resources.
+
+**Cross-org sharing:** Users can be granted access to another org's data via explicit grants, not shared infrastructure.
 
 ---
 
@@ -821,231 +844,19 @@ Dispatcher tracks in-flight jobs and only releases work when slots available.
 
 ## DAG Configuration
 
-### Directory Structure
-
-```
-/dags
-  /monad
-    dag.yaml
-  /ethereum
-    dag.yaml
-  /ml-pipeline
-    dag.yaml
-```
-
-### YAML Schema
-
-```yaml
-name: monad
-
-defaults:
-  heartbeat_timeout_seconds: 60
-  max_attempts: 3
-
-jobs:
-  # Source: Lambda cron emits daily event
-  - name: daily_trigger
-    activation: source
-    runtime: lambda
-    operator: cron_source
-    source:
-      kind: cron
-      schedule: "0 0 * * *"
-    output_dataset: daily_events
-
-  # Source: always-running block follower
-  - name: block_follower
-    activation: source
-    runtime: ecs_rust
-    operator: block_follower
-    source:
-      kind: always_on
-    config:
-      chain_id: 10143
-      rpc_pool: monad
-    output_dataset: hot_blocks
-    heartbeat_timeout_seconds: 60
-
-  # Source: manual backfill requests
-  - name: backfill_request
-    activation: source
-    runtime: lambda
-    operator: manual_source
-    source:
-      kind: manual
-    output_dataset: backfill_requests
-    
-  # Reactive: evaluate alerts on new blocks
-  - name: alert_evaluate
-    activation: reactive
-    runtime: ecs_rust
-    operator: alert_evaluate
-    execution_strategy: PerUpdate
-    idle_timeout: 5m
-    input_datasets: [hot_blocks]
-    output_dataset: triggered_alerts
-    timeout_seconds: 60
-    
-  # Batch: compact triggered by daily cron
-  - name: compact_blocks
-    activation: reactive
-    runtime: ecs_rust
-    operator: parquet_compact
-    execution_strategy: Bulk
-    idle_timeout: 0
-    input_datasets: [hot_blocks, daily_events]
-    output_dataset: cold_blocks
-    timeout_seconds: 1800
-    
-  # Backfill: manual source emits partitioned backfill requests
-  - name: cryo_backfill
-    activation: reactive
-    runtime: ecs_rust
-    operator: cryo_ingest
-    execution_strategy: PerPartition
-    idle_timeout: 0
-    input_datasets: [backfill_requests]
-    config:
-      chain_id: 10143
-      datasets: [blocks, transactions, logs]
-    scaling:
-      mode: backfill
-      max_concurrency: 20
-    output_dataset: cold_blocks
-    timeout_seconds: 3600
-```
-
-### Deploy Process
-
-```mermaid
-flowchart LR
-    YAML[dag.yaml] --> PARSE[Parse YAML]
-    PARSE --> VALIDATE[Validate Schema]
-    VALIDATE --> DEACTIVATE[Deactivate existing jobs]
-    DEACTIVATE --> UPSERT[Upsert by name]
-    UPSERT --> ACTIVATE[Set active=true]
-    ACTIVATE --> PROVISION[Provision Lambda/EventBridge for sources]
-```
-
-**SQL logic:**
-```sql
-UPDATE jobs SET active = false WHERE dag_name = 'monad';
-
-INSERT INTO jobs (name, dag_name, activation, runtime, operator, source, execution_strategy, idle_timeout, ...)
-VALUES ('block_follower', 'monad', 'source', 'ecs_rust', 'block_follower', '{"kind":"always_on"}', NULL, NULL, ...)
-ON CONFLICT (dag_name, name) DO UPDATE SET
-  activation = EXCLUDED.activation,
-  runtime = EXCLUDED.runtime,
-  operator = EXCLUDED.operator,
-  source = EXCLUDED.source,
-  execution_strategy = EXCLUDED.execution_strategy,
-  idle_timeout = EXCLUDED.idle_timeout,
-  config = EXCLUDED.config,
-  config_hash = EXCLUDED.config_hash,
-  active = true,
-  updated_at = now();
-```
+See [features/dag_configuration.md](features/dag_configuration.md) for:
+- Directory structure
+- YAML schema with examples
+- Deploy process and SQL logic
 
 ---
 
 ## Infrastructure
 
-### AWS Architecture
-
-```mermaid
-flowchart TB
-    subgraph VPC["VPC"]
-        subgraph Public["Public Subnets"]
-            ALB[Application Load Balancer]
-            APIGW[API Gateway]
-        end
-        
-        subgraph Private["Private Subnets"]
-            subgraph ECS["ECS Cluster"]
-                DISPATCHER_SVC[Dispatcher Service]
-                POLARS_WORKERS[Polars Workers]
-                PYTHON_WORKERS[Python Workers]
-                INGEST_WORKERS[Ingest Workers]
-            end
-            
-            RDS[(RDS Postgres)]
-        end
-    end
-    
-    subgraph Serverless["Serverless"]
-        EVENTBRIDGE[EventBridge Rules]
-        LAMBDA[Lambda Sources]
-    end
-    
-    subgraph AWS_Services["AWS Services"]
-        SQS_QUEUES[SQS Queues]
-        S3_BUCKET[S3 Data Bucket]
-        ECR[ECR Repositories]
-        CW[CloudWatch]
-        SM[Secrets Manager]
-    end
-    
-    EVENTBRIDGE --> LAMBDA
-    APIGW --> LAMBDA
-    LAMBDA --> DISPATCHER_SVC
-    
-    ALB --> DISPATCHER_SVC
-    
-    DISPATCHER_SVC --> RDS
-    DISPATCHER_SVC --> SQS_QUEUES
-    DISPATCHER_SVC --> CW
-    
-    SQS_QUEUES --> POLARS_WORKERS
-    SQS_QUEUES --> PYTHON_WORKERS
-    SQS_QUEUES --> INGEST_WORKERS
-    
-    POLARS_WORKERS --> RDS
-    POLARS_WORKERS --> S3_BUCKET
-    PYTHON_WORKERS --> RDS
-    PYTHON_WORKERS --> S3_BUCKET
-    INGEST_WORKERS --> RDS
-    
-    POLARS_WORKERS --> SM
-    INGEST_WORKERS --> SM
-    
-    ECR --> ECS
-```
-
-### Terraform Structure
-
-```
-/terraform
-  /modules
-    /vpc           # VPC, subnets, NAT, VPC endpoints
-    /rds           # Postgres, security groups
-    /ecs           # Cluster, services, task definitions, autoscaling
-    /sqs           # FIFO queues, DLQ
-    /s3            # Data bucket, lifecycle rules
-    /lambda        # Lambda sources, API Gateway
-    /eventbridge   # Cron schedules
-  /environments
-    /dev
-    /prod
-```
-
-Key resources per module:
-- **VPC**: Private/public subnets, VPC endpoints for S3/SQS/Secrets Manager
-- **ECS**: Fargate services, SQS-based autoscaling
-- **RDS**: Postgres 15, encrypted, multi-AZ in prod
-- **SQS**: FIFO with deduplication, 5min visibility, DLQ after 3 failures
-- **S3**: Versioned, lifecycle to Glacier after 1 year
-
----
-
-## Deployment
-
-**Order:**
-1. Terraform apply (infra)
-2. Database migrations
-3. Sync DAG YAML → Postgres
-4. Deploy ECS services
-
-**Rollback:** Terraform state rollback, ECS deployment rollback, git revert DAGs.
+See [features/infrastructure.md](features/infrastructure.md) for:
+- AWS architecture diagram
+- Terraform module structure
+- Deployment order and rollback
 
 ---
 
