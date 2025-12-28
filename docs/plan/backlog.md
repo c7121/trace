@@ -1,0 +1,31 @@
+# Backlog
+
+Non-phase-specific items deferred from v1.
+
+## Platform
+
+- User-defined jobs / arbitrary code execution — platform operators first
+- Physical tenant isolation — logical isolation sufficient for v1
+- Multiple chains — Monad only initially
+- Aggregator (fan-in) virtual operator — requires correlation state per partition
+
+## DAG Configuration
+
+- Schema versioning for forward compatibility
+- Rich validation diagnostics (line/field-level errors)
+- Environment promotion workflow (dev→staging→prod)
+
+## UDF
+
+- Custom transforms — user logic for reshaping/cleaning data
+- Enrichments — add computed fields or external labels
+
+## Alerting
+
+- Per-channel rate limiting / throttling
+
+## Query Service
+
+- Saved queries — save and share queries for reuse
+- Discovery — browse available datasets, jobs, assets within org
+- Per-org and per-user rate limits

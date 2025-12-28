@@ -218,6 +218,7 @@ VALUES (
 | **Data stale** | New input partition/rows since last run | Yes (upstream event) |
 | **Invalidation** | `data_invalidations` record | Yes (Dispatcher) |
 | **Config stale** | `config_hash` changed | No (mark stale, manual backfill) |
+| **Schema stale** | `schema_hash` changed (breaking) | No (mark stale, manual backfill) |
 
 ### Config Hash Tracking
 

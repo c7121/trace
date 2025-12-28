@@ -56,3 +56,21 @@ See [security.md](security.md) for detailed security requirements.
 - **Metrics**: system emits job success/error rates, latency, throughput, cost signals
 - **Logs/traces**: correlated across job runs; secrets redacted
 - **System alerts**: system alerts on failures and anomalies (separate from user-defined alerts)
+
+### Key Metrics by SLO
+
+| SLO Area | Metric | Description |
+|----------|--------|-------------|
+| Timeliness | `ingest_lag_seconds` | Delay from chain tip to hot storage |
+| Timeliness | `alert_delivery_lag_seconds` | Time from trigger to delivery |
+| Data Integrity | `task_success_rate` | % tasks completed without error |
+| Data Integrity | `dlq_depth` | Dead-letter queue size |
+| Reliability | `dispatcher_queue_depth` | Pending tasks per queue |
+| Reliability | `dispatcher_queue_age_p95` | Age of oldest pending task |
+| Reliability | `task_retry_count` | Retries per task histogram |
+| Scalability | `worker_utilization` | CPU/memory per worker pool |
+| Scalability | `concurrent_tasks` | In-flight tasks by operator |
+| Cost Control | `rpc_requests_total` | RPC calls by provider |
+| Cost Control | `storage_bytes_written` | S3/Postgres writes |
+| Query | `query_duration_p95` | Interactive query latency |
+| Query | `query_queue_depth` | Pending interactive queries |

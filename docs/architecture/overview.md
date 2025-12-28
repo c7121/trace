@@ -8,16 +8,15 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Build Plan](#build-plan)
-3. [System Architecture](#system-architecture)
-4. [Core Components](#core-components)
-5. [Data Model](#data-model)
-6. [Access Control](#access-control)
-7. [PII and User Data](#pii-and-user-data)
-8. [Job Lifecycle](#job-lifecycle)
-9. [DAG Configuration](#dag-configuration)
-10. [Infrastructure](#infrastructure)
-11. [Deployment](#deployment)
+2. [System Architecture](#system-architecture)
+3. [Core Components](#core-components)
+4. [Data Model](#data-model)
+5. [Access Control](#access-control)
+6. [PII and User Data](#pii-and-user-data)
+7. [Job Lifecycle](#job-lifecycle)
+8. [DAG Configuration](#dag-configuration)
+9. [Infrastructure](#infrastructure)
+10. [Deployment](#deployment)
 
 ---
 
@@ -30,6 +29,8 @@ A general-purpose ETL orchestration system designed for:
 - **Flexible partitioning** — Data-driven, not static time-based
 - **Source jobs** — Long-running services with `activation: source` (e.g., blockchain followers)
 - **Config-as-code** — DAGs defined in YAML, version controlled
+
+See the Build Plan in [docs/plan/build.md](../plan/build.md) for the phased delivery roadmap.
 
 ### Design Principles
 
@@ -59,29 +60,6 @@ A general-purpose ETL orchestration system designed for:
 | Alert | Evaluate conditions, deliver notifications | `alert_evaluate`, `alert_deliver` |
 
 ---
-
-## Build Plan
-
-Phased approach: prove orchestration and data flow before user-facing features.
-
-| Phase | Components | Validates |
-|-------|------------|-----------|
-| 0 | Terraform scaffolding (VPC, ECS, SQS, RDS, S3) | Infrastructure provisioning |
-| 1 | Dispatcher + Lambda sources + Worker wrapper | Orchestration layer |
-| 2 | `block_follower` → Postgres | Real-time ingestion to hot storage |
-| 2 | `cryo_ingest` → S3 (parallel) | Historical backfill to cold storage |
-| 3 | Query service + `query` job (hot only) | Query path works |
-| 4 | `parquet_compact` | Hot → cold compaction lifecycle |
-| 5 | Query service + `query` job (federated) | Query spans hot + cold |
-| 6 | `alert_evaluate` + `alert_deliver` | User-facing alerting |
-| 7 | `integrity_check` | Cold storage verification |
-
-### Deferred
-
-- User-defined jobs / arbitrary code execution — platform operators first
-- Physical tenant isolation — logical isolation sufficient for v1
-- Multiple chains — Monad only initially
-- Aggregator (fan-in) virtual operator — requires correlation state per partition
 
 ---
 
@@ -126,7 +104,8 @@ flowchart LR
             workers["Workers (ECS Fargate)"]:::container
         end
         subgraph Storage["Storage"]
-            postgres["Postgres (hot + state)"]:::database
+            postgres_hot["Postgres (hot data)"]:::database
+            postgres_state["Postgres (state)"]:::database
             s3["S3 (Parquet cold)"]:::database
         end
         subgraph Query["Query"]
@@ -160,13 +139,13 @@ flowchart LR
     gateway -->|webhook| lambda
     lambda -->|emit event| dispatcher
     
-    dispatcher -->|create tasks| postgres
+    dispatcher -->|create tasks| postgres_state
     dispatcher -->|resolve runtime| registry
     dispatcher -->|enqueue| sqs
     sqs -->|deliver task| workers
     
-    workers -->|fetch task, update status| postgres
-    workers -->|write hot data| postgres
+    workers -->|fetch task, update status| postgres_state
+    workers -->|write hot data| postgres_hot
     workers -->|write cold data| s3
     workers -->|fetch secrets| platformSec
     workers -->|fetch chain data| rpc
@@ -174,7 +153,7 @@ flowchart LR
     workers -->|emit telemetry| platformObs
     workers -->|emit upstream event| dispatcher
     
-    duckdb -->|federated query| postgres
+    duckdb -->|federated query| postgres_hot
     duckdb -->|federated query| s3
 
     classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
@@ -184,13 +163,15 @@ flowchart LR
     classDef ext fill:#eee,stroke:#666,color:#000;
 ```
 
+Storage split: Postgres (state) for orchestration metadata (multi-AZ, PITR); Postgres (hot) for recent mutable data (partitioned with retention); S3 for cold Parquet.
+
 ### Event Flow
 
 ```mermaid
 sequenceDiagram
     participant Src as Source (Lambda/ECS)
     participant D as Dispatcher
-    participant PG as Postgres
+    participant PG as Postgres (state)
     participant Q as SQS
     participant W as Worker
     participant S as Storage
@@ -227,7 +208,7 @@ flowchart LR
     eventbridge["EventBridge"]:::infra
     gateway["Gateway"]:::infra
     sqs["SQS Queues"]:::infra
-    postgres["Postgres"]:::database
+    postgres_state["Postgres (state)"]:::database
     workers["ECS Workers"]:::component
 
     eventbridge -->|invoke| cronSrc
@@ -238,14 +219,14 @@ flowchart LR
     manualApi -->|create task| taskCreate
     
     workers -.->|upstream event| eventRouter
-    eventRouter -->|find dependents| postgres
+    eventRouter -->|find dependents| postgres_state
     eventRouter -->|create tasks| taskCreate
     
-    taskCreate -->|create task| postgres
+    taskCreate -->|create task| postgres_state
     taskCreate -->|enqueue| sqs
-    reaper -->|check heartbeats| postgres
-    reaper -->|mark failed| postgres
-    sourceMon -->|check health| postgres
+    reaper -->|check heartbeats| postgres_state
+    reaper -->|mark failed| postgres_state
+    sourceMon -->|check health| postgres_state
 
     classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
     classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
@@ -262,22 +243,23 @@ flowchart LR
     end
 
     sqs["SQS"]:::infra
-    postgres["Postgres"]:::database
+    postgres_state["Postgres (state)"]:::database
+    postgres_hot["Postgres (hot)"]:::database
     s3["S3"]:::database
     secrets["Secrets Manager"]:::infra
     rpc["RPC Providers"]:::ext
 
     sqs -->|task_id| wrapper
-    wrapper -->|fetch task| postgres
+    wrapper -->|fetch task| postgres_state
     wrapper -->|fetch secrets| secrets
     wrapper -->|inject config + secrets| operator
-    wrapper -->|heartbeat| postgres
+    wrapper -->|heartbeat| postgres_state
     
-    operator -->|read/write hot| postgres
+    operator -->|read/write hot| postgres_hot
     operator -->|write cold| s3
     operator -.->|platform jobs only| rpc
     
-    wrapper -->|update status| postgres
+    wrapper -->|update status| postgres_state
     wrapper -->|ack| sqs
 
     classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
@@ -349,6 +331,15 @@ dataset as an input receive the event.
 3. For each dependent reactive job:
    - If `runtime: dispatcher` → Dispatcher handles directly
    - Else → create task, enqueue to SQS
+
+**Backpressure:**
+
+Propagates upstream through DAG edges. When a queue trips its threshold (depth or age), dispatcher pauses upstream producers recursively until pressure clears.
+
+- Per-job thresholds: `max_queue_depth`, `max_queue_age`
+- Modes: `pause` (default), `coalesce`, `drop_oldest`
+- Priority tiers: `high` (alerts/ingest), `normal`, `low` (backfill) — shed low first
+- Deferred tasks held in Postgres (`pending_backpressure`) until promoted to SQS
 
 **Does NOT:**
 - Execute compute tasks (that's workers)

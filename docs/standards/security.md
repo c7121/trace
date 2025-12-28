@@ -64,3 +64,10 @@ User-defined jobs (alerts, enrichments, custom transforms) can execute arbitrary
 - All data access logged: datasets read, rows accessed.
 - Anomaly detection: unusual resource consumption, access patterns.
 - Abuse response: automatic job termination, org notification, potential suspension.
+
+## Security Operations (best-practice defaults)
+
+- **Signing & provenance**: Container images and DAG bundles are signed (e.g., cosign) with SBOMs published; deployments verify signatures before pull/apply. (Refs: [SLSA](https://slsa.dev), [CNCF Supply Chain Best Practices](https://github.com/cncf/tag-security/blob/main/community/working-groups/supply-chain-security/supply-chain-security-paper/sscsp.md), [PDF](https://raw.githubusercontent.com/cncf/tag-security/main/community/working-groups/supply-chain-security/supply-chain-security-paper/CNCF_SSCP_v1.pdf))
+- **Secrets & rotation**: Short-lived, scoped credentials per job/org; stored secrets rotate on a fixed cadence (e.g., ≤90d) and on key events; no Secrets Manager access from user code. (Refs: [NIST SP 800-57](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final), [NIST SP 800-63](https://pages.nist.gov/800-63-3/))
+- **Egress allowlist workflow**: Changes require review/approval; allowlist is IaC-managed; no ad-hoc outbound endpoints. (Refs: [AWS egress restriction guidance](https://docs.aws.amazon.com/whitepapers/latest/aws-vpc-connectivity-options/egress-only.html), [AWS SCPs](https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html))
+- **PII handling**: Datasets classified; PII access requires explicit grant + logging; jobs touching PII must be tagged and are subject to heightened audit/retention. (Refs: [GDPR Art. 5(1)(c) data minimization](https://gdpr.eu/article-5-how-to-process-personal-data/), [ISO 27001 Annex A.8](https://www.iso.org/standard/27001))

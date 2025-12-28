@@ -27,6 +27,16 @@ capabilities). See [overview.md](../overview.md) for details.
 4. Emit event to Dispatcher
 5. Report status
 
+## Runtime Defaults
+
+| Runtime | CPU | Memory | Timeout | Notes |
+|---------|-----|--------|---------|-------|
+| `lambda` | 0.5 vCPU | 512 MB | 60s | AWS Lambda limits |
+| `ecs_rust` | 1 vCPU | 2 GB | 1800s | General-purpose |
+| `ecs_python` | 1 vCPU | 4 GB | 1800s | Higher memory for pandas/ML |
+
+Individual operators may override via DAG config (`timeout_seconds`, task definition).
+
 ## Adding a New Operator
 
 1. Implement in appropriate runtime image

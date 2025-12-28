@@ -22,6 +22,10 @@ name: monad
 defaults:
   heartbeat_timeout_seconds: 60
   max_attempts: 3
+  priority: normal
+  max_queue_depth: 1000
+  max_queue_age: 5m
+  backpressure_mode: pause
 
 jobs:
   # Source: Lambda cron emits daily event

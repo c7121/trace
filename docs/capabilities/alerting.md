@@ -31,13 +31,7 @@ CREATE TABLE alert_definitions (
 
 ## Condition Model (UDF)
 
-Users write conditions in their preferred runtime. See TODO for UDF spec.
-
-| Runtime | Use Case | Example |
-|---------|----------|---------|
-| TypeScript | JSON-heavy, async | `balance > 1000 ETH` |
-| Python | ML, pandas, statistical | `df['value'].std() > threshold` |
-| Rust | High-performance scanning | `col("value").gt(threshold)` |
+Users write alert conditions as UDFs. See [udf.md](udf.md) for runtimes, sandbox, resource limits, and determinism requirements.
 
 ## Evaluation
 
@@ -115,7 +109,7 @@ CREATE TABLE alert_events (
 
 ## Rate Limiting
 
-Per-channel throttling prevents spam. Design TBD.
+Per-channel throttling prevents spam. See [backlog](../plan/backlog.md#alerting).
 
 ## DAG Configuration
 

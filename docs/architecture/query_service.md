@@ -158,6 +158,13 @@ Virtual tables (e.g., `transactions`) unify hot and cold transparently.
 | `query_result_rows` | Rows returned histogram |
 | `query_result_bytes` | Bytes written to S3 |
 
+## Admission & Limits
+
+- Concurrency cap: small fixed pool (e.g., 3-5 interactive queries). Beyond cap, requests queue briefly; if queue exceeds depth/age, force `mode: batch`.
+- Memory cap with spill: DuckDB spill-to-disk enabled; log spill events.
+- Timeouts: existing 30s interactive limit applies; long-running jobs go to batch.
+- Metrics: emit queue depth, queue age p95, spill count, OOM/circuit trips, forced-batch count.
+
 Logs include: query hash (not full SQL for PII), org_id, user_id, duration, row_count, error (if any).
 
 ## Batch Mode
@@ -176,11 +183,6 @@ Results are written to S3; clients poll job status or use webhooks for completio
 | Postgres pushdown | ✅ |
 | Export formats (JSON, CSV, Parquet) | ✅ |
 
-## Future: Saved Queries & Discovery
+## Deferred
 
-- **Saved queries** — Save and share queries for reuse (not yet implemented)
-- **Discovery** — Browse available datasets, jobs, assets within org (not yet implemented)
-
-## Earmarked: Rate Limiting
-
-Per-org and per-user rate limits. Design TBD.
+See [backlog](../plan/backlog.md#query-service) for saved queries, discovery, and rate limiting.
