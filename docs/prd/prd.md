@@ -1,4 +1,4 @@
-# Product Requirements (Draft)
+# Product Requirements
 
 ## Purpose
 A general-purpose data platform for blockchain research and operations: safe, reliable, and extensible.

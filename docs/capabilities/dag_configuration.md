@@ -4,6 +4,15 @@ How DAGs are defined in YAML and deployed to the system.
 
 Users create and edit DAG configurations via the API or UI. Each DAG is stored and versioned by the system.
 
+## Concepts
+
+- **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_rust`, etc).
+- **Job** — a configured instance of an operator inside a DAG (`runtime` + `operator` + `config`).
+- **Trigger** — what causes a job to run:
+  - For `activation: source` jobs, the trigger is `source.kind` (`cron`, `webhook`, `manual`, or `always_on`).
+  - For `activation: reactive` jobs, the trigger is an upstream dataset event on any `input_datasets` (fan-out shaped by `execution_strategy`).
+- **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by dataset names (`input_datasets` / `output_dataset`).
+
 ## YAML Schema
 
 ```yaml

@@ -13,8 +13,9 @@ Track time since last block. Alert when gap exceeds threshold for the chain's ex
 ## Implementation
 
 - **Operator**: `liveliness_monitor` (lambda)
-- **Activation**: source (cron)
+- **Activation**: source
+- **Trigger**: cron schedule (see [Concepts](../capabilities/dag_configuration.md#concepts))
 - **Output**: `liveliness_events`
-- **Alert**: trigger when block gap exceeds threshold
+- **Alert**: fire when block gap exceeds threshold
 
 Configure this as a source DAG job using `operator: liveliness_monitor` with `source.kind: cron`. See [liveliness_monitor](../architecture/operators/liveliness_monitor.md#example-dag-config) for an example job entry, and [dag_configuration.md](../capabilities/dag_configuration.md) for the full job YAML schema.

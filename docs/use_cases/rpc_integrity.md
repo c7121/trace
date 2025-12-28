@@ -13,8 +13,9 @@ Run parallel queries against multiple RPC endpoints. Compare block hashes, trans
 ## Implementation
 
 - **Operator**: `rpc_integrity_check` (lambda)
-- **Activation**: reactive on `hot_blocks`
+- **Activation**: reactive
+- **Trigger**: dataset events on `hot_blocks` (see [Concepts](../capabilities/dag_configuration.md#concepts))
 - **Output**: `rpc_divergence_events`
-- **Alert**: trigger when providers disagree on block hash
+- **Alert**: fire when providers disagree on block hash
 
 Configure this as a reactive DAG job using `operator: rpc_integrity_check`. See [rpc_integrity_check](../architecture/operators/rpc_integrity_check.md#example-dag-config) for an example job entry, and [dag_configuration.md](../capabilities/dag_configuration.md) for the full job YAML schema.
