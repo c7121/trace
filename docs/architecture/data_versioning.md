@@ -271,41 +271,9 @@ Creates tasks for each partition; runs replace entire output.
 
 ## Alert Deduplication
 
-> See [alerting.md](../../capabilities/alerting.md) for full alerting specification.
+Alerts use `update_strategy: append` with a deterministic `unique_key` so reprocessing doesn't re-fire alerts while still behaving correctly across reorgs.
 
-Alerts require special handling to prevent re-firing on reprocessing.
-
-### Dedupe Key
-
-```sql
-CREATE TABLE alert_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    alert_definition_id UUID NOT NULL,
-    block_hash TEXT NOT NULL,         -- chain-specific, changes on reorg
-    tx_hash TEXT,                     -- nullable for block-level alerts
-    block_number BIGINT NOT NULL,     -- for display, not dedupe
-    triggered_at TIMESTAMPTZ DEFAULT now(),
-    delivered_at TIMESTAMPTZ,
-    delivery_status TEXT,
-    UNIQUE (alert_definition_id, block_hash, tx_hash)
-);
-```
-
-### Behavior Matrix
-
-| Scenario | block_hash | tx_hash | Result |
-|----------|------------|---------|--------|
-| Normal processing | 0xabc | 0x123 | Alert created, delivered |
-| Reprocess same block | 0xabc | 0x123 | Dedupe → no new alert |
-| Reorg, same tx in new block | 0xdef | 0x123 | New alert (different block_hash) |
-| Reorg, tx dropped | N/A | N/A | No alert (tx not in canonical chain) |
-
-### Append-Only Guarantee
-
-The `alert_events` table is **append-only**:
-- Never delete alerts (audit trail)
-- Never update alerts (immutable record)
-- Orphaned alerts (from reorged blocks) remain but can be flagged via join with canonical chain
+See [alerting.md](../../capabilities/alerting.md#deduplication) for the dedupe schema and behavior matrix.
 
 ---
 

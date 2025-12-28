@@ -22,12 +22,14 @@ CREATE TABLE alert_definitions (
     name TEXT NOT NULL,
     condition JSONB NOT NULL,         -- UDF or expression (see below)
     channels JSONB NOT NULL,          -- email, sms, webhook configs
-    visibility TEXT NOT NULL DEFAULT 'private',
+    visibility TEXT NOT NULL DEFAULT 'private',  -- see pii.md
     enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 ```
+
+PII column: `alert_definitions.channels` (may include email/phone/webhook URLs). Mark it as PII in dataset metadata; see [pii.md](pii.md) for visibility and audit rules.
 
 ## Condition Model (UDF)
 

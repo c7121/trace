@@ -106,15 +106,19 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    subgraph Trace["Trace Platform (VPC)"]
+    subgraph Trace["Trace Platform"]
         subgraph Orchestration["Orchestration"]
             gateway["Gateway (API/CLI)"]:::container
             dispatcher["Dispatcher"]:::container
             registry["Runtime Registry"]:::infra
             sqs["SQS Queues"]:::infra
         end
-        subgraph Compute["Workers"]
+        subgraph Compute["Workers (VPC)"]
             workers["Workers (ECS Fargate)"]:::container
+        end
+        subgraph Serverless["Serverless"]
+            eventbridge["EventBridge"]:::infra
+            lambda["Lambda Sources"]:::container
         end
         subgraph Storage["Storage"]
             postgres_hot["Postgres (hot data)"]:::database
@@ -129,11 +133,6 @@ flowchart LR
             platformSec["Secrets Manager"]:::infra
             platformObs["CloudWatch/CloudTrail"]:::infra
         end
-    end
-
-    subgraph Serverless["Serverless"]
-        eventbridge["EventBridge"]:::infra
-        lambda["Lambda Sources"]:::container
     end
 
     users["Users"]:::person
@@ -468,6 +467,8 @@ Full DDL for all tables:
 ## Access Control
 
 **Hierarchy:** Global → Org → Permission Role (reader/writer/admin) → User
+
+**Org Roles:** User-defined roles used for visibility scoping (e.g., `role:finance`). See [orchestration.md](../capabilities/orchestration.md) and [pii.md](../capabilities/pii.md).
 
 **Identity:** Users authenticate via external IdP (OIDC/SAML). `external_id` links to IdP subject.
 

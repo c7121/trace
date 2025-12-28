@@ -142,13 +142,7 @@ Every job must declare `update_strategy`:
 - `replace` — overwrites output for the processed scope (partition or cursor range)
 - `append` — inserts rows, dedupes by `unique_key`
 
-If `update_strategy: append`, `unique_key` is **required**. DAG validation rejects `append` without `unique_key`.
-
-**`unique_key` must be deterministic** — derived from input data only:
-- ✅ Valid: any field from input data (e.g., `block_hash`, `tx_hash`, `record_id`, `external_id`)
-- ❌ Invalid: execution context (`created_at`, `task_id`, `worker_id`, `now()`, `random()`)
-
-See [data_versioning.md](../architecture/data_versioning.md#unique-key-requirements) for details.
+If `update_strategy: append`, `unique_key` is **required** and must be deterministic (derived from input data only). See [data_versioning.md](../architecture/data_versioning.md#unique-key-requirements) for the full specification.
 
 ## Deploy Process
 

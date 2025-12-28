@@ -5,6 +5,9 @@ Complete data model for all system tables.
 ```mermaid
 erDiagram
     ORGS ||--o{ USERS : contains
+    ORGS ||--o{ ORG_ROLES : defines
+    ORG_ROLES ||--o{ ORG_ROLE_MEMBERSHIPS : includes
+    USERS ||--o{ ORG_ROLE_MEMBERSHIPS : assigned
     ORGS ||--o{ JOBS : owns
     JOBS ||--o{ TASKS : creates
     TASKS ||--o{ TASK_INPUTS : records
@@ -28,6 +31,20 @@ erDiagram
         text external_id UK
         text email
         text role
+        timestamptz created_at
+    }
+    
+    ORG_ROLES {
+        uuid id PK
+        uuid org_id FK
+        text slug
+        text name
+        timestamptz created_at
+    }
+    
+    ORG_ROLE_MEMBERSHIPS {
+        uuid role_id PK
+        uuid user_id PK
         timestamptz created_at
     }
     
@@ -183,7 +200,7 @@ Full DDL with constraints and indexes:
 
 | Domain | Tables | Location |
 |--------|--------|----------|
-| Orchestration | orgs, users, jobs, tasks, task_inputs, column_lineage | [orchestration.md](../capabilities/orchestration.md) |
+| Orchestration | orgs, users, org_roles, org_role_memberships, jobs, tasks, task_inputs, column_lineage | [orchestration.md](../capabilities/orchestration.md) |
 | Alerting | alert_definitions, alert_events | [alerting.md](../capabilities/alerting.md) |
 | Data Versioning | partition_versions, dataset_cursors, data_invalidations | [data_versioning.md](data_versioning.md) |
 | Query Service | saved_queries | [query_service.md](query_service.md) |

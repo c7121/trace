@@ -48,13 +48,7 @@ queries use the query service endpoint.
 
 ## Query Capabilities
 
-| Feature | Support |
-|---------|---------|
-| JOIN across hot/cold | ✅ |
-| Aggregations | ✅ |
-| Window functions | ✅ |
-| Parquet pushdown | ✅ |
-| Postgres pushdown | ✅ |
+See [Query Capabilities](../query_service.md#query-capabilities) for the supported SQL feature set.
 
 ## Dependencies
 
