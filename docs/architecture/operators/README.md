@@ -11,7 +11,6 @@ capabilities). See `docs/architecture/architecture.md` for details.
 |----------|---------|------------|-----------|-------------|
 | [block_follower](block_follower.md) | ecs_rust | source | — | Follow chain tip, write to hot storage |
 | [cryo_ingest](cryo_ingest.md) | ecs_rust | reactive | PerPartition | Backfill historical data to S3 |
-| [wire_tap](wire_tap.md) | dispatcher | reactive | — | Copy events to secondary destination |
 | [parquet_compact](parquet_compact.md) | ecs_rust | reactive | Bulk | Compact hot to cold Parquet |
 | [integrity_check](integrity_check.md) | ecs_rust | reactive | Bulk | Verify cold storage integrity |
 | [alert_evaluate_ts](alert_evaluate_ts.md) | lambda | reactive | PerUpdate | Evaluate alerts (TypeScript) |

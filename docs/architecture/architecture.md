@@ -68,6 +68,105 @@ Phased approach: prove orchestration and data flow before user-facing features.
 
 ## System Architecture
 
+### System Context
+
+```mermaid
+flowchart TB
+    users["Users (Analysts / Researchers / Ops)"]:::person
+    ops["Platform Ops"]:::person
+    idp["IdP (Cognito/SSO)"]:::ext
+    trace["Trace Platform"]:::system
+    rpc["RPC Providers"]:::ext
+    obs["Observability - CloudWatch/CloudTrail"]:::ext
+    webhooks["External Webhooks"]:::ext
+
+    users -->|query, configure jobs, alerts| trace
+    trace -->|authn/authz| idp
+    trace -->|logs/metrics/audit| obs
+    ops -->|observe/manage| obs
+    trace -->|read chain data| rpc
+    trace -->|deliver alerts| webhooks
+
+    classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
+    classDef system fill:#d6f6ff,stroke:#1f6fa3,color:#000;
+    classDef ext fill:#eee,stroke:#666,color:#000;
+```
+
+### Container View
+
+```mermaid
+flowchart LR
+    subgraph Trace["Trace Platform (VPC)"]
+        subgraph Orchestration["Orchestration"]
+            gateway["Gateway (API/CLI)"]:::container
+            dispatcher["Dispatcher"]:::container
+            registry["Runtime Registry"]:::infra
+            sqs["SQS Queues"]:::infra
+        end
+        subgraph Compute["Workers"]
+            workers["Workers (ECS Fargate)"]:::container
+        end
+        subgraph Storage["Storage"]
+            postgres["Postgres (hot + state)"]:::database
+            s3["S3 (Parquet cold)"]:::database
+        end
+        subgraph Query["Query"]
+            duckdb["DuckDB"]:::container
+        end
+        subgraph Platform["Platform Services"]
+            platformAuth["Auth/Policy"]:::infra
+            platformSec["Secrets Manager"]:::infra
+            platformObs["CloudWatch/CloudTrail"]:::infra
+        end
+    end
+
+    subgraph Serverless["Serverless"]
+        eventbridge["EventBridge"]:::infra
+        lambda["Lambda Sources"]:::container
+    end
+
+    users["Users"]:::person
+    ops["Platform Ops"]:::person
+    idp["IdP (Cognito/SSO)"]:::ext
+    rpc["RPC Providers"]:::ext
+    webhooks["External Webhooks"]:::ext
+
+    users -->|access| gateway
+    ops -->|observe| platformObs
+    gateway -->|authn| idp
+    gateway -->|request jobs, queries| dispatcher
+    gateway -->|queries| duckdb
+    
+    eventbridge -->|cron| lambda
+    gateway -->|webhook| lambda
+    lambda -->|emit event| dispatcher
+    
+    dispatcher -->|create tasks| postgres
+    dispatcher -->|resolve runtime| registry
+    dispatcher -->|enqueue| sqs
+    sqs -->|deliver task| workers
+    
+    workers -->|fetch task, update status| postgres
+    workers -->|write hot data| postgres
+    workers -->|write cold data| s3
+    workers -->|fetch secrets| platformSec
+    workers -->|fetch chain data| rpc
+    workers -->|deliver alerts| webhooks
+    workers -->|emit telemetry| platformObs
+    workers -->|emit upstream event| dispatcher
+    
+    duckdb -->|federated query| postgres
+    duckdb -->|federated query| s3
+
+    classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
+    classDef container fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+    classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
+    classDef ext fill:#eee,stroke:#666,color:#000;
+```
+
+### Event Flow
+
 ```mermaid
 sequenceDiagram
     participant Src as Source (Lambda/ECS)
@@ -88,6 +187,103 @@ sequenceDiagram
 ```
 
 **Flow:** Source emits → Dispatcher routes → Worker executes → Worker emits → repeat.
+
+### Component View: Orchestration
+
+```mermaid
+flowchart LR
+    subgraph Sources["Lambda Sources"]
+        cronSrc["Cron Source"]:::component
+        webhookSrc["Webhook Source"]:::component
+    end
+
+    subgraph Dispatch["Dispatcher"]
+        taskCreate["Task Creator"]:::component
+        eventRouter["Upstream Event Router"]:::component
+        reaper["Dead Task Reaper"]:::component
+        sourceMon["Source Monitor"]:::component
+        manualApi["Manual Trigger API"]:::component
+    end
+
+    eventbridge["EventBridge"]:::infra
+    gateway["Gateway"]:::infra
+    sqs["SQS Queues"]:::infra
+    postgres["Postgres"]:::database
+    workers["ECS Workers"]:::component
+
+    eventbridge -->|invoke| cronSrc
+    gateway -->|invoke| webhookSrc
+    
+    cronSrc -->|emit event| eventRouter
+    webhookSrc -->|emit event| eventRouter
+    manualApi -->|create task| taskCreate
+    
+    workers -.->|upstream event| eventRouter
+    eventRouter -->|find dependents| postgres
+    eventRouter -->|create tasks| taskCreate
+    
+    taskCreate -->|create task| postgres
+    taskCreate -->|enqueue| sqs
+    reaper -->|check heartbeats| postgres
+    reaper -->|mark failed| postgres
+    sourceMon -->|check health| postgres
+
+    classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+```
+
+### Component View: Workers
+
+```mermaid
+flowchart LR
+    subgraph Worker["Worker Container"]
+        wrapper["Worker Wrapper"]:::component
+        operator["Operator (job code)"]:::component
+    end
+
+    sqs["SQS"]:::infra
+    postgres["Postgres"]:::database
+    s3["S3"]:::database
+    secrets["Secrets Manager"]:::infra
+    rpc["RPC Providers"]:::ext
+
+    sqs -->|task_id| wrapper
+    wrapper -->|fetch task| postgres
+    wrapper -->|fetch secrets| secrets
+    wrapper -->|inject config + secrets| operator
+    wrapper -->|heartbeat| postgres
+    
+    operator -->|read/write hot| postgres
+    operator -->|write cold| s3
+    operator -.->|platform jobs only| rpc
+    
+    wrapper -->|update status| postgres
+    wrapper -->|ack| sqs
+
+    classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+    classDef ext fill:#eee,stroke:#666,color:#000;
+```
+
+### Component View: Query Service
+
+```mermaid
+flowchart LR
+    gateway["Gateway"]:::container
+    duckdb["DuckDB"]:::component
+    postgres["Postgres (hot)"]:::database
+    s3["S3 Parquet (cold)"]:::database
+
+    gateway -->|SQL query| duckdb
+    duckdb -->|recent data| postgres
+    duckdb -->|historical data| s3
+
+    classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef container fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+```
 
 ---
 
@@ -291,25 +487,6 @@ erDiagram
         timestamp created_at
     }
     
-    DATA_PARTITIONS {
-        text dataset PK
-        text partition_key PK
-        timestamp version
-        text location
-        bigint row_count
-        bigint bytes
-        text schema_hash FK
-    }
-    
-    DATASET_SCHEMAS {
-        text dataset PK
-        text schema_hash PK
-        jsonb schema_json
-        timestamp created_at
-    }
-    
-    DATA_PARTITIONS }o--|| DATASET_SCHEMAS : references
-    
     TASK_INPUTS {
         uuid task_id PK
         text input_dataset PK
@@ -426,27 +603,6 @@ CREATE TABLE task_inputs (
     PRIMARY KEY (task_id, input_dataset, input_partition)
 );
 
--- Asset registry
-CREATE TABLE data_partitions (
-    dataset TEXT NOT NULL,
-    partition_key TEXT NOT NULL,
-    version TIMESTAMPTZ NOT NULL DEFAULT now(),
-    location TEXT NOT NULL,
-    row_count BIGINT,
-    bytes BIGINT,
-    schema_hash TEXT,
-    PRIMARY KEY (dataset, partition_key)
-);
-
--- Schema registry (full schema storage)
-CREATE TABLE dataset_schemas (
-    dataset TEXT NOT NULL,
-    schema_hash TEXT NOT NULL,
-    schema_json JSONB NOT NULL,  -- column names, types, structure
-    created_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (dataset, schema_hash)
-);
-
 -- RPC key pool
 CREATE TABLE rpc_key_claims (
     key_index INT PRIMARY KEY,
@@ -470,7 +626,6 @@ CREATE INDEX idx_tasks_status ON tasks(status) WHERE status IN ('Queued', 'Runni
 CREATE INDEX idx_tasks_job_id ON tasks(job_id);
 CREATE INDEX idx_tasks_next_retry ON tasks(next_retry_at) WHERE status = 'Failed';
 CREATE INDEX idx_tasks_last_heartbeat ON tasks(last_heartbeat) WHERE status = 'Running';
-CREATE INDEX idx_data_partitions_dataset ON data_partitions(dataset);
 CREATE INDEX idx_jobs_active ON jobs(dag_name) WHERE active = true;
 
 -- PII: Address labels
@@ -637,13 +792,13 @@ stateDiagram-v2
     Idle --> [*]: Scale to zero (optional)
 ```
 
-### Staleness & Memoization
+### Staleness, Memoization & Reorgs
 
-**Staleness:** A job is stale if:
-- Input data changed since last run, OR
-- Job config changed (`config_hash` differs)
-
-**Memoization:** Before execution, check if outputs exist with same input versions. If yes, skip.
+See [data_versioning.md](data_versioning.md) for full specification of:
+- Partition vs. cursor-based incremental processing
+- Staleness detection and memoization
+- Reorg handling and invalidations
+- Alert deduplication
 
 ### Scaling
 

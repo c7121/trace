@@ -27,6 +27,7 @@ CREATE TABLE partition_versions (
     partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000"
     version TIMESTAMPTZ NOT NULL DEFAULT now(),
     config_hash TEXT,                 -- job config at time of materialization
+    schema_hash TEXT,                 -- data shape (columns, types)
     location TEXT,                    -- s3://bucket/path or postgres table
     row_count BIGINT,
     bytes BIGINT,

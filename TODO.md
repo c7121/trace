@@ -14,6 +14,9 @@ Move to "In Progress" when starting, "Done" when complete.
 
 ## Next Up
 
+### Spec Gaps
+- [ ] **UDF spec** — Define user-defined function model for alerts. Function signature, storage (JSONB string?), available libraries, sandbox constraints, timeout/limits. Blocks alert_evaluate implementation.
+
 ### Phase 0: Infrastructure
 - [ ] **Bootstrap tfstate** — Create S3 bucket + DynamoDB table for Terraform state. Manual or bootstrap script.
 - [ ] **Terraform: VPC** — VPC, public/private subnets, route tables, NAT (if needed). See [ADR 0006](docs/architecture/adr/0006-networking.md).
@@ -23,8 +26,8 @@ Move to "In Progress" when starting, "Done" when complete.
 - [ ] **Terraform: SQS** — FIFO queue + DLQ. See [architecture.md](docs/architecture/architecture.md#3-sqs-queue).
 - [ ] **Terraform: ECS cluster** — Fargate cluster, task execution role. See [architecture.md](docs/architecture/architecture.md#4-workers).
 - [ ] **Terraform: ECR repos** — One repo per operator image.
-- [ ] **Terraform: Secrets Manager** — Initial structure, IAM policies. See [ADR 0005](docs/architecture/adr/0005-secrets.md).
-- [ ] **Terraform: CloudWatch** — Log groups, baseline metrics/alarms. See [ADR 0004](docs/architecture/adr/0004-observability.md).
+- [ ] **Terraform: Secrets Manager** — Initial structure, IAM policies.
+- [ ] **Terraform: CloudWatch** — Log groups, baseline metrics/alarms.
 - [ ] **Smoke test** — Network reachability, DB connectivity, SQS send/receive.
 
 **Acceptance**: `terraform apply` succeeds; ECS tasks in private subnets reach S3/SQS/RDS via endpoints; outbound to non-allowlisted internet blocked; CloudWatch logs ingest a test entry.
@@ -96,6 +99,7 @@ Move to "In Progress" when starting, "Done" when complete.
 
 Patterns needed for full EIP compliance. See [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/).
 
+- [ ] **Wire Tap operator** — Virtual operator (runtime: dispatcher) that copies events to a secondary destination (CloudWatch, S3, SNS) without affecting main flow. For debugging, auditing, replay. See [Wire Tap pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/WireTap.html).
 - [ ] **Aggregator operator** — Fan-in virtual operator for composite triggers (A AND B, N-of-M, timeout). Requires correlation state per partition. Enables "wait for multiple inputs" workflows. See [Aggregator pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/Aggregator.html).
 - [ ] **Correlation ID** — Add `correlation_id` to tasks for end-to-end tracing of logical units across job chains. Enables distributed tracing and debugging.
 - [ ] **Message History** — Track the path each event takes through the DAG. Store `job_path[]` on tasks or separate `event_history` table. Essential for debugging complex pipelines and audit trails.
