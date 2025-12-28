@@ -256,6 +256,26 @@ When config changes:
 3. System can report: "partition X is stale (config changed)"
 4. User initiates a manual backfill
 
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant DEP as DAG Deploy
+    participant J as jobs (state)
+    participant PV as partition_versions
+    participant D as Dispatcher
+    participant Q as SQS
+    participant W as Worker
+
+    U->>DEP: Update job config (YAML)
+    DEP->>J: Upsert job + new config_hash
+    Note over PV: Existing partitions keep old config_hash
+    U->>D: Start backfill (job + partitions)
+    D->>Q: Enqueue tasks (per partition)
+    Q->>W: Deliver task
+    W->>W: Recompute partition (replace)
+    W->>PV: Update partition_versions(config_hash=...)
+```
+
 ### Backfill API
 
 ```
@@ -287,6 +307,32 @@ The Dispatcher watches for:
 2. **Unprocessed invalidations** → create tasks with invalidation context
 3. **Manual sources** → create tasks via API
 
+### Upstream Events ("New Rows Exist")
+
+When a job writes to its `output_dataset`, it emits an upstream event `{dataset, cursor|partition_key}` to the Dispatcher. The Dispatcher routes the event to dependent jobs (those whose `input_datasets` include that dataset) and enqueues tasks.
+
+Upstream events are best-effort push. For cursor-based jobs, if an event is missed, the next event catches the job up because it queries `WHERE cursor_column > last_cursor` (from `dataset_cursors`), not `WHERE cursor_column = event_cursor`.
+
+```mermaid
+sequenceDiagram
+    participant P as Producer (source/reactive)
+    participant D as Dispatcher
+    participant PG as Postgres (state)
+    participant Q as SQS
+    participant W as Worker
+    participant S as Storage
+
+    P->>S: Write output
+    P->>D: Emit event {dataset, cursor|partition_key}
+    D->>PG: Find dependent jobs
+    D->>PG: Create tasks
+    D->>Q: Enqueue tasks
+    Q->>W: Deliver task
+    W->>S: Read inputs, write outputs
+    W->>PG: Update task status
+    W->>D: Emit event {output_dataset, cursor|partition_key}
+```
+
 ### Invalidation Handling
 
 Jobs declare their input datasets in the DAG. When an invalidation is created for a dataset, the Dispatcher:
@@ -296,6 +342,28 @@ Jobs declare their input datasets in the DAG. When an invalidation is created fo
 3. Jobs receive `row_filter` from the invalidation record
 4. Jobs process only affected rows
 5. Jobs mark invalidation as processed (appends job_id to `processed_by`)
+
+```mermaid
+sequenceDiagram
+    participant S as Invalidation Source
+    participant INV as data_invalidations
+    participant D as Dispatcher
+    participant PG as Postgres (state)
+    participant Q as SQS
+    participant W as Worker
+
+    S->>INV: INSERT invalidation (partition_key or row_filter)
+    loop poll
+        D->>INV: SELECT unprocessed invalidations
+    end
+    D->>PG: Find dependent jobs
+    D->>PG: Create tasks (invalidation_id)
+    D->>Q: Enqueue tasks
+    Q->>W: Deliver task
+    W->>INV: Load invalidation context
+    W->>W: Reprocess affected scope
+    W->>INV: Mark processed_by/job_id
+```
 
 ---
 
