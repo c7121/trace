@@ -21,10 +21,10 @@ Move to "In Progress" when starting, "Done" when complete.
 - [ ] **Bootstrap tfstate** — Create S3 bucket + DynamoDB table for Terraform state. Manual or bootstrap script.
 - [ ] **Terraform: VPC** — VPC, public/private subnets, route tables, NAT (if needed). See [ADR 0006](docs/architecture/adr/0006-networking.md).
 - [ ] **Terraform: VPC endpoints** — S3, RDS, SES, SNS, Secrets Manager. Zero egress by default.
-- [ ] **Terraform: RDS Postgres** — Single instance, private subnet, security group. See [architecture.md](docs/architecture/architecture.md#5-postgres).
-- [ ] **Terraform: S3 buckets** — Cold storage bucket, lifecycle policies. See [architecture.md](docs/architecture/architecture.md#6-asset-storage).
-- [ ] **Terraform: SQS** — FIFO queue + DLQ. See [architecture.md](docs/architecture/architecture.md#3-sqs-queue).
-- [ ] **Terraform: ECS cluster** — Fargate cluster, task execution role. See [architecture.md](docs/architecture/architecture.md#4-workers).
+- [ ] **Terraform: RDS Postgres** — Single instance, private subnet, security group. See [overview.md](docs/architecture/overview.md#4-postgres).
+- [ ] **Terraform: S3 buckets** — Cold storage bucket, lifecycle policies. See [overview.md](docs/architecture/overview.md#5-asset-storage).
+- [ ] **Terraform: SQS** — FIFO queue + DLQ. See [overview.md](docs/architecture/overview.md#2-sqs-queues).
+- [ ] **Terraform: ECS cluster** — Fargate cluster, task execution role. See [overview.md](docs/architecture/overview.md#3-workers).
 - [ ] **Terraform: ECR repos** — One repo per operator image.
 - [ ] **Terraform: Secrets Manager** — Initial structure, IAM policies.
 - [ ] **Terraform: CloudWatch** — Log groups, baseline metrics/alarms.
@@ -33,10 +33,10 @@ Move to "In Progress" when starting, "Done" when complete.
 **Acceptance**: `terraform apply` succeeds; ECS tasks in private subnets reach S3/SQS/RDS via endpoints; outbound to non-allowlisted internet blocked; CloudWatch logs ingest a test entry.
 
 ### Phase 1: Orchestration
-- [ ] **Postgres schema** — jobs, tasks, data_partitions, orgs, users tables. See [architecture.md Data Model](docs/architecture/architecture.md#data-model).
-- [ ] **Dispatcher service** — Create tasks, enqueue to SQS, reaper, singleton monitor, upstream event routing. See [architecture.md](docs/architecture/architecture.md#dispatcher).
-- [ ] **Lambda sources** — Cron source (EventBridge), webhook source (API Gateway). See [architecture.md](docs/architecture/architecture.md#workers).
-- [ ] **Worker wrapper** — Fetch task, fetch/inject secrets, heartbeat, execute operator, ack. See [architecture.md](docs/architecture/architecture.md#workers).
+- [ ] **Postgres schema** — jobs, tasks, data_partitions, orgs, users tables. See [overview.md Data Model](docs/architecture/overview.md#data-model).
+- [ ] **Dispatcher service** — Create tasks, enqueue to SQS, reaper, singleton monitor, upstream event routing. See [overview.md](docs/architecture/overview.md#1-dispatcher).
+- [ ] **Lambda sources** — Cron source (EventBridge), webhook source (API Gateway). See [overview.md](docs/architecture/overview.md#3-workers).
+- [ ] **Worker wrapper** — Fetch task, fetch/inject secrets, heartbeat, execute operator, ack. See [overview.md](docs/architecture/overview.md#3-workers).
 
 **Acceptance**: Lambda emits event → Dispatcher creates tasks → worker executes noop operator; task status transitions Queued→Running→Completed recorded; heartbeat + reaper kill a stalled task.
 

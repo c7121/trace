@@ -145,8 +145,8 @@ Per-channel throttling prevents spam. Design TBD.
 
 ## Related
 
-- [alert_evaluate_ts](../operators/alert_evaluate_ts.md)
-- [alert_evaluate_py](../operators/alert_evaluate_py.md)
-- [alert_evaluate_rs](../operators/alert_evaluate_rs.md)
-- [alert_deliver](../operators/alert_deliver.md)
-- [data_versioning.md](../data_versioning.md) — deduplication details
+- [alert_evaluate_ts](../architecture/operators/alert_evaluate_ts.md)
+- [alert_evaluate_py](../architecture/operators/alert_evaluate_py.md)
+- [alert_evaluate_rs](../architecture/operators/alert_evaluate_rs.md)
+- [alert_deliver](../architecture/operators/alert_deliver.md)
+- [data_versioning.md](../architecture/data_versioning.md) — deduplication details

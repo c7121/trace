@@ -253,7 +253,7 @@ Creates tasks for each partition; runs replace entire output.
 
 ## Alert Deduplication
 
-> See [features/alerting.md](features/alerting.md) for full alerting specification.
+> See [alerting.md](../../capabilities/alerting.md) for full alerting specification.
 
 Alerts require special handling to prevent re-firing on reprocessing.
 

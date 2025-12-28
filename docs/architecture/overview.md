@@ -416,6 +416,8 @@ Source of truth for all state.
 
 ### 5. Asset Storage
 
+**Flexibility:** Jobs can write anywhere (S3, Postgres, external), provided downstream jobs can access the output as input.
+
 **Hot path:** Postgres
 - Immediate writes
 - Immediate queries for alerts
@@ -844,7 +846,7 @@ Dispatcher tracks in-flight jobs and only releases work when slots available.
 
 ## DAG Configuration
 
-See [features/dag_configuration.md](features/dag_configuration.md) for:
+See [dag_configuration.md](../../capabilities/dag_configuration.md) for:
 - Directory structure
 - YAML schema with examples
 - Deploy process and SQL logic
@@ -853,7 +855,7 @@ See [features/dag_configuration.md](features/dag_configuration.md) for:
 
 ## Infrastructure
 
-See [features/infrastructure.md](features/infrastructure.md) for:
+See [infrastructure.md](../../capabilities/infrastructure.md) for:
 - AWS architecture diagram
 - Terraform module structure
 - Deployment order and rollback

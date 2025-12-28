@@ -8,14 +8,14 @@ Trace lets analysts and researchers curate, combine, enrich, alert on, and analy
 
 ## Documentation
 
-- [Product Requirements](docs/architecture/prd.md)
-- [Functional Specification](docs/architecture/functional.md)
-- [Non-Functional Requirements](docs/architecture/non-functional.md)
-- [Architecture](docs/architecture/architecture.md)
-- [C4 Diagrams](docs/architecture/diagrams/c4.md)
+- [Product Requirements](docs/prd/prd.md)
+- [Architecture Overview](docs/architecture/overview.md)
+- [Capabilities](docs/capabilities/) — Alerting, Ingestion, Metadata, DAG Config
+- [Standards](docs/standards/) — NFRs/SLOs, Security
 - [Operator Catalog](docs/architecture/operators/README.md)
 - [Architecture Decision Records](docs/architecture/adr/)
+- [Feature Catalog](docs/FEATURES.md)
 
 ## Status
 
-Design phase. See [Build Plan](docs/architecture/architecture.md#build-plan) for implementation roadmap.
+Design phase. See [Build Plan](docs/architecture/overview.md#build-plan) for implementation roadmap.
