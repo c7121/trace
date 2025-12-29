@@ -55,9 +55,9 @@ See the Build Plan in [docs/plan/build.md](../plan/build.md) for the phased deli
 
 | Type | Purpose | Example |
 |------|---------|---------|
-| Ingest | Pull data from on-chain or off-chain sources | `block_follower`, `cryo_ingest` |
+| Ingest | Pull data from onchain or offchain sources | `block_follower`, `cryo_ingest` |
 | Transform | Alter, clean, reshape data | decode logs |
-| Combine | Join or merge datasets | on-chain + off-chain |
+| Combine | Join or merge datasets | onchain + offchain |
 | Enrich | Add labels, annotations, computed fields | address tagging |
 | Summarize | Aggregate, roll up, compute metrics | daily volumes |
 | Validate | Check invariants, data quality | `integrity_check` |

@@ -4,7 +4,7 @@ A general-purpose data platform for blockchain research and operations.
 
 ## What is this?
 
-Trace lets analysts and researchers curate, combine, enrich, alert on, and analyze on-chain and off-chain data — both historical and real-time.
+Trace lets analysts and researchers curate, combine, enrich, alert on, and analyze onchain and offchain data — both historical and real-time.
 
 ## Documentation
 

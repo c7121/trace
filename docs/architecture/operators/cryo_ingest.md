@@ -1,6 +1,6 @@
 # cryo_ingest
 
-Archive historical on-chain data using [Cryo](https://github.com/paradigmxyz/cryo).
+Archive historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo).
 
 ## Overview
 

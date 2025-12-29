@@ -1,14 +1,14 @@
 # Data Ingestion
 
-How data enters the platform — on-chain and off-chain, real-time and historical.
+How data enters the platform — onchain and offchain, real-time and historical.
 
 ## Overview
 
-- System ingests on-chain data continuously (real-time at chain tip) and via backfills (historical ranges)
-- System can ingest off-chain data feeds
+- System ingests onchain data continuously (real-time at chain tip) and via backfills (historical ranges)
+- System can ingest offchain data feeds
 - Ingestion is a job type — pluggable, not hardcoded to a specific tool
 
-## On-Chain Ingestion
+## onchain Ingestion
 
 | Mode | Operator | Storage | Use Case |
 |------|----------|---------|----------|
@@ -17,15 +17,15 @@ How data enters the platform — on-chain and off-chain, real-time and historica
 
 ### Requirements
 
-- Archive historical on-chain data (e.g., Cryo datasets to Parquet)
+- Archive historical onchain data (e.g., Cryo datasets to Parquet)
 - Ingest recent blocks at high frequency (e.g., 400ms block time on Monad)
 - May use streaming formats (Avro) or transactional stores (Postgres)
 - Unified query across historical and recent data (via DuckDB federation)
 - Reorg detection and correction
 
-## Off-Chain Ingestion
+## offchain Ingestion
 
-Off-chain feeds (price data, labels, external APIs) enter as source jobs at DAG entry points.
+offchain feeds (price data, labels, external APIs) enter as source jobs at DAG entry points.
 
 External data ingestion happens at DAG entry points (sources), not mid-job.
 
