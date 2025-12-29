@@ -37,7 +37,7 @@ Measurable targets and global constraints for the platform.
 
 ## Security
 
-See [security.md](security.md).
+See [security_model.md](security_model.md).
 
 ## Operations
 
