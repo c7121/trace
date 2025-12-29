@@ -193,6 +193,11 @@ erDiagram
         uuid alert_event_id FK
         text channel
         text status
+        int attempt
+        timestamptz next_attempt_at
+        timestamptz leased_until
+        text lease_owner
+        timestamptz last_attempt_at
         text provider_message_id
         text error_message
         timestamptz delivered_at

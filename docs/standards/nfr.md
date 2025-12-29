@@ -19,6 +19,7 @@ Measurable targets and global constraints for the platform.
 - Failed jobs are retried or dead-lettered for investigation.
 - Audit trail for all operations and access.
 - **Idempotency**: re-running a job for the same inputs produces the same outputs.
+- **Alert delivery**: retries must not drop notifications; de-duplication uses stable idempotency keys (exactly-once depends on downstream/provider support).
 - **Failover**: detect issues and reroute to healthy alternatives.
 - **Rate limits**: respect external provider limits; back off when throttled.
 

@@ -94,7 +94,12 @@ CREATE TABLE alert_deliveries (
     org_id UUID NOT NULL REFERENCES orgs(id),
     alert_event_id UUID NOT NULL REFERENCES alert_events(id),
     channel TEXT NOT NULL,              -- 'email'|'sms'|'webhook'|'slack'|'pagerduty'
-    status TEXT NOT NULL,               -- 'delivered'|'failed'|'rate_limited'|...
+    status TEXT NOT NULL,               -- 'pending'|'sending'|'delivered'|'retrying'|'failed'|...
+    attempt INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    leased_until TIMESTAMPTZ,           -- lease for crash-safe claiming
+    lease_owner TEXT,                   -- worker identity (optional)
+    last_attempt_at TIMESTAMPTZ,
     provider_message_id TEXT,
     error_message TEXT,
     delivered_at TIMESTAMPTZ,
@@ -104,9 +109,26 @@ CREATE TABLE alert_deliveries (
 );
 
 CREATE INDEX idx_alert_deliveries_event ON alert_deliveries(alert_event_id);
+CREATE INDEX idx_alert_deliveries_ready ON alert_deliveries(status, next_attempt_at);
 ```
 
 PII note: delivery destinations (email addresses, phone numbers, webhook URLs) live in `alert_definitions.channels`. `alert_deliveries` should not duplicate destinations; store only channel type and provider response metadata.
+
+### Delivery Guarantees (Never Missed, No Double-Fire)
+
+`alert_deliveries` is the durable work queue. The delivery worker:
+
+1. Materializes work idempotently: create one row per `(org_id, alert_event_id, channel)` (unique constraint prevents duplicates).
+2. Claims work with a short lease (`leased_until`) so only one worker attempts a delivery at a time; if a worker dies mid-send, the lease expires and another worker retries.
+3. Retries until success: failures set `status='retrying'` and schedule `next_attempt_at` with backoff.
+
+To prevent double-firing external notifications, every outbound send includes a stable **idempotency key**:
+
+- Use `alert_deliveries.id` as the idempotency key for the `(alert_event_id, channel)` delivery.
+- PagerDuty: map it to `dedup_key`.
+- Webhooks: send `Idempotency-Key: <delivery_id>` and include `delivery_id` in the body for receivers to dedupe.
+
+Without downstream idempotency (provider- or receiver-side), no system can guarantee both “never missed” and “never twice” under timeouts/crashes. In that case Trace provides **at-least-once** delivery semantics.
 
 ### Channels
 

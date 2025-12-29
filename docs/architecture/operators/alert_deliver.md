@@ -46,6 +46,13 @@ Takes alert events and delivers notifications to configured channels (email, SMS
 - Retries failed deliveries with backoff
 - Respects rate limits per channel
 
+## Reliability + Idempotency
+
+- Treats `alert_deliveries` as a durable work queue (one row per `(org_id, alert_event_id, channel)`).
+- Claims deliveries with a short lease (`leased_until`) to avoid concurrent sends across replicas and to recover from crashes.
+- Sends with an idempotency key: use `alert_deliveries.id` (PagerDuty `dedup_key`, webhook `Idempotency-Key` header).
+- Provides exactly-once delivery only when the downstream channel/receiver dedupes on the idempotency key; otherwise delivery is at-least-once under retries/timeouts.
+
 ## Channels Supported
 
 | Channel | Provider | Config |
@@ -59,7 +66,7 @@ Takes alert events and delivers notifications to configured channels (email, SMS
 ## Dependencies
 
 - API keys for channels (injected by Worker wrapper from Secrets Manager)
-- Postgres read/write access
+- Postgres read access (`alert_events`, `alert_definitions`) and write access (`alert_deliveries`)
 
 ## Example DAG Config
 
