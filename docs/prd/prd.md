@@ -38,20 +38,8 @@ As an analyst or researcher, I can:
 - Chain: start with Monad (EVM-compatible); architecture supports adding chains later.
 - IaC: only path to provision infrastructure; no manual changes.
 
-## Open questions
-- Budget guardrails for RPC and storage?
-
 ---
 
 ## Non-Functional Requirements
 
 See [standards/nfr_slo.md](../standards/nfr_slo.md) for detailed targets.
-
-**Summary:**
-- **Timeliness**: Near real-time for alerting; no missed alerts
-- **Data Integrity**: No silent loss; verifiable outputs
-- **Reliability**: Graceful recovery; full audit trail
-- **Scalability**: Horizontal scaling; tenant isolation (schema-ready, v1 is single-tenant)
-- **Cost Control**: Budget constraints; runaway spend prevention
-- **Security**: Least privilege; no default egress; PII auditable
-- **Operations**: IaC only; full observability

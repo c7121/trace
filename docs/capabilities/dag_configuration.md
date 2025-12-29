@@ -8,6 +8,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 
 - **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_rust`, etc).
 - **Job** — a configured instance of an operator inside a DAG (`runtime` + `operator` + `config`).
+- **Dataset** — a named output/input in the DAG wiring. A dataset can be stored in S3 (Parquet) or Postgres, and some Postgres datasets are buffered through an SQS “connection queue” with a platform sink (see ADR 0006).
 - **Trigger** — what causes a job to run:
   - For `activation: source` jobs, the trigger is `source.kind` (`cron`, `webhook`, `manual`, or `always_on`).
   - For `activation: reactive` jobs, the trigger is an upstream dataset event on any `input_datasets` (fan-out shaped by `execution_strategy`).
@@ -25,6 +26,26 @@ defaults:
   max_queue_depth: 1000
   max_queue_age: 5m
   backpressure_mode: pause
+
+datasets:
+  # Buffered Postgres dataset: producers write to an SQS buffer, a platform sink writes the table.
+  # Schema is deploy-time configuration; the platform creates the table + indexes.
+  alert_events:
+    storage: postgres
+    write_mode: buffered
+    schema:
+      columns:
+        - { name: org_id, type: uuid, nullable: false }
+        - { name: dedupe_key, type: text, nullable: false }
+        - { name: severity, type: text, nullable: true }
+        - { name: payload, type: jsonb, nullable: false }
+        - { name: created_at, type: timestamptz, nullable: false }
+      unique: [org_id, dedupe_key]
+      indexes:
+        - [org_id, created_at]
+    buffer:
+      kind: sqs
+      fifo: true
 
 jobs:
   # Source: Lambda cron emits daily event
@@ -123,6 +144,17 @@ jobs:
 | `config` | | Operator-specific config |
 | `secrets` | | Secret names to inject as env vars |
 | `timeout_seconds` | | Max execution time |
+
+## Dataset Fields (Optional)
+
+Datasets can be declared to configure storage and (for buffered Postgres datasets) schema + buffering. See [ADR 0006](../architecture/adr/0006-buffered-postgres-datasets.md).
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `storage` | ✅ | `postgres` or `s3` |
+| `write_mode` | postgres | `buffered` (SQS → sink → table) or `direct` (platform jobs only) |
+| `schema` | buffered | Table schema: `columns`, `unique`, `indexes` |
+| `buffer` | buffered | Buffer config (v1: `kind: sqs`, optional `fifo`) |
 
 ### Secrets
 

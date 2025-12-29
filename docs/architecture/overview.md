@@ -104,22 +104,24 @@ flowchart TB
 
 ### Container View
 
-```mermaid
-flowchart LR
-    subgraph Trace["Trace Platform"]
-        subgraph Orchestration["Orchestration"]
-            gateway["Gateway (API/CLI)"]:::container
-            dispatcher["Dispatcher"]:::container
-            registry["Runtime Registry"]:::infra
-            sqs["SQS Queues"]:::infra
-        end
-        subgraph Compute["Workers (VPC)"]
-            workers["Workers (ECS Fargate)"]:::container
-        end
-        subgraph Serverless["Serverless"]
-            eventbridge["EventBridge"]:::infra
-            lambda["Lambda Sources"]:::container
-        end
+	```mermaid
+	flowchart LR
+	    subgraph Trace["Trace Platform"]
+	        subgraph Orchestration["Orchestration"]
+	            gateway["Gateway (API/CLI)"]:::container
+	            dispatcher["Dispatcher"]:::container
+	            registry["Runtime Registry"]:::infra
+	            task_sqs["SQS Task Queues"]:::infra
+	            buffers["Dataset Buffers (SQS)"]:::infra
+	        end
+	        subgraph Compute["Workers (VPC)"]
+	            workers["Workers (ECS Fargate)"]:::container
+	            sinks["Dataset Sink (ECS)"]:::container
+	        end
+	        subgraph Serverless["Serverless"]
+	            eventbridge["EventBridge"]:::infra
+	            lambda["Lambda Sources"]:::container
+	        end
         subgraph Storage["Storage"]
             postgres_hot["Postgres (hot data)"]:::database
             postgres_state["Postgres (state)"]:::database
@@ -149,24 +151,29 @@ flowchart LR
     
     eventbridge -->|cron| lambda
     gateway -->|webhook| lambda
-    lambda -->|emit event| dispatcher
-    
-    dispatcher -->|create tasks| postgres_state
-    dispatcher -->|resolve runtime| registry
-    dispatcher -->|enqueue| sqs
-    sqs -->|deliver task| workers
-    
-    workers -->|fetch task, status, heartbeat| dispatcher
-    workers -->|write hot data| postgres_hot
-    workers -->|write cold data| s3
-    workers -->|fetch secrets| platformSec
-    workers -->|fetch chain data| rpc
-    workers -->|deliver alerts| webhooks
-    workers -->|emit telemetry| platformObs
-    workers -->|emit upstream event| dispatcher
-    
-    duckdb -->|federated query| postgres_hot
-    duckdb -->|federated query| s3
+	    lambda -->|emit event| dispatcher
+	    
+	    dispatcher -->|create tasks| postgres_state
+	    dispatcher -->|resolve runtime| registry
+	    dispatcher -->|enqueue| task_sqs
+	    task_sqs -->|deliver task| workers
+	    
+	    workers -->|fetch task, status, heartbeat| dispatcher
+	    workers -->|write hot data| postgres_hot
+	    workers -->|write cold data| s3
+	    workers -->|publish buffered records| buffers
+	    workers -->|fetch secrets| platformSec
+	    workers -->|fetch chain data| rpc
+	    workers -->|deliver alerts| webhooks
+	    workers -->|emit telemetry| platformObs
+	    workers -->|emit upstream event| dispatcher
+
+	    buffers -->|drain| sinks
+	    sinks -->|write hot data| postgres_hot
+	    sinks -->|emit upstream event| dispatcher
+	    
+	    duckdb -->|federated query| postgres_hot
+	    duckdb -->|federated query| s3
 
     classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
     classDef container fill:#d6ffe7,stroke:#1f9a6f,color:#000;
@@ -180,34 +187,40 @@ Storage split: Postgres (state) for orchestration metadata (multi-AZ, PITR); Pos
 ### Event Flow
 
 ```mermaid
-sequenceDiagram
-    participant Src as Source (Lambda/ECS)
-    participant D as Dispatcher
-    participant PG as Postgres (state)
-    participant Q as SQS
-    participant W as Worker
-    participant S as Storage
+	sequenceDiagram
+	    participant Src as Source (Lambda/ECS)
+	    participant D as Dispatcher
+	    participant PG as Postgres (state)
+	    participant Q as SQS
+	    participant W as Worker
+	    participant Sink as Dataset Sink
+	    participant S as Storage
 
     Src->>D: Emit event {dataset, cursor}
     D->>PG: Find jobs where input_datasets matches
     D->>PG: Create tasks
     D->>Q: Enqueue to operator queue
-    Q->>W: Deliver task
-    W->>D: Fetch task details
-    W->>S: Execute, write output
-    W->>D: Report status + emit event(s) {dataset, cursor|partition_key}
-```
+	    Q->>W: Deliver task
+	    W->>D: Fetch task details
+	    W->>S: Execute, write output (S3/Postgres)
+	    W->>D: Report status + emit event(s) {dataset, cursor|partition_key}
+
+	    Note over W,Sink: For buffered Postgres datasets (ADR 0006)\nworkers publish records to an SQS buffer.
+	    W->>Sink: Publish records (buffer)
+	    Sink->>S: Write Postgres table
+	    Sink->>D: Emit event(s) after commit
+	```
 
 **Flow:** Source emits → Dispatcher routes → Worker executes → Worker emits → repeat.
 
 ### Component View: Orchestration
 
 ```mermaid
-flowchart LR
-    subgraph Sources["Lambda Sources"]
-        cronSrc["Cron Source"]:::component
-        webhookSrc["Webhook Source"]:::component
-    end
+	flowchart LR
+	    subgraph Sources["Lambda Sources"]
+	        cronSrc["Cron Source"]:::component
+	        webhookSrc["Webhook Source"]:::component
+	    end
 
     subgraph Dispatch["Dispatcher"]
         taskCreate["Task Creator"]:::component
@@ -217,11 +230,13 @@ flowchart LR
         manualApi["Manual Trigger API"]:::component
     end
 
-    eventbridge["EventBridge"]:::infra
-    gateway["Gateway"]:::infra
-    sqs["SQS Queues"]:::infra
-    postgres_state["Postgres (state)"]:::database
-    workers["ECS Workers"]:::component
+	    eventbridge["EventBridge"]:::infra
+	    gateway["Gateway"]:::infra
+	    task_sqs["SQS Task Queues"]:::infra
+	    buffers["Dataset Buffers (SQS)"]:::infra
+	    postgres_state["Postgres (state)"]:::database
+	    workers["ECS Workers"]:::component
+	    sinks["Dataset Sink"]:::component
 
     eventbridge -->|invoke| cronSrc
     gateway -->|invoke| webhookSrc
@@ -234,11 +249,15 @@ flowchart LR
     eventRouter -->|find dependents| postgres_state
     eventRouter -->|create tasks| taskCreate
     
-    taskCreate -->|create task| postgres_state
-    taskCreate -->|enqueue| sqs
-    reaper -->|check heartbeats| postgres_state
-    reaper -->|mark failed| postgres_state
-    sourceMon -->|check health| postgres_state
+	    taskCreate -->|create task| postgres_state
+	    taskCreate -->|enqueue| task_sqs
+	    reaper -->|check heartbeats| postgres_state
+	    reaper -->|mark failed| postgres_state
+	    sourceMon -->|check health| postgres_state
+
+	    workers -->|publish records| buffers
+	    buffers -->|drain| sinks
+	    sinks -.->|upstream event| eventRouter
 
     classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
     classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
@@ -248,18 +267,19 @@ flowchart LR
 ### Component View: Workers
 
 ```mermaid
-flowchart LR
-    subgraph Worker["Worker Container"]
-        wrapper["Worker Wrapper"]:::component
-        operator["Operator (job code)"]:::component
-    end
-
-    sqs["SQS"]:::infra
-    dispatcher["Dispatcher"]:::component
-    postgres_hot["Postgres (hot)"]:::database
-    s3["S3"]:::database
-    secrets["Secrets Manager"]:::infra
-    rpc["RPC Providers"]:::ext
+	flowchart LR
+	    subgraph Worker["Worker Container"]
+	        wrapper["Worker Wrapper"]:::component
+	        operator["Operator (job code)"]:::component
+	    end
+	
+	    sqs["SQS"]:::infra
+	    buffers["Dataset Buffers (SQS)"]:::infra
+	    dispatcher["Dispatcher"]:::component
+	    postgres_hot["Postgres (hot)"]:::database
+	    s3["S3"]:::database
+	    secrets["Secrets Manager"]:::infra
+	    rpc["RPC Providers"]:::ext
 
     sqs -->|task_id| wrapper
     wrapper -->|fetch task| dispatcher
@@ -267,9 +287,10 @@ flowchart LR
     wrapper -->|inject config + secrets| operator
     wrapper -->|heartbeat| dispatcher
     
-    operator -->|read/write hot| postgres_hot
-    operator -->|write cold| s3
-    operator -.->|platform jobs only| rpc
+	    operator -->|read/write hot| postgres_hot
+	    operator -->|write cold| s3
+	    operator -->|publish buffered records| buffers
+	    operator -.->|platform jobs only| rpc
     
     wrapper -->|report status| dispatcher
     wrapper -->|ack| sqs

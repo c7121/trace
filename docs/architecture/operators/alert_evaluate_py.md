@@ -27,7 +27,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Pyt
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Alert events | `postgres://alert_events` | Rows |
+| Alert events | `postgres://alert_events` (buffered sink) | Rows |
 
 ## Execution
 
@@ -40,7 +40,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Pyt
 - Fetches alert definition (condition, thresholds)
 - Loads relevant data partition (via pandas/polars)
 - Evaluates condition using user-defined logic
-- If triggered: inserts an alert into `alert_events` (deduped by `dedupe_key`)
+- If triggered: publishes an alert record to the `alert_events` dataset buffer (deduped downstream by `dedupe_key`)
 
 ## Condition Types Supported
 
@@ -55,7 +55,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Pyt
 
 - Postgres read access to alert_definitions
 - Data storage read access (S3/Postgres)
-- Postgres write access to alert_events
+- SQS send access to the `alert_events` dataset buffer
 - Python packages: pandas, numpy, scikit-learn (as needed)
 
 ## Example DAG Config

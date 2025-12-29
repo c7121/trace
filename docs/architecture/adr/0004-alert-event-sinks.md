@@ -5,9 +5,10 @@
 
 ## Decision
 - Alerts are represented as **append-only events** in a shared Postgres sink table: `alert_events`.
+- Producers publish alert records via the **buffered Postgres dataset** mechanism (SQS buffer → sink → Postgres); see [ADR 0006](0006-buffered-postgres-datasets.md).
 - Delivery outcomes are recorded in `alert_deliveries` (one row per alert event + channel), written with **replace/upsert semantics** to support retries without double-sending.
 - Multiple jobs/operators may write to `alert_events` (multi-writer) to support many independent “alert checker” producers.
-- `alert_events` and `alert_deliveries` are **platform-managed tables** created by migrations on deploy/startup (Dispatcher does not create tables dynamically).
+- `alert_events` and `alert_deliveries` are **platform-created tables** on deploy/startup (schema declared in config; producers do not create tables dynamically).
 - v1 standardizes a simple severity taxonomy: `info`, `warning`, `critical`.
 
 ## Context

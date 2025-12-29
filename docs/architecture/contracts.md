@@ -71,6 +71,30 @@ Batch shape:
 
 Dispatcher routes events to dependent jobs based on `input_datasets`.
 
+## Buffered Postgres Datasets (SQS Buffer → Sink → Postgres)
+
+Some Postgres-backed datasets are written via a buffer + sink (NiFi-style “connection queue”):
+
+- Producer jobs publish records to a dataset buffer (SQS).
+- A platform-managed sink drains the buffer, writes the Postgres table, then emits the dataset event to the Dispatcher.
+- This supports multi-writer datasets without granting producers Postgres write/DDL privileges.
+
+### Producer → Dataset Buffer (SQS)
+
+Message body (example):
+
+```json
+{
+  "dataset": "alert_events",
+  "schema_hash": "sha256:...",
+  "records": [
+    {"org_id": "uuid", "dedupe_key": "job:10143:123", "severity": "warning", "payload": {"msg": "..."}, "created_at": "2025-12-27T12:00:00Z"}
+  ]
+}
+```
+
+The sink is responsible for idempotent writes (e.g., `UNIQUE (org_id, dedupe_key)`) and emitting the upstream event after commit.
+
 ## Related
 
 - [overview.md](overview.md) — system diagrams
