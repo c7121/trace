@@ -1,4 +1,4 @@
-# Non-Functional Requirements & SLOs
+# Non-Functional Requirements
 
 Measurable targets and global constraints for the platform.
 
