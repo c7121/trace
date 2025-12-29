@@ -70,6 +70,6 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
   idle_timeout: 5m
   config: {}
   input_datasets: [hot_blocks, alert_definitions]
-  output_dataset: triggered_alerts
+  output_datasets: [triggered_alerts, alert_evaluations]
   timeout_seconds: 120
 ```

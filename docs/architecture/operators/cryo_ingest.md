@@ -73,6 +73,6 @@ Each cryo worker is configured with its own RPC API key. To run concurrent backf
   scaling:
     mode: backfill        # or 'steady' for single-partition
     max_concurrency: 20   # dispatcher limits parallel jobs
-  output_dataset: cold_blocks
+  output_datasets: [cold_blocks, cold_transactions, cold_logs]
   timeout_seconds: 3600
 ```

@@ -43,6 +43,8 @@ Three `alert_evaluate` operators — one per runtime:
 - `alert_evaluate_py` (ECS Python)
 - `alert_evaluate_rs` (ECS Rust)
 
+**Runtime selection is per-job in the DAG.** Users choose which operator to use when configuring their alert evaluation job. A single DAG can include multiple alert evaluation jobs with different runtimes — for example, `alert_evaluate_rs` for high-throughput threshold alerts and `alert_evaluate_py` for ML-based anomaly detection.
+
 All share the same contract:
 - **Input**: `hot_blocks` (or other watched dataset) + `alert_definitions`
 - **Output**: `triggered_alerts`

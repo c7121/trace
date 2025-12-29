@@ -20,6 +20,37 @@ User-defined jobs (alerts, enrichments, custom transforms) can execute arbitrary
 
 Worker wrapper fetches secrets from Secrets Manager and injects them as environment variables. Operator code reads secrets from env vars — it never calls Secrets Manager directly.
 
+### Secrets Naming Convention
+
+Secrets are stored in AWS Secrets Manager with a hierarchical path:
+
+```
+/{env}/{org_slug}/{secret_name}
+```
+
+| Component | Example | Description |
+|-----------|---------|-------------|
+| `env` | `prod`, `staging` | Deployment environment |
+| `org_slug` | `acme` | Organization slug (from `orgs.slug`) |
+| `secret_name` | `monad_rpc_key` | Name declared in DAG YAML |
+
+**Example**: `/prod/acme/monad_rpc_key`
+
+**DAG config**:
+```yaml
+jobs:
+  - name: block_follower
+    secrets: [monad_rpc_key]
+```
+
+**Worker behavior**:
+1. Worker receives `secrets: ["monad_rpc_key"]` in task payload
+2. Worker fetches `/{env}/{org_slug}/monad_rpc_key` from Secrets Manager
+3. Worker injects as `MONAD_RPC_KEY` env var (uppercase, underscores)
+4. Operator reads `std::env::var("MONAD_RPC_KEY")`
+
+**Scoping**: In v1 (single-tenant), all secrets are under one org. Future multi-tenant deployments isolate secrets per org via IAM policies on the `/{env}/{org_slug}/*` path.
+
 ## Network Isolation
 
 - Jobs run in a VPC with **no internet egress by default**.
@@ -67,6 +98,52 @@ Worker wrapper fetches secrets from Secrets Manager and injects them as environm
 - All data access logged: datasets read, rows accessed.
 - Anomaly detection: unusual resource consumption, access patterns.
 - Abuse response: automatic job termination, org notification, potential suspension.
+
+## User Onboarding Flow
+
+Users authenticate via external IdP (Cognito with OIDC/SAML). On first login:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant IDP as IdP (Cognito)
+    participant GW as Gateway
+    participant D as Dispatcher
+    participant PG as Postgres
+
+    U->>IDP: Login (SSO/OIDC)
+    IDP->>U: JWT with claims
+    U->>GW: Request with Bearer token
+    GW->>IDP: Validate token
+    IDP->>GW: Claims (sub, email, org_id)
+    GW->>D: Forward with X-User-Id, X-Org-Id
+    D->>PG: Check users table
+    alt User exists
+        PG->>D: Return user
+    else First login
+        D->>PG: INSERT INTO users (external_id, org_id, email, role)
+        PG->>D: Return new user
+    end
+    D->>GW: Response
+    GW->>U: Response
+```
+
+### JWT Claims
+
+Expected claims from IdP:
+
+| Claim | Maps To | Description |
+|-------|---------|-------------|
+| `sub` | `users.external_id` | Unique IdP subject identifier |
+| `email` | `users.email` | User email (optional) |
+| `custom:org_id` | `users.org_id` | Organization UUID |
+| `custom:role` | `users.role` | Platform role: `reader`, `writer`, `admin` |
+
+### Org Provisioning
+
+In v1 (single-tenant), the org is pre-created via Terraform/migration. The `org_id` claim must match the deployed org.
+
+Future multi-tenant: org provisioning via admin API or self-service signup.
 
 ## Security Operations (best-practice defaults)
 

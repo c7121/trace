@@ -156,7 +156,7 @@ flowchart LR
     dispatcher -->|enqueue| sqs
     sqs -->|deliver task| workers
     
-    workers -->|fetch task, update status| postgres_state
+    workers -->|fetch task, status, heartbeat| dispatcher
     workers -->|write hot data| postgres_hot
     workers -->|write cold data| s3
     workers -->|fetch secrets| platformSec
@@ -193,9 +193,9 @@ sequenceDiagram
     D->>PG: Create tasks
     D->>Q: Enqueue to operator queue
     Q->>W: Deliver task
+    W->>D: Fetch task details
     W->>S: Execute, write output
-    W->>PG: Update task status
-    W->>D: Emit event {output_dataset, cursor}
+    W->>D: Report status + emit event(s) {dataset, cursor|partition_key}
 ```
 
 **Flow:** Source emits → Dispatcher routes → Worker executes → Worker emits → repeat.
@@ -255,23 +255,23 @@ flowchart LR
     end
 
     sqs["SQS"]:::infra
-    postgres_state["Postgres (state)"]:::database
+    dispatcher["Dispatcher"]:::component
     postgres_hot["Postgres (hot)"]:::database
     s3["S3"]:::database
     secrets["Secrets Manager"]:::infra
     rpc["RPC Providers"]:::ext
 
     sqs -->|task_id| wrapper
-    wrapper -->|fetch task| postgres_state
+    wrapper -->|fetch task| dispatcher
     wrapper -->|fetch secrets| secrets
     wrapper -->|inject config + secrets| operator
-    wrapper -->|heartbeat| postgres_state
+    wrapper -->|heartbeat| dispatcher
     
     operator -->|read/write hot| postgres_hot
     operator -->|write cold| s3
     operator -.->|platform jobs only| rpc
     
-    wrapper -->|update status| postgres_state
+    wrapper -->|report status| dispatcher
     wrapper -->|ack| sqs
 
     classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
@@ -322,7 +322,7 @@ Central orchestration coordinator. The only platform service.
 
 **Event model:**
 
-Every job emits an event when it writes to its `output_dataset`. The event is simple:
+Every job emits **one event per output dataset** when it materializes data. The event is simple:
 
 ```json
 {"dataset": "hot_blocks", "cursor": 12345}
@@ -491,7 +491,7 @@ PII is a column-level classification with visibility controls and audit logging.
 
 Jobs are defined in DAG YAML and synced into Postgres. The Dispatcher creates task instances for reactive jobs when upstream datasets update; source jobs run continuously and emit upstream events.
 
-- Job fields and configuration: [dag_configuration.md](../../capabilities/dag_configuration.md)
+- Job fields and configuration: [dag_configuration.md](../capabilities/dag_configuration.md)
 - Task lifecycle, retries, heartbeats: [orchestration.md](../capabilities/orchestration.md#task-lifecycle)
 - Incremental processing, staleness, reorg invalidations: [data_versioning.md](data_versioning.md)
 - Operator contract (task input/output + emit event): [operators/README.md](operators/README.md)
@@ -500,7 +500,7 @@ Jobs are defined in DAG YAML and synced into Postgres. The Dispatcher creates ta
 
 ## DAG Configuration
 
-See [dag_configuration.md](../../capabilities/dag_configuration.md) for:
+See [dag_configuration.md](../capabilities/dag_configuration.md) for:
 - YAML schema with examples
 
 See [dag_deployment.md](dag_deployment.md) for:
@@ -511,10 +511,20 @@ See [dag_deployment.md](dag_deployment.md) for:
 
 ## Infrastructure
 
-See [infrastructure.md](../../capabilities/infrastructure.md) for:
+See [infrastructure.md](../capabilities/infrastructure.md) for:
 - AWS architecture diagram
 - Terraform module structure
 - Deployment order and rollback
+
+---
+
+## Deployment
+
+Deployment is separated into:
+- **Infrastructure**: provision AWS resources via Terraform (VPC, ECS, SQS, RDS, S3).
+- **Database**: apply migrations before starting services.
+- **DAG sync**: parse/validate DAG YAML and upsert jobs into Postgres (see [dag_deployment.md](dag_deployment.md)).
+- **Services**: roll out Dispatcher, workers, Lambda sources, and Query Service.
 
 ---
 

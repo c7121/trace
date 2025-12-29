@@ -70,6 +70,6 @@ Takes triggered alert events and delivers notifications to configured channels (
   idle_timeout: 5m
   config: {}
   input_datasets: [triggered_alerts]
-  output_dataset: alert_deliveries
+  output_datasets: [alert_deliveries]
   timeout_seconds: 60
 ```

@@ -65,7 +65,6 @@ For each new block event, fetch the same block from a configured set of RPC prov
     rpc_pool: monad
     checks: [block_hash, state_root, tx_count]
     min_agreement: 2
-  output_dataset: rpc_divergence_events
+  output_datasets: [rpc_divergence_events]
   timeout_seconds: 60
 ```
-

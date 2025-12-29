@@ -62,7 +62,6 @@ Periodically polls a chain tip endpoint, computes the time since the last block,
     rpc_pool: monad
     expected_block_time_ms: 500
     alert_threshold_ms: 5000
-  output_dataset: liveliness_events
+  output_datasets: [liveliness_events]
   timeout_seconds: 60
 ```
-

@@ -61,7 +61,7 @@ PII column: `address_labels.label` (user-provided). Mark it as PII in dataset me
   operator: address_labels
   source:
     kind: manual
-  output_dataset: address_labels
+  output_datasets: [address_labels]
 ```
 
 ## Related

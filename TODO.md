@@ -20,7 +20,7 @@ Move to "In Progress" when starting, "Done" when complete.
 
 ### Phase 0: Infrastructure
 - [ ] **Bootstrap tfstate** — Create S3 bucket + DynamoDB table for Terraform state. Manual or bootstrap script.
-- [ ] **Terraform: VPC** — VPC, public/private subnets, route tables, NAT (if needed). See [ADR 0006](docs/architecture/adr/0006-networking.md).
+- [ ] **Terraform: VPC** — VPC, public/private subnets, route tables, NAT (if needed). See [ADR 0002](docs/architecture/adr/0002-networking.md).
 - [ ] **Terraform: VPC endpoints** — S3, RDS, SES, SNS, Secrets Manager. Zero egress by default.
 - [ ] **Terraform: RDS Postgres** — Single instance, private subnet, security group. See [overview.md](docs/architecture/overview.md#4-postgres).
 - [ ] **Terraform: S3 buckets** — Cold storage bucket, lifecycle policies. See [overview.md](docs/architecture/overview.md#5-asset-storage).

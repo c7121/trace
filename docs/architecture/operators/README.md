@@ -27,8 +27,8 @@ capabilities). See [overview.md](../overview.md) for details.
 
 1. Receive task (config, cursor, input refs)
 2. Execute logic
-3. Write output to storage
-4. Emit event to Dispatcher
+3. Write output(s) to storage
+4. Emit event(s) to Dispatcher
 5. Report status
 
 ## Runtime Defaults

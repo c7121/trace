@@ -75,6 +75,6 @@ This operator targets **finalized data only**. It does not check hot storage (Po
     rpc_pool: monad
     sample_rate: 0.01
   input_datasets: [daily_events]
-  output_dataset: null
+  output_datasets: [integrity_checks]
   timeout_seconds: 300
 ```

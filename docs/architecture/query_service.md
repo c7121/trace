@@ -112,12 +112,7 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 
 ## Read-Only Enforcement
 
-Queries are enforced read-only via:
-
-1. **DuckDB read-only mode** — connection opened with `AccessMode::ReadOnly`
-2. **Postgres read-only user** — service connects with a user granted only `SELECT` permissions
-
-This provides defense in depth without SQL parsing overhead.
+DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at the DuckDB layer.
 
 ## Org Isolation
 

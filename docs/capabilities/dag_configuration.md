@@ -11,7 +11,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 - **Trigger** — what causes a job to run:
   - For `activation: source` jobs, the trigger is `source.kind` (`cron`, `webhook`, `manual`, or `always_on`).
   - For `activation: reactive` jobs, the trigger is an upstream dataset event on any `input_datasets` (fan-out shaped by `execution_strategy`).
-- **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by dataset names (`input_datasets` / `output_dataset`).
+- **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by dataset names (`input_datasets` / `output_datasets`).
 
 ## YAML Schema
 
@@ -35,7 +35,8 @@ jobs:
     source:
       kind: cron
       schedule: "0 0 * * *"
-    output_dataset: daily_events
+    output_datasets: [daily_events]
+    update_strategy: replace
 
   # Source: always-running block follower
   - name: block_follower
@@ -47,7 +48,8 @@ jobs:
     config:
       chain_id: 10143
       rpc_pool: monad
-    output_dataset: hot_blocks
+    output_datasets: [hot_blocks, hot_logs]
+    update_strategy: replace
     heartbeat_timeout_seconds: 60
 
   # Source: manual backfill requests
@@ -57,7 +59,8 @@ jobs:
     operator: manual_source
     source:
       kind: manual
-    output_dataset: backfill_requests
+    output_datasets: [backfill_requests]
+    update_strategy: replace
     
   # Reactive: evaluate alerts on new blocks
   - name: alert_evaluate
@@ -67,7 +70,7 @@ jobs:
     execution_strategy: PerUpdate
     idle_timeout: 5m
     input_datasets: [hot_blocks]
-    output_dataset: triggered_alerts
+    output_datasets: [triggered_alerts]
     update_strategy: append
     unique_key: [alert_definition_id, block_hash, tx_hash]
     timeout_seconds: 60
@@ -80,7 +83,7 @@ jobs:
     execution_strategy: Bulk
     idle_timeout: 0
     input_datasets: [hot_blocks, daily_events]
-    output_dataset: cold_blocks
+    output_datasets: [cold_blocks]
     update_strategy: replace
     timeout_seconds: 1800
     
@@ -98,7 +101,7 @@ jobs:
     scaling:
       mode: backfill
       max_concurrency: 20
-    output_dataset: cold_blocks
+    output_datasets: [cold_blocks, cold_transactions, cold_logs]
     timeout_seconds: 3600
 ```
 
@@ -110,7 +113,7 @@ jobs:
 | `activation` | ✅ | `source` or `reactive` |
 | `runtime` | ✅ | `lambda`, `ecs_rust`, `ecs_python`, `dispatcher` |
 | `operator` | ✅ | Operator implementation to run |
-| `output_dataset` | ✅ | Dataset this job produces |
+| `output_datasets` | ✅ | Datasets this job produces |
 | `update_strategy` | ✅ | `append` or `replace` — how outputs are written |
 | `unique_key` | if append | Required for `append` — columns for dedupe |
 | `input_datasets` | reactive | Datasets this job consumes |

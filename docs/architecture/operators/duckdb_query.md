@@ -75,7 +75,7 @@ See [Query Capabilities](../query_service.md#query-capabilities) for the support
     output_format: parquet
     output_path: s3://bucket/summaries/daily/
   input_datasets: [hot_transactions, cold_transactions]
-  output_dataset: daily_summaries
+  output_datasets: [daily_summaries]
   timeout_seconds: 3600
 ```
 

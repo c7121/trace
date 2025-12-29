@@ -74,7 +74,9 @@ CREATE TABLE jobs (
     config JSONB NOT NULL DEFAULT '{}', -- operator config
     config_hash TEXT NOT NULL,
     input_datasets TEXT[],
-    output_dataset TEXT,
+    output_datasets TEXT[],
+    update_strategy TEXT NOT NULL,      -- 'append' | 'replace'
+    unique_key TEXT[],                  -- required if update_strategy = 'append'
     scaling JSONB,                      -- { "mode": "backfill", "max_concurrency": 20 }
     timeout_seconds INT,
     heartbeat_timeout_seconds INT,
@@ -106,8 +108,7 @@ CREATE TABLE tasks (
     attempts INT DEFAULT 0,
     next_retry_at TIMESTAMPTZ,
     error_message TEXT,
-    output_path TEXT,
-    output_row_count BIGINT,
+    outputs JSONB,                      -- per-dataset outputs (paths, cursors, partitions, metrics)
     created_at TIMESTAMPTZ DEFAULT now()
 );
 

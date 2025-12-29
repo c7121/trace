@@ -62,7 +62,9 @@ erDiagram
         jsonb config
         text config_hash
         text[] input_datasets
-        text output_dataset
+        text[] output_datasets
+        text update_strategy
+        text[] unique_key
         jsonb scaling
         int timeout_seconds
         int heartbeat_timeout_seconds
@@ -85,8 +87,7 @@ erDiagram
         int attempts
         timestamptz next_retry_at
         text error_message
-        text output_path
-        bigint output_row_count
+        jsonb outputs
         timestamptz created_at
     }
     

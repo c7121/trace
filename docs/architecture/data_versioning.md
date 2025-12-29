@@ -295,7 +295,7 @@ Creates tasks for each partition; runs replace entire output.
 
 Alerts use `update_strategy: append` with a deterministic `unique_key` so reprocessing doesn't re-fire alerts while still behaving correctly across reorgs.
 
-See [alerting.md](../../capabilities/alerting.md#deduplication) for the dedupe schema and behavior matrix.
+See [alerting.md](../capabilities/alerting.md#deduplication) for the dedupe schema and behavior matrix.
 
 ---
 
@@ -309,7 +309,7 @@ The Dispatcher watches for:
 
 ### Upstream Events ("New Rows Exist")
 
-When a job writes to its `output_dataset`, it emits an upstream event `{dataset, cursor|partition_key}` to the Dispatcher. The Dispatcher routes the event to dependent jobs (those whose `input_datasets` include that dataset) and enqueues tasks.
+When a job writes to one of its `output_datasets`, it emits an upstream event `{dataset, cursor|partition_key}` to the Dispatcher (one event per output dataset). The Dispatcher routes the event to dependent jobs (those whose `input_datasets` include that dataset) and enqueues tasks.
 
 Upstream events are best-effort push. For cursor-based jobs, if an event is missed, the next event catches the job up because it queries `WHERE cursor_column > last_cursor` (from `dataset_cursors`), not `WHERE cursor_column = event_cursor`.
 
@@ -328,9 +328,9 @@ sequenceDiagram
     D->>PG: Create tasks
     D->>Q: Enqueue tasks
     Q->>W: Deliver task
+    W->>D: Fetch task details
     W->>S: Read inputs, write outputs
-    W->>PG: Update task status
-    W->>D: Emit event {output_dataset, cursor|partition_key}
+    W->>D: Report status + emit event(s) {dataset, cursor|partition_key}
 ```
 
 ### Invalidation Handling
@@ -374,6 +374,6 @@ sequenceDiagram
 | Cold storage (S3) | Partition-level versioning |
 | Hot storage (Postgres) | Cursor-based high-water mark |
 | Reorg handling | Row-range invalidations, scoped reprocessing |
-| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../../capabilities/alerting.md#deduplication)) |
+| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../capabilities/alerting.md#deduplication)) |
 | Code changes | Config hash tracking, manual backfill |
 | Efficiency | Never full-table scan; use partition or row_filter |

@@ -148,6 +148,42 @@ wiremock = "0.5"
 ### Feature File Example
 
 ```gherkin
+# features/phase7_alerting/alert_dedup.feature
+
+Feature: Alert Deduplication
+  Alerts must not re-fire on reprocessing, but must fire correctly on reorgs.
+
+  Background:
+    Given a running dispatcher
+    And alert definition "whale_alert" watching hot_blocks
+    And the alert condition matches block 1000 tx "0xabc"
+
+  Scenario: Normal processing creates alert
+    When block 1000 is ingested with tx "0xabc" and block_hash "0x111"
+    Then alert_events should contain 1 row
+    And the alert should have block_hash "0x111"
+
+  Scenario: Reprocessing same block does not duplicate
+    Given block 1000 was already processed with block_hash "0x111"
+    When block 1000 is reprocessed with same block_hash "0x111"
+    Then alert_events should still contain 1 row
+
+  Scenario: Reorg with same tx creates new alert
+    Given block 1000 was already processed with block_hash "0x111"
+    When a reorg occurs and block 1000 now has block_hash "0x222"
+    And block 1000 still contains tx "0xabc"
+    Then alert_events should contain 2 rows
+    And one alert should have block_hash "0x111"
+    And one alert should have block_hash "0x222"
+
+  Scenario: Reorg drops tx, no new alert
+    Given block 1000 was already processed with block_hash "0x111"
+    And the alert fired for tx "0xabc"
+    When a reorg occurs and block 1000 now has block_hash "0x222"
+    And block 1000 no longer contains tx "0xabc"
+    Then alert_events should still contain 1 row
+    And the orphaned alert remains (audit trail)
+```
 # tests/features/phase2_ingestion/block_follower.feature
 
 Feature: Block Follower

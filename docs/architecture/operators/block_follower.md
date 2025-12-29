@@ -56,6 +56,25 @@ Long-running service that subscribes to new blocks at chain tip and writes them 
 - Deletes orphaned blocks from hot storage, then ingests the canonical branch forward
 - Records a `data_invalidations` row-range invalidation for downstream reprocessing (see [data_versioning.md](../data_versioning.md#reorg-handling))
 
+### Deep Reorg (Before start_block)
+
+If the reorg walks back to or before `start_block`:
+1. All hot data is invalidated
+2. Truncate hot storage for this dataset
+3. Re-ingest from `start_block` forward
+4. Emit invalidation covering full range so downstream jobs rebuild
+
+### Cold Start / Initial Sync
+
+On first run (empty hot storage), `block_follower` requires a starting point:
+
+```yaml
+config:
+  start_block: 1000000   # Required: block to start from
+```
+
+If `start_block` is not set, operator fails with a configuration error.
+
 ## Dependencies
 
 - RPC provider access (WebSocket preferred)
@@ -73,8 +92,9 @@ Long-running service that subscribes to new blocks at chain tip and writes them 
   config:
     chain_id: 10143
     rpc_pool: monad
+    start_block: 1000000
     emit_strategy: per_update  # emit downstream event per block
   input_datasets: []
-  output_dataset: hot_blocks
+  output_datasets: [hot_blocks, hot_logs]
   heartbeat_timeout_seconds: 60
 ```

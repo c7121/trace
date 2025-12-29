@@ -72,7 +72,7 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
     chunk_size: 10000
     delete_after_compact: true
   input_datasets: [hot_blocks]
-  output_dataset: cold_blocks
+  output_datasets: [cold_blocks]
   update_strategy: replace
   timeout_seconds: 1800
 ```
