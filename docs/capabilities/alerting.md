@@ -140,6 +140,28 @@ Without downstream idempotency (provider- or receiver-side), no system can guara
 | Slack | Slack API (allowlisted) | `webhook_url`, `channel` |
 | PagerDuty | PagerDuty Events API (allowlisted) | `routing_key`, `dedup_key` |
 
+### Routing (Filters)
+
+To route alerts by severity (or any column), run multiple delivery jobs with filtered inputs. Filters are read-time predicates on the input edge; see [ADR 0007](../architecture/adr/0007-input-edge-filters.md).
+
+```yaml
+- name: deliver_critical
+  operator: alert_deliver
+  input_datasets:
+    - name: alert_events
+      where: "severity = 'critical'"
+  config:
+    channels: [pagerduty]
+
+- name: deliver_low
+  operator: alert_deliver
+  input_datasets:
+    - name: alert_events
+      where: "severity IN ('info','warning')"
+  config:
+    channels: [slack]
+```
+
 ## Deduplication
 
 Alerts must not re-fire on reprocessing. Dedupe key:

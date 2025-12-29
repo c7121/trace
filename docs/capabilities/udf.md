@@ -24,7 +24,7 @@ UDFs allow users to define custom logic in their preferred runtime. All UDFs sha
 
 User-defined code runs in isolated containers with strict constraints:
 
-- **Isolation**: Each invocation runs in its own container (see [security.md](../standards/security.md) for container/network isolation).
+- **Isolation**: Each invocation runs in its own container (see [security_model.md](../standards/security_model.md) for container/network isolation).
 - **Resource caps**: CPU (0.25 vCPU default), memory (512 MB default), timeout (60s default); configurable per job.
 - **No network**: UDFs cannot make outbound calls; data is injected, results returned.
 - **No filesystem**: Read-only except for ephemeral `/tmp`; no persistent state.
@@ -41,6 +41,6 @@ Additional use cases (custom transforms, enrichments) are in the [backlog](../pl
 
 ## Packaging
 
-UDFs are submitted as code bundles (e.g., zip) and validated before execution. Bundles are versioned and signed; see [security.md](../standards/security.md) for signing requirements.
+UDFs are submitted as code bundles (e.g., zip) and validated before execution. Bundles are versioned and signed; see [security_model.md](../standards/security_model.md) for signing requirements.
 
 v1 uses AWS Lambda-style zip bundles (including Rust custom runtime `bootstrap`) executed in ECS for maximum tooling reuse. See [ADR 0003](../architecture/adr/0003-udf-bundles.md).

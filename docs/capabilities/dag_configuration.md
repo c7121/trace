@@ -9,6 +9,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 - **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_rust`, etc).
 - **Job** — a configured instance of an operator inside a DAG (`runtime` + `operator` + `config`).
 - **Dataset** — a named output/input in the DAG wiring. A dataset can be stored in S3 (Parquet) or Postgres, and some Postgres datasets are buffered through an SQS “connection queue” with a platform sink (see ADR 0006).
+- **Filter** — an optional read-time predicate on an input edge (e.g., consume only `severity = 'critical'`). Filters are applied by the consumer, not the Dispatcher (see ADR 0007).
 - **Trigger** — what causes a job to run:
   - For `activation: source` jobs, the trigger is `source.kind` (`cron`, `webhook`, `manual`, or `always_on`).
   - For `activation: reactive` jobs, the trigger is an upstream dataset event on any `input_datasets` (fan-out shaped by `execution_strategy`).
@@ -138,12 +139,24 @@ jobs:
 | `output_datasets` | ✅ | Datasets this job produces |
 | `update_strategy` | ✅ | `append` or `replace` — how outputs are written |
 | `unique_key` | if append | Required for `append` — columns for dedupe |
-| `input_datasets` | reactive | Datasets this job consumes |
+| `input_datasets` | reactive | Datasets this job consumes (strings, or `{name, where}` objects) |
 | `execution_strategy` | reactive | `PerUpdate`, `PerPartition`, `Bulk` |
 | `source` | source | Source config: `kind`, `schedule`, etc. |
 | `config` | | Operator-specific config |
 | `secrets` | | Secret names to inject as env vars |
 | `timeout_seconds` | | Max execution time |
+
+### Input Dataset Filters
+
+`input_datasets` supports a long form for read-time filtering:
+
+```yaml
+input_datasets:
+  - name: alert_events
+    where: "severity = 'critical' AND chain_id = 1"
+```
+
+The Dispatcher still routes by dataset name only; the consumer applies `where` when reading. See [ADR 0007](../architecture/adr/0007-input-edge-filters.md) for the v1 predicate rules.
 
 ## Dataset Fields (Optional)
 
@@ -169,7 +182,7 @@ jobs:
       chain_id: 10143
 ```
 
-See [security.md](../standards/security.md#secrets-injection) for how secrets are injected.
+See [security_model.md](../standards/security_model.md#secrets-injection) for how secrets are injected.
 
 ### Update Strategy & Unique Key
 

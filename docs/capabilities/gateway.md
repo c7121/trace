@@ -78,6 +78,6 @@ Allowed origins configured per environment. Default: same-origin only.
 
 - [query_service.md](../architecture/query_service.md) — query endpoint details
 - [contracts.md](../architecture/contracts.md) — dispatcher API contracts
-- [security.md](../standards/security.md) — auth model
+- [security_model.md](../standards/security_model.md) — auth model
 
 ```

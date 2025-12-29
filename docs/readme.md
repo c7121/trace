@@ -151,7 +151,7 @@ flowchart LR
     
     eventbridge -->|cron| lambda
     gateway -->|webhook| lambda
-    dispatcher -->|invoke (runtime=lambda)| lambda
+    dispatcher -->|invoke runtime=lambda| lambda
     lambda -->|emit event| dispatcher
     
     dispatcher -->|create tasks| postgres_state
@@ -248,6 +248,7 @@ flowchart LR
     buffers["Dataset Buffers (SQS)"]:::infra
     postgres_state["Postgres (state)"]:::database
     workers["ECS Workers"]:::component
+    lambdaOps["Lambda Operators"]:::component
     sinks["Dataset Sink"]:::component
 
     eventbridge -->|invoke| cronSrc
@@ -258,16 +259,19 @@ flowchart LR
     manualApi -->|create task| taskCreate
     
     workers -.->|upstream event| eventRouter
+    lambdaOps -.->|upstream event| eventRouter
     eventRouter -->|find dependents| postgres_state
     eventRouter -->|create tasks| taskCreate
     
     taskCreate -->|create task| postgres_state
-    taskCreate -->|enqueue| task_sqs
+    taskCreate -->|enqueue runtime=ecs_*| task_sqs
+    taskCreate -->|invoke runtime=lambda| lambdaOps
     reaper -->|check heartbeats| postgres_state
     reaper -->|mark failed| postgres_state
     sourceMon -->|check health| postgres_state
 
     workers -->|publish records| buffers
+    lambdaOps -->|publish records| buffers
     buffers -->|drain| sinks
     sinks -.->|upstream event| eventRouter
 
@@ -585,7 +589,7 @@ Deployment is separated into:
 
 **Network:** Workers in private subnets. VPC endpoints for S3, SQS, Secrets Manager. ALB HTTPS only.
 
-See [security.md](../standards/security.md) for job isolation, threat model, and credential handling.
+See [security_model.md](../standards/security_model.md) for job isolation, threat model, and credential handling.
 
 ---
 

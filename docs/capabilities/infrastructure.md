@@ -40,7 +40,7 @@ flowchart TB
     EVENTBRIDGE --> LAMBDA
     APIGW --> LAMBDA
     LAMBDA --> DISPATCHER_SVC
-    DISPATCHER_SVC -->|invoke (runtime=lambda)| LAMBDA
+    DISPATCHER_SVC -->|invoke runtime=lambda| LAMBDA
     
     ALB --> DISPATCHER_SVC
     

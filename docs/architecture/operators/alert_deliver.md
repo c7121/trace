@@ -16,6 +16,9 @@ Deliver alert events to configured channels.
 
 Takes alert events and delivers notifications to configured channels (email, SMS, webhook). Handles retries and delivery confirmation.
 
+Optional behavior:
+- If `config.channels` is set (e.g., `['pagerduty']`), only those channel types are delivered. This is used for DAG-level routing (e.g., critical → PagerDuty).
+
 ## Inputs
 
 | Input | Type | Description |
@@ -77,7 +80,8 @@ Takes alert events and delivers notifications to configured channels (email, SMS
   operator: alert_deliver
   execution_strategy: PerUpdate
   idle_timeout: 5m
-  config: {}
+  config:
+    channels: [slack]
   input_datasets: [alert_events]
   output_datasets: [alert_deliveries]
   update_strategy: replace

@@ -39,8 +39,18 @@ Task completion includes an `outputs` array so a single task can materialize mul
 ## Upstream Events (Worker → Dispatcher)
 
 Jobs can produce multiple datasets. DAG wiring is therefore:
-- `input_datasets`: array of dataset names
+- `input_datasets`: array of dataset names (optionally with per-input filters)
 - `output_datasets`: array of dataset names
+
+Input filters are read-time predicates applied by the consumer (Dispatcher still routes by dataset name only). See [ADR 0007](adr/0007-input-edge-filters.md).
+
+YAML example:
+
+```yaml
+input_datasets:
+  - name: alert_events
+    where: "severity = 'critical'"
+```
 
 When a task materializes outputs, it emits **one event per output dataset** (either batched or as separate requests).
 
@@ -97,6 +107,6 @@ The sink is responsible for idempotent writes (e.g., `UNIQUE (org_id, dedupe_key
 
 ## Related
 
-- [overview.md](overview.md) — system diagrams
+- [readme.md](../readme.md) — system diagrams
 - [orchestration.md](../capabilities/orchestration.md) — task/job schemas
 - [data_versioning.md](data_versioning.md) — cursor and partition semantics
