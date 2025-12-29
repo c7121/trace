@@ -35,38 +35,73 @@ PII column: `alert_definitions.channels` (may include email/phone/webhook URLs).
 
 Users write alert conditions as UDFs. See [udf.md](udf.md) for runtimes, sandbox, resource limits, and determinism requirements.
 
-## Evaluation
+## Alert Events (Sink)
 
-Three `alert_evaluate` operators — one per runtime:
+Triggered alerts are durable facts recorded as append-only rows in `alert_events`.
+
+Multiple jobs/operators may write to this table (multi-writer sink). See [ADR 0004](../architecture/adr/0004-alert-event-sinks.md).
+
+```sql
+CREATE TABLE alert_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES orgs(id),
+    alert_definition_id UUID REFERENCES alert_definitions(id), -- nullable for non-UDF/system alerts
+    producer_job_id UUID REFERENCES jobs(id),
+    producer_task_id UUID REFERENCES tasks(id),
+    severity TEXT,                      -- e.g., 'info'|'warning'|'critical'
+    chain_id BIGINT,
+    block_number BIGINT,
+    block_hash TEXT,                    -- changes on reorg
+    tx_hash TEXT,                       -- nullable for block-level alerts
+    source_dataset TEXT,                -- dataset that triggered the alert (optional)
+    partition_key TEXT,                 -- e.g., '1000000-1010000' (optional)
+    cursor_value TEXT,                  -- e.g., block height cursor (optional)
+    payload JSONB NOT NULL DEFAULT '{}',-- producer-defined details
+    dedupe_key TEXT NOT NULL,           -- deterministic idempotency key
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (org_id, dedupe_key)
+);
+```
+
+**DAG contract:**
+- Producers write `output_datasets: [alert_events]` with `update_strategy: append` and `unique_key: [dedupe_key]`.
+
+## Evaluation (Reference Producers)
+
+Three reference `alert_evaluate` operators evaluate `alert_definitions` and write to `alert_events`:
 
 - `alert_evaluate_ts` (Lambda)
 - `alert_evaluate_py` (ECS Python)
 - `alert_evaluate_rs` (ECS Rust)
 
-**Runtime selection is per-job in the DAG.** Users choose which operator to use when configuring their alert evaluation job. A single DAG can include multiple alert evaluation jobs with different runtimes — for example, `alert_evaluate_rs` for high-throughput threshold alerts and `alert_evaluate_py` for ML-based anomaly detection.
-
-All share the same contract:
-- **Input**: `hot_blocks` (or other watched dataset) + `alert_definitions`
-- **Output**: `triggered_alerts`
-- **Execution**: `PerUpdate` — evaluates each new block/event
-
-### Incremental Processing
-
-```yaml
-- name: alert_evaluate
-  incremental:
-    mode: cursor
-    cursor_column: block_number
-    unique_key: [alert_definition_id, block_hash, tx_hash]
-  update_strategy: append
-```
+Runtime selection is per-job in the DAG. A single DAG can include multiple evaluation jobs with different runtimes.
 
 ## Delivery
 
 `alert_deliver` operator (Lambda):
-- Reads from `triggered_alerts`
+- Reads from `alert_events`
 - Delivers to configured channels
 - Records delivery status
+
+Delivery outcomes are recorded in `alert_deliveries` with one row per `(alert_event_id, channel)`. Retries overwrite/update the same row (replace/upsert semantics).
+
+```sql
+CREATE TABLE alert_deliveries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES orgs(id),
+    alert_event_id UUID NOT NULL REFERENCES alert_events(id),
+    channel TEXT NOT NULL,              -- 'email'|'sms'|'webhook'|'slack'|'pagerduty'
+    status TEXT NOT NULL,               -- 'delivered'|'failed'|'rate_limited'|...
+    provider_message_id TEXT,
+    error_message TEXT,
+    delivered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (org_id, alert_event_id, channel)
+);
+
+CREATE INDEX idx_alert_deliveries_event ON alert_deliveries(alert_event_id);
+```
 
 ### Channels
 
@@ -76,23 +111,16 @@ All share the same contract:
 | SMS | SNS (VPC endpoint) | `phone_number` |
 | Webhook | HTTP (allowlisted URLs) | `url`, `headers`, `method` |
 | Slack | Slack API (allowlisted) | `webhook_url`, `channel` |
+| PagerDuty | PagerDuty Events API (allowlisted) | `routing_key`, `dedup_key` |
 
 ## Deduplication
 
 Alerts must not re-fire on reprocessing. Dedupe key:
 
 ```sql
-CREATE TABLE alert_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    alert_definition_id UUID NOT NULL,
-    block_hash TEXT NOT NULL,         -- changes on reorg
-    tx_hash TEXT,                     -- nullable for block-level alerts
-    block_number BIGINT NOT NULL,     -- for display, not dedupe
-    triggered_at TIMESTAMPTZ DEFAULT now(),
-    delivered_at TIMESTAMPTZ,
-    delivery_status TEXT,
-    UNIQUE (alert_definition_id, block_hash, tx_hash)
-);
+INSERT INTO alert_events (org_id, dedupe_key, alert_definition_id, payload)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (org_id, dedupe_key) DO NOTHING;
 ```
 
 ### Behavior Matrix
@@ -108,7 +136,7 @@ CREATE TABLE alert_events (
 
 `alert_events` is append-only:
 - Never delete (audit trail)
-- Never update (immutable record)
+- Never update (immutable facts)
 - Orphaned alerts remain, can be flagged via join
 
 ## Rate Limiting

@@ -1,6 +1,6 @@
 # alert_deliver
 
-Deliver triggered alerts to configured channels.
+Deliver alert events to configured channels.
 
 ## Overview
 
@@ -14,14 +14,15 @@ Deliver triggered alerts to configured channels.
 
 ## Description
 
-Takes triggered alert events and delivers notifications to configured channels (email, SMS, webhook). Handles retries and delivery confirmation.
+Takes alert events and delivers notifications to configured channels (email, SMS, webhook). Handles retries and delivery confirmation.
 
 ## Inputs
 
 | Input | Type | Description |
 |-------|------|-------------|
-| `alert_id` | partition | The triggered alert to deliver |
-| `channels` | config (from alert_definitions) | Delivery channels |
+| `cursor` | event | Cursor value from upstream `alert_events` event (e.g., `block_number`) |
+| `alert_events` | storage | Postgres table of alert events (read) |
+| `alert_definitions` | storage | Postgres table of definitions/channels (read) |
 
 ## Outputs
 
@@ -32,7 +33,7 @@ Takes triggered alert events and delivers notifications to configured channels (
 
 ## Execution
 
-- **Dependency**: Runs after alert_evaluate produces triggered alerts
+- **Dependency**: Runs when `alert_events` updates (new alert events)
 - **Manual**: Re-deliver failed alerts
 
 ## Behavior
@@ -53,6 +54,7 @@ Takes triggered alert events and delivers notifications to configured channels (
 | SMS | SNS (via VPC endpoint) | `phone_number` |
 | Webhook | HTTP (allowlisted URLs) | `url`, `headers`, `method` |
 | Slack | Slack API (allowlisted URL) | `webhook_url`, `channel` |
+| PagerDuty | PagerDuty Events API (allowlisted) | `routing_key`, `dedup_key` |
 
 ## Dependencies
 
@@ -69,7 +71,8 @@ Takes triggered alert events and delivers notifications to configured channels (
   execution_strategy: PerUpdate
   idle_timeout: 5m
   config: {}
-  input_datasets: [triggered_alerts]
+  input_datasets: [alert_events]
   output_datasets: [alert_deliveries]
+  update_strategy: replace
   timeout_seconds: 60
 ```

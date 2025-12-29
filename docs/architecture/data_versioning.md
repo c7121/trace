@@ -153,9 +153,9 @@ How jobs write their output:
 For `update_strategy: append`, the job **must** declare a `unique_key`. DAG validation rejects `append` without `unique_key`.
 
 ```sql
-INSERT INTO alert_events (alert_definition_id, block_hash, tx_hash, ...)
+INSERT INTO alert_events (org_id, dedupe_key, ...)
 VALUES (...)
-ON CONFLICT (alert_definition_id, block_hash, tx_hash) DO NOTHING;
+ON CONFLICT (org_id, dedupe_key) DO NOTHING;
 ```
 
 This ensures:

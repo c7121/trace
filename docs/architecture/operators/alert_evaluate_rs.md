@@ -20,15 +20,14 @@ Evaluates user-defined alert conditions against incoming or historical data. Rus
 
 | Input | Type | Description |
 |-------|------|-------------|
-| `alert_id` | partition | Alert definition to evaluate |
-| `data_partition` | partition | Data partition to check |
+| `cursor` | event | Cursor value from upstream dataset event (e.g., `block_number`) |
+| `alert_definitions` | storage | Postgres table of enabled alert definitions (read) |
 
 ## Outputs
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Triggered alerts | `postgres://triggered_alerts` | Rows |
-| Evaluation log | `postgres://alert_evaluations` | Rows |
+| Alert events | `postgres://alert_events` | Rows |
 
 ## Execution
 
@@ -41,8 +40,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Rus
 - Fetches alert definition (condition, thresholds)
 - Loads relevant data partition via Polars (zero-copy where possible)
 - Evaluates condition using compiled logic
-- If triggered: writes to triggered_alerts for delivery
-- Logs evaluation result (pass/fail, metrics)
+- If triggered: inserts an alert into `alert_events` (deduped by `dedupe_key`)
 
 ## Condition Types Supported
 
@@ -57,7 +55,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Rus
 
 - Postgres read access to alert_definitions
 - Data storage read access (S3/Postgres)
-- Postgres write access to triggered_alerts
+- Postgres write access to alert_events
 
 ## Example DAG Config
 
@@ -69,8 +67,10 @@ Evaluates user-defined alert conditions against incoming or historical data. Rus
   execution_strategy: PerUpdate
   idle_timeout: 5m
   config: {}
-  input_datasets: [hot_blocks, alert_definitions]
-  output_datasets: [triggered_alerts, alert_evaluations]
+  input_datasets: [hot_blocks]
+  output_datasets: [alert_events]
+  update_strategy: append
+  unique_key: [dedupe_key]
   timeout_seconds: 60
 ```
 

@@ -16,6 +16,9 @@ erDiagram
     USERS ||--o{ SAVED_QUERIES : creates
     USERS ||--o{ ALERT_DEFINITIONS : creates
     ALERT_DEFINITIONS ||--o{ ALERT_EVENTS : triggers
+    ALERT_EVENTS ||--o{ ALERT_DELIVERIES : delivers
+    ORGS ||--o{ ALERT_EVENTS : owns
+    ORGS ||--o{ ALERT_DELIVERIES : owns
     
     ORGS {
         uuid id PK
@@ -51,7 +54,7 @@ erDiagram
     JOBS {
         uuid id PK
         uuid org_id FK
-        text name UK
+        text name
         text dag_name
         text activation
         text runtime
@@ -143,13 +146,34 @@ erDiagram
     
     ALERT_EVENTS {
         uuid id PK
+        uuid org_id FK
         uuid alert_definition_id FK
+        uuid producer_job_id FK
+        uuid producer_task_id FK
+        text severity
+        bigint chain_id
         text block_hash
         text tx_hash
         bigint block_number
-        timestamptz triggered_at
+        text source_dataset
+        text partition_key
+        text cursor_value
+        jsonb payload
+        text dedupe_key
+        timestamptz created_at
+    }
+
+    ALERT_DELIVERIES {
+        uuid id PK
+        uuid org_id FK
+        uuid alert_event_id FK
+        text channel
+        text status
+        text provider_message_id
+        text error_message
         timestamptz delivered_at
-        text delivery_status
+        timestamptz created_at
+        timestamptz updated_at
     }
     
     PARTITION_VERSIONS {
@@ -202,7 +226,7 @@ Full DDL with constraints and indexes:
 | Domain | Tables | Location |
 |--------|--------|----------|
 | Orchestration | orgs, users, org_roles, org_role_memberships, jobs, tasks, task_inputs, column_lineage | [orchestration.md](../capabilities/orchestration.md) |
-| Alerting | alert_definitions, alert_events | [alerting.md](../capabilities/alerting.md) |
+| Alerting | alert_definitions, alert_events, alert_deliveries | [alerting.md](../capabilities/alerting.md) |
 | Data Versioning | partition_versions, dataset_cursors, data_invalidations | [data_versioning.md](data_versioning.md) |
 | Query Service | saved_queries | [query_service.md](query_service.md) |
 | PII | pii_access_log | [pii.md](../capabilities/pii.md) |

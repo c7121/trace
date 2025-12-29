@@ -63,16 +63,16 @@ jobs:
     update_strategy: replace
     
   # Reactive: evaluate alerts on new blocks
-  - name: alert_evaluate
+  - name: alert_evaluate_rs
     activation: reactive
     runtime: ecs_rust
-    operator: alert_evaluate
+    operator: alert_evaluate_rs
     execution_strategy: PerUpdate
     idle_timeout: 5m
     input_datasets: [hot_blocks]
-    output_datasets: [triggered_alerts]
+    output_datasets: [alert_events]
     update_strategy: append
-    unique_key: [alert_definition_id, block_hash, tx_hash]
+    unique_key: [dedupe_key]
     timeout_seconds: 60
     
   # Batch: compact triggered by daily cron
