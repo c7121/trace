@@ -35,4 +35,4 @@ How the platform tracks data provenance, versioning, and job history.
 ## Related
 
 - [data_versioning.md](../architecture/data_versioning.md) — partition versioning, incremental processing
-- [overview.md](../architecture/overview.md) — data model schema
+- [readme.md](../readme.md) — data model schema

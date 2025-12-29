@@ -120,7 +120,7 @@ flowchart LR
         end
         subgraph Serverless["Serverless"]
             eventbridge["EventBridge"]:::infra
-            lambda["Lambda Sources"]:::container
+            lambda["Lambda Functions"]:::container
         end
         subgraph Storage["Storage"]
             postgres_hot["Postgres (hot data)"]:::database
@@ -151,6 +151,7 @@ flowchart LR
     
     eventbridge -->|cron| lambda
     gateway -->|webhook| lambda
+    dispatcher -->|invoke (runtime=lambda)| lambda
     lambda -->|emit event| dispatcher
     
     dispatcher -->|create tasks| postgres_state
@@ -193,22 +194,33 @@ sequenceDiagram
     participant PG as Postgres (state)
     participant Q as SQS
     participant W as Worker
+    participant L as Lambda (reactive job)
     participant Sink as Dataset Sink
     participant S as Storage
 
     Src->>D: Emit event {dataset, cursor}
     D->>PG: Find jobs where input_datasets matches
     D->>PG: Create tasks
-    D->>Q: Enqueue to operator queue
-    Q->>W: Deliver task
-    W->>D: Fetch task details
-    W->>S: Execute, write output (S3/Postgres)
-    W->>D: Report status + emit event(s) {dataset, cursor|partition_key}
+    alt runtime == lambda
+        D->>L: Invoke {task_id}
+        L->>D: Fetch task details
+        L->>S: Execute, write output (S3/Postgres)
+        L->>D: Report status + emit event(s) {dataset, cursor|partition_key}
+    else runtime == ecs_*
+        D->>Q: Enqueue to operator queue
+        Q->>W: Deliver task
+        W->>D: Fetch task details
+        W->>S: Execute, write output (S3/Postgres)
+        W->>D: Report status + emit event(s) {dataset, cursor|partition_key}
+    end
 
-    Note over W,Sink: For buffered Postgres datasets (ADR 0006)\nworkers publish records to an SQS buffer.
-    W->>Sink: Publish records (buffer)
-    Sink->>S: Write Postgres table
-    Sink->>D: Emit event(s) after commit
+    opt buffered Postgres dataset output (ADR 0006)
+        Note right of Sink: Producers publish records to an SQS buffer.\nThe sink writes Postgres and emits the upstream dataset event after commit.
+        W->>Sink: Publish records (buffer)
+        L->>Sink: Publish records (buffer)
+        Sink->>S: Write Postgres table
+        Sink->>D: Emit event(s) after commit
+    end
 ```
 
 **Flow:** Source emits → Dispatcher routes → Worker executes → Worker emits → repeat.
@@ -363,6 +375,7 @@ dataset as an input receive the event.
 2. Dispatcher queries: jobs where `input_datasets` includes `"hot_blocks"`
 3. For each dependent reactive job:
    - If `runtime: dispatcher` → Dispatcher handles directly
+   - Else if `runtime: lambda` → create task, invoke Lambda
    - Else → create task, enqueue to SQS
 
 **Backpressure:**
@@ -389,7 +402,7 @@ Dispatcher is stateless — all state lives in Postgres. On failure:
 
 ### 2. SQS Queues
 
-Task dispatch mechanism. One queue per runtime.
+Task dispatch mechanism for ECS workers.
 
 **Why SQS over Postgres-as-queue:**
 - Efficient long-polling (workers block on SQS, not busy-loop on Postgres)
@@ -409,14 +422,15 @@ Executors. One worker image per runtime.
 | Runtime | Execution | Use Case |
 |---------|-----------|----------|
 | `dispatcher` | In-process | Virtual operators (aggregator, wire_tap) |
-| `lambda` | AWS Lambda | Cron/webhook/manual sources |
+| `lambda` | AWS Lambda | Cron/webhook/manual sources, lightweight reactive operators |
 | `ecs_rust` | ECS (Rust) | Ingest, transforms, compaction |
 | `ecs_python` | ECS (Python) | ML, pandas |
 
-**Queue model:** One SQS queue per runtime (except `dispatcher`). Task payload includes
-`operator`, `config`, and event context (`cursor` or `partition_key`).
+**Queue model (ECS):** One SQS queue per runtime. Task payload includes `operator`, `config`, and event context (`cursor` or `partition_key`).
 
-**Lambda:** Invoked by EventBridge/API Gateway, emits event to Dispatcher.
+**Lambda sources:** Invoked by EventBridge/API Gateway, emit upstream events to Dispatcher.
+
+**Lambda reactive jobs:** Invoked by Dispatcher when upstream datasets update (for jobs with `runtime: lambda`).
 
 **ECS:** Long-polls SQS, stays warm per `idle_timeout`, heartbeats to Dispatcher.
 

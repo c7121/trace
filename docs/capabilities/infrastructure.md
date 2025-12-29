@@ -26,7 +26,7 @@ flowchart TB
     
     subgraph Serverless["Serverless"]
         EVENTBRIDGE[EventBridge Rules]
-        LAMBDA[Lambda Sources]
+        LAMBDA[Lambda Functions]
     end
     
     subgraph AWS_Services["AWS Services"]
@@ -40,6 +40,7 @@ flowchart TB
     EVENTBRIDGE --> LAMBDA
     APIGW --> LAMBDA
     LAMBDA --> DISPATCHER_SVC
+    DISPATCHER_SVC -->|invoke (runtime=lambda)| LAMBDA
     
     ALB --> DISPATCHER_SVC
     
@@ -77,7 +78,7 @@ flowchart TB
     /ecs           # Cluster, services, task definitions, autoscaling
     /sqs           # FIFO queues, DLQ
     /s3            # Data bucket, lifecycle rules
-    /lambda        # Lambda sources, API Gateway
+    /lambda        # Lambda functions (sources + operators), API Gateway
     /eventbridge   # Cron schedules
   /environments
     /dev

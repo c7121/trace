@@ -35,7 +35,7 @@ Move to "In Progress" when starting, "Done" when complete.
 ### Phase 1: Orchestration
 - [ ] **Postgres schema** — Core tables: `orgs`, `users`, `org_roles`, `org_role_memberships`, `jobs`, `tasks`, `task_inputs`. See [orchestration.md](docs/capabilities/orchestration.md).
 - [ ] **Postgres schema** — Versioning tables: `partition_versions`, `dataset_cursors`, `data_invalidations`. See [data_versioning.md](docs/architecture/data_versioning.md).
-- [ ] **Dispatcher service** — Create tasks, enqueue to SQS, reaper, source monitor, upstream event routing. See [overview.md](docs/architecture/overview.md#1-dispatcher).
+- [ ] **Dispatcher service** — Create tasks, enqueue to SQS, reaper, source monitor, upstream event routing. See [readme.md](docs/readme.md#1-dispatcher).
 - [ ] **DAG sync** — Parse YAML, validate, upsert jobs to Postgres. See [dag_deployment.md](docs/architecture/dag_deployment.md).
 - [ ] **Lambda sources** — Cron source (EventBridge), webhook source (API Gateway), manual source.
 - [ ] **Worker wrapper** — Fetch task from Dispatcher, fetch/inject secrets, heartbeat, execute operator, report status. See [contracts.md](docs/architecture/contracts.md).
