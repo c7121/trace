@@ -102,6 +102,7 @@ jobs:
       mode: backfill
       max_concurrency: 20
     output_datasets: [cold_blocks, cold_transactions, cold_logs]
+    update_strategy: replace
     timeout_seconds: 3600
 ```
 

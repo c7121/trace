@@ -76,5 +76,6 @@ This operator targets **finalized data only**. It does not check hot storage (Po
     sample_rate: 0.01
   input_datasets: [daily_events]
   output_datasets: [integrity_checks]
+  update_strategy: replace
   timeout_seconds: 300
 ```

@@ -63,5 +63,6 @@ Periodically fetches validator duties/attestations/rewards from chain APIs and w
     validators: [0xabc..., 0xdef...]
     epoch_lookback: 2
   output_datasets: [validator_performance]
+  update_strategy: replace
   timeout_seconds: 60
 ```

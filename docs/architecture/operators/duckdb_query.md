@@ -78,6 +78,7 @@ See [Query Capabilities](../query_service.md#query-capabilities) for the support
     output_path: s3://bucket/summaries/daily/
   input_datasets: [hot_transactions, cold_transactions]
   output_datasets: [daily_summaries]
+  update_strategy: replace
   timeout_seconds: 3600
 ```
 

@@ -96,5 +96,6 @@ If `start_block` is not set, operator fails with a configuration error.
     emit_strategy: per_update  # emit downstream event per block
   input_datasets: []
   output_datasets: [hot_blocks, hot_logs]
+  update_strategy: replace
   heartbeat_timeout_seconds: 60
 ```

@@ -63,5 +63,6 @@ Periodically polls a chain tip endpoint, computes the time since the last block,
     expected_block_time_ms: 500
     alert_threshold_ms: 5000
   output_datasets: [liveliness_events]
+  update_strategy: replace
   timeout_seconds: 60
 ```

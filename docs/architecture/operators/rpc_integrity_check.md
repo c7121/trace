@@ -66,5 +66,6 @@ For each new block event, fetch the same block from a configured set of RPC prov
     checks: [block_hash, state_root, tx_count]
     min_agreement: 2
   output_datasets: [rpc_divergence_events]
+  update_strategy: replace
   timeout_seconds: 60
 ```

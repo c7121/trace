@@ -62,6 +62,7 @@ PII column: `address_labels.label` (user-provided). Mark it as PII in dataset me
   source:
     kind: manual
   output_datasets: [address_labels]
+  update_strategy: replace
 ```
 
 ## Related
