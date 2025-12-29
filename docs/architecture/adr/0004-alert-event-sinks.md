@@ -8,6 +8,7 @@
 - Delivery outcomes are recorded in `alert_deliveries` (one row per alert event + channel), written with **replace/upsert semantics** to support retries without double-sending.
 - Multiple jobs/operators may write to `alert_events` (multi-writer) to support many independent “alert checker” producers.
 - `alert_events` and `alert_deliveries` are **platform-managed tables** created by migrations on deploy/startup (Dispatcher does not create tables dynamically).
+- v1 standardizes a simple severity taxonomy: `info`, `warning`, `critical`.
 
 ## Context
 - “Alerts that happened” are first-class facts and must be durable, queryable, and auditable.
@@ -35,4 +36,3 @@
 
 ## Open Questions
 - Delivery destination storage (store full destination vs. store hashes/pointers; impacts PII tagging).
-- Optional standard severity taxonomy (`info`/`warning`/`critical`) vs. freeform strings per producer.

@@ -48,6 +48,7 @@ For results ≤ 10,000 rows:
 
 ```json
 {
+  "query_id": "uuid",
   "columns": [
     {"name": "hash", "type": "varchar"},
     {"name": "block_number", "type": "bigint"},
@@ -69,7 +70,9 @@ For results > 10,000 rows, written to S3 and returned as presigned URL:
 
 ```json
 {
-  "result_url": "https://s3.../results/{org_id}/{query_id}.parquet?X-Amz-...",
+  "query_id": "uuid",
+  "output_path": "s3://bucket/results/{org_id}/{query_id}/",
+  "result_url": "https://s3.../results/{org_id}/{query_id}/result.parquet?X-Amz-...",
   "format": "parquet",
   "row_count": 150000,
   "bytes": 12345678,
@@ -85,9 +88,10 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 ```json
 {
   "mode": "batch",
-  "job_id": "uuid",
+  "query_id": "uuid",
+  "task_id": "uuid",
   "reason": "query exceeds interactive limits",
-  "output_path": "s3://bucket/results/{org_id}/{job_id}/"
+  "output_path": "s3://bucket/results/{org_id}/{query_id}/"
 }
 ```
 
@@ -166,8 +170,8 @@ Logs include: query hash (not full SQL for PII), org_id, user_id, duration, row_
 
 ## Batch Mode
 
-Batch mode creates a `query` job using the same operator as the interactive path.
-Results are written to S3; clients poll job status or use webhooks for completion.
+Batch mode creates a `query` task using the same operator as the interactive path and records a `query_results` row.
+Results are written to S3; clients poll task status or fetch `query_results` by `query_id`.
 
 ## Query Capabilities
 
@@ -200,6 +204,38 @@ CREATE INDEX idx_saved_queries_org ON saved_queries(org_id);
 ```
 
 PII column: `saved_queries.query` (user-provided). Mark it as PII in dataset metadata; see [pii.md](../capabilities/pii.md) for visibility and audit rules.
+
+## Query Results
+
+Query executions (interactive and batch) are recorded in a platform-managed table. See [ADR 0005](adr/0005-query-results.md).
+
+`query_id` in API responses is `query_results.id`.
+
+```sql
+CREATE TABLE query_results (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES orgs(id),
+    user_id UUID REFERENCES users(id),
+    mode TEXT NOT NULL,                -- 'interactive' | 'batch'
+    status TEXT NOT NULL,              -- 'Queued' | 'Running' | 'Succeeded' | 'Failed'
+    sql_hash TEXT NOT NULL,            -- hash only (avoid storing full SQL by default)
+    saved_query_id UUID REFERENCES saved_queries(id),
+    task_id UUID REFERENCES tasks(id), -- set for batch executions
+    output_format TEXT,                -- 'json' | 'csv' | 'parquet'
+    output_location TEXT,              -- e.g., s3://bucket/results/{org_id}/{query_id}/
+    row_count BIGINT,
+    bytes BIGINT,
+    duration_ms INT,
+    error_code TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_query_results_org_time ON query_results(org_id, created_at DESC);
+CREATE INDEX idx_query_results_user_time ON query_results(user_id, created_at DESC);
+CREATE INDEX idx_query_results_task ON query_results(task_id);
+```
 
 ## Deferred
 

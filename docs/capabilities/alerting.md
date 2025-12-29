@@ -65,6 +65,7 @@ CREATE TABLE alert_events (
 
 **DAG contract:**
 - Producers write `output_datasets: [alert_events]` with `update_strategy: append` and `unique_key: [dedupe_key]`.
+- `dedupe_key` must be deterministic from input data and config (examples: `{alert_definition_id}:{block_hash}:{tx_hash}` or `{producer_job_id}:{chain_id}:{block_number}`).
 
 ## Evaluation (Reference Producers)
 
@@ -102,6 +103,8 @@ CREATE TABLE alert_deliveries (
 
 CREATE INDEX idx_alert_deliveries_event ON alert_deliveries(alert_event_id);
 ```
+
+PII note: delivery destinations (email addresses, phone numbers, webhook URLs) live in `alert_definitions.channels`. `alert_deliveries` should not duplicate destinations; store only channel type and provider response metadata.
 
 ### Channels
 

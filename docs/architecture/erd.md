@@ -14,11 +14,15 @@ erDiagram
     JOBS ||--o{ COLUMN_LINEAGE : tracks
     USERS ||--o{ ADDRESS_LABELS : creates
     USERS ||--o{ SAVED_QUERIES : creates
+    USERS ||--o{ QUERY_RESULTS : runs
     USERS ||--o{ ALERT_DEFINITIONS : creates
     ALERT_DEFINITIONS ||--o{ ALERT_EVENTS : triggers
     ALERT_EVENTS ||--o{ ALERT_DELIVERIES : delivers
     ORGS ||--o{ ALERT_EVENTS : owns
     ORGS ||--o{ ALERT_DELIVERIES : owns
+    ORGS ||--o{ QUERY_RESULTS : owns
+    SAVED_QUERIES ||--o{ QUERY_RESULTS : executes
+    TASKS ||--o{ QUERY_RESULTS : records
     
     ORGS {
         uuid id PK
@@ -130,6 +134,26 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
+
+    QUERY_RESULTS {
+        uuid id PK
+        uuid org_id FK
+        uuid user_id FK
+        uuid saved_query_id FK
+        uuid task_id FK
+        text mode
+        text status
+        text sql_hash
+        text output_format
+        text output_location
+        bigint row_count
+        bigint bytes
+        int duration_ms
+        text error_code
+        text error_message
+        timestamptz created_at
+        timestamptz updated_at
+    }
     
     ALERT_DEFINITIONS {
         uuid id PK
@@ -228,6 +252,6 @@ Full DDL with constraints and indexes:
 | Orchestration | orgs, users, org_roles, org_role_memberships, jobs, tasks, task_inputs, column_lineage | [orchestration.md](../capabilities/orchestration.md) |
 | Alerting | alert_definitions, alert_events, alert_deliveries | [alerting.md](../capabilities/alerting.md) |
 | Data Versioning | partition_versions, dataset_cursors, data_invalidations | [data_versioning.md](data_versioning.md) |
-| Query Service | saved_queries | [query_service.md](query_service.md) |
+| Query Service | saved_queries, query_results | [query_service.md](query_service.md) |
 | PII | pii_access_log | [pii.md](../capabilities/pii.md) |
 | Operators | address_labels | [address_labels.md](operators/address_labels.md) |

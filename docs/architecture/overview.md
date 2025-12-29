@@ -460,7 +460,7 @@ Full DDL for all tables:
 - **PII** (pii_access_log): [capabilities/pii.md](../capabilities/pii.md)
 - **Alerting** (alert_definitions, alert_events, alert_deliveries): [capabilities/alerting.md](../capabilities/alerting.md)
 - **Data Versioning** (partition_versions, dataset_cursors, data_invalidations): [data_versioning.md](data_versioning.md)
-- **Query Service** (saved_queries): [query_service.md](query_service.md)
+- **Query Service** (saved_queries, query_results): [query_service.md](query_service.md)
 - **Operators** (address_labels): [operators/address_labels.md](operators/address_labels.md)
 
 ---

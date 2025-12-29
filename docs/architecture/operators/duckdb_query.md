@@ -24,12 +24,13 @@ queries use the query service endpoint.
 | `query` | config | SQL query to execute |
 | `output_format` | config | Result format (parquet, json, csv) |
 | `output_path` | config | Where to write results |
+| `query_id` | config | Query execution id (matches `query_results.id` when invoked by Query Service) |
 
 ## Outputs
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Query results | `s3://{bucket}/results/{job_id}/` | Parquet/JSON/CSV |
+| Query results | `s3://{bucket}/results/{org_id}/{query_id}/` (default) | Parquet/JSON/CSV |
 | Query metadata | `postgres://query_results` | Rows |
 
 ## Execution
@@ -44,7 +45,7 @@ queries use the query service endpoint.
 - Attaches Postgres (hot) and S3/Parquet (cold) as DuckDB sources
 - Executes federated query
 - Writes results to specified output
-- Records execution metadata (rows, duration, bytes scanned)
+- Records execution metadata to `query_results` (rows, duration, bytes scanned, output location)
 
 ## Query Capabilities
 
@@ -56,6 +57,7 @@ See [Query Capabilities](../query_service.md#query-capabilities) for the support
 - Postgres read access
 - S3 read access to cold storage
 - S3 write access for results
+- Postgres write access to `query_results` (see [query_service.md](../query_service.md#query-results))
 
 ## Example DAG Config
 
