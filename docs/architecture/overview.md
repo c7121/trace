@@ -1,6 +1,6 @@
 # ETL Orchestration System Architecture
 
-**Version:** 1.2  
+**Version:** 1.0.0  
 **Date:** December 2025
 
 ---
@@ -398,6 +398,8 @@ Executors. One worker image per runtime.
 **Lambda:** Invoked by EventBridge/API Gateway, emits event to Dispatcher.
 
 **ECS:** Long-polls SQS, stays warm per `idle_timeout`, heartbeats to Dispatcher.
+
+**Architecture (v1):** ECS worker images run on `linux/amd64` to keep user bundle targeting simple. Additional architectures (e.g., `arm64`) can be introduced as separate runtimes in the registry.
 
 ### Runtime Registry (Extensible)
 

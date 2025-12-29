@@ -41,4 +41,6 @@ Additional use cases (custom transforms, enrichments) are in the [backlog](../pl
 
 ## Packaging
 
-UDFs are submitted as code bundles (e.g., single file or zip) and validated before execution. Bundles are versioned and signed; see [security.md](../standards/security.md) for signing requirements.
+UDFs are submitted as code bundles (e.g., zip) and validated before execution. Bundles are versioned and signed; see [security.md](../standards/security.md) for signing requirements.
+
+v1 uses AWS Lambda-style zip bundles (including Rust custom runtime `bootstrap`) executed in ECS for maximum tooling reuse. See [ADR 0003](../architecture/adr/0003-udf-bundles.md).

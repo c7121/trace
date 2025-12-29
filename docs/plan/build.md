@@ -1,32 +1,37 @@
 # Build Plan
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Date:** December 2025
 
 Phased approach: prove orchestration and data flow before user-facing features.
 
-| Phase | Components | Validates |
-|-------|------------|-----------|
-| 0 | Terraform scaffolding (VPC, ECS, SQS, RDS, S3) | Infrastructure provisioning |
-| 1 | Dispatcher + Lambda sources + Worker wrapper | Orchestration layer |
-| 2 | `block_follower` → Postgres | Real-time ingestion to hot storage |
-| 2 | `cryo_ingest` → S3 (parallel) | Historical backfill to cold storage |
-| 3 | Query service + `query` job (hot only) | Query path works |
-| 4 | `parquet_compact` | Hot → cold compaction lifecycle |
-| 5 | Query service + `query` job (federated) | Query spans hot + cold |
-| 6 | `alert_evaluate` + `alert_deliver` | User-facing alerting |
-| 7 | `integrity_check` | Cold storage verification |
+## Phase Summary
 
-## Exit Criteria (concise)
+| Phase | Focus | Validates |
+|-------|-------|-----------|
+| 0 | Infrastructure | Terraform scaffolding (VPC, ECS, SQS, RDS, S3) |
+| 1 | Orchestration | Dispatcher, Lambda sources, Worker wrapper, DAG sync |
+| 2 | Ingestion | `block_follower` → Postgres, `cryo_ingest` → S3 |
+| 3 | Query (Hot) | DuckDB queries against Postgres |
+| 4 | Compaction | `parquet_compact` hot → cold |
+| 5 | Query (Federated) | DuckDB spans Postgres + S3 |
+| 6 | Alerting | `alert_evaluate` + `alert_deliver` |
+| 7 | Integrity | `integrity_check` cold storage verification |
 
-For each phase, all bullets must be true before promotion.
+## Task Tracking
 
-- Functional: happy-path flow for the phase’s components demonstrated end-to-end.
-- Reliability: retries/DLQ configured; >99% success in test env for scoped flows.
-- Performance: basic throughput/latency target set and met for this phase’s scope.
-- Operations: runbook + alerts for the new components are in place and exercised.
-- Security: secrets/roles scoped; images/configs come from signed/artifacted sources.
+See [TODO.md](../../TODO.md) for the canonical task list with detailed acceptance criteria.
 
-### Deferred
+## Exit Criteria
+
+For each phase, all bullets must be true before promotion:
+
+- **Functional**: happy-path flow demonstrated end-to-end
+- **Reliability**: retries/DLQ configured; >99% success in test env
+- **Performance**: throughput/latency target set and met
+- **Operations**: runbook + alerts in place and exercised
+- **Security**: secrets/roles scoped; signed images/configs
+
+## Deferred
 
 See [backlog.md](backlog.md) for non-phase-specific deferred items.

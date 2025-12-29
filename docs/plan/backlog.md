@@ -33,3 +33,12 @@ Non-phase-specific items deferred from v1.
 - Saved queries — save and share queries for reuse
 - Discovery — browse available datasets, jobs, assets within org
 - Per-org and per-user rate limits
+
+## Enterprise Integration Patterns
+
+Patterns for advanced orchestration. See [EIP](https://www.enterpriseintegrationpatterns.com/).
+
+- Wire Tap operator — virtual operator (runtime: dispatcher) that copies events to a secondary destination for debugging/auditing/replay
+- Aggregator operator — fan-in for composite triggers (A AND B, N-of-M, timeout); requires correlation state
+- Correlation ID — `correlation_id` on tasks for end-to-end tracing across job chains
+- Message History — track event path through DAG (`job_path[]` or `event_history` table)

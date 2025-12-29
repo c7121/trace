@@ -19,6 +19,7 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 
 | Input | Type | Description |
 |-------|------|-------------|
+| `chain_id` | config | Target chain (used for S3 layout) |
 | `dataset` | config | Which dataset to compact (blocks, logs, etc.) |
 | `start_block` | config | First block in range |
 | `end_block` | config | Last block in range |
@@ -28,8 +29,8 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Compacted data | `s3://{bucket}/cold/{dataset}/` | Parquet |
-| Manifest | `s3://{bucket}/cold/{dataset}/manifest.json` | JSON |
+| Compacted data | `s3://{bucket}/cold/{chain}/{dataset}/` | Parquet |
+| Manifest | `s3://{bucket}/cold/{chain}/{dataset}/manifest.json` | JSON |
 
 ## Execution
 
@@ -42,7 +43,8 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 - Reads from Postgres hot tables
 - **Only compacts finalized blocks** — waits for finality threshold before compacting
 - Writes Parquet with snappy compression
-- Partitions by block-number range (e.g., `1000000-1010000`)
+- Partitions by block-number range (partition_key `{start}-{end}` inclusive)
+- Uses Cryo-style prefixes: `{dataset}_{start}_{end}*.parquet` (may emit multiple files per range due to `chunk_size`)
 - Optionally deletes compacted rows from hot storage
 - Idempotent: safe to re-run for same range
 - Uses `update_strategy: replace` so reruns overwrite the same partition (used for repair/recompaction)
@@ -68,6 +70,7 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
   operator: parquet_compact
   execution_strategy: Bulk
   config:
+    chain_id: 10143
     dataset: blocks
     chunk_size: 10000
     delete_after_compact: true

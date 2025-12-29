@@ -56,6 +56,8 @@ Partitioned shape:
 { "dataset": "cold_blocks", "partition_key": "1000000-1010000" }
 ```
 
+For block-range partitions, `partition_key` is `{start}-{end}` (inclusive) and maps to Cryo-style Parquet filenames `{dataset}_{start}_{end}.parquet`.
+
 Batch shape:
 
 ```json

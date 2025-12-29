@@ -42,7 +42,7 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ## Behavior
 
 - Idempotent: re-running same range overwrites with identical data
-- Writes Cryo-convention filenames: `{dataset}_{start}_{end}.parquet`
+- Writes Cryo-convention filenames: `{dataset}_{start}_{end}.parquet` (end is inclusive)
 
 ## Scaling
 

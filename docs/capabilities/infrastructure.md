@@ -87,7 +87,7 @@ flowchart TB
 ## Key Resources
 
 - **VPC**: Private/public subnets, VPC endpoints for S3/SQS/Secrets Manager
-- **ECS**: Fargate services, SQS-based autoscaling
+- **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)
 - **RDS**: Postgres 15, encrypted, multi-AZ in prod
 - **SQS**: FIFO with deduplication, 5min visibility, DLQ after 3 failures
 - **S3**: Versioned, lifecycle to Glacier after 1 year

@@ -28,7 +28,7 @@ Tracks the version (last materialization time) and config hash for each partitio
 ```sql
 CREATE TABLE partition_versions (
     dataset TEXT NOT NULL,
-    partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000"
+    partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000" (block ranges are inclusive)
     version TIMESTAMPTZ NOT NULL DEFAULT now(),
     config_hash TEXT,                 -- job config at time of materialization
     schema_hash TEXT,                 -- data shape (columns, types)
@@ -100,7 +100,7 @@ Jobs declare their incremental mode in YAML config:
 For jobs operating on partitioned data (typically cold storage).
 
 **Behavior:**
-1. Trigger fires with `partition_key` (e.g., `"1000000-1010000"`)
+1. Trigger fires with `partition_key` (e.g., `"1000000-1010000"`; block ranges are inclusive)
 2. Job reads entire partition from input dataset
 3. Job writes output partition
 4. System updates `partition_versions` with new version timestamp
