@@ -37,13 +37,7 @@ Measurable targets and global constraints for the platform.
 
 ## Security
 
-See [security.md](security.md) for detailed security requirements.
-
-- Least privilege access throughout.
-- Secrets managed securely; never in code or logs.
-- Encryption in transit and at rest.
-- **No internet egress by default**; allowlisted endpoints only.
-- PII access logged and auditable.
+See [security.md](security.md).
 
 ## Operations
 

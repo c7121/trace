@@ -1,6 +1,17 @@
-# Job Security Model
+# Security
 
-User-defined jobs (alerts, enrichments, custom transforms) can execute arbitrary code. The platform treats all user code as untrusted and enforces isolation at multiple layers.
+Security model for the Trace platform. This document is the single source of truth for security requirements.
+
+## Principles
+
+- **Least privilege**: every component (jobs, workers, services) receives only the permissions required for its function.
+- **Defense in depth**: multiple layers of isolation (container, network, IAM, data).
+- **Zero trust**: all user code is untrusted; all requests are authenticated and authorized.
+- **Encryption everywhere**: data encrypted in transit (TLS 1.2+) and at rest (S3 SSE, RDS encryption).
+- **No secrets in code or logs**: secrets injected at runtime, redacted from all logs and error messages.
+- **Auditability**: all access and actions are logged and attributable to a user/job.
+
+---
 
 ## Threat Model
 
@@ -62,6 +73,7 @@ jobs:
 - User jobs cannot make arbitrary outbound HTTP calls.
 - Platform jobs (e.g., `block_follower`, `cryo_ingest`) may access allowlisted RPC endpoints.
 - No inbound connections to job containers.
+- **TLS required**: all internal and external traffic uses TLS 1.2+.
 
 ## Resource Limits
 
@@ -98,6 +110,17 @@ jobs:
 - All data access logged: datasets read, rows accessed.
 - Anomaly detection: unusual resource consumption, access patterns.
 - Abuse response: automatic job termination, org notification, potential suspension.
+- **Secrets redacted**: all log outputs are scrubbed for secret patterns before persistence.
+- **Retention**: audit logs retained for 1 year minimum (compliance).
+
+## Encryption
+
+- **In transit**: TLS 1.2+ for all connections (API, database, S3, internal services).
+- **At rest**:
+  - S3: SSE-S3 or SSE-KMS (configurable per bucket)
+  - RDS: encrypted storage with AWS-managed or customer-managed KMS key
+  - EBS: encrypted volumes for any ephemeral worker storage
+- **Secrets**: stored in AWS Secrets Manager (encrypted at rest with KMS).
 
 ## User Onboarding Flow
 
