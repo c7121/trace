@@ -10,12 +10,18 @@ A general-purpose data platform for blockchain research and operations: safe, re
 
 ## User stories
 As an analyst or researcher, I can:
-- **Curate** onchain data: select, filter, and organize datasets from blockchain networks.
-- **Combine** onchain data with offchain feeds: enrich blockchain data with external sources.
-- **Enrich** data: add labels, annotations, and computed fields (both real-time and retroactive).
-- **Alert** on data: define conditions and receive notifications on historical and live data.
-- **Analyze** data: run summaries, aggregations, and models across the dataset.
-- **Access both historical and real-time data**: seamless queries across full history and chain tip.
+- **Curate** onchain data:
+    - select, filter, and organize datasets from blockchain networks.
+- **Combine** onchain data with offchain feeds:
+    - enrich blockchain data with external sources.
+- **Enrich** data:
+    - add labels, annotations, and computed fields (both real-time and retroactive).
+- **Alert** on data:
+    - define conditions and receive notifications on historical and live data.
+- **Analyze** data:
+    - run summaries, aggregations, and models across the dataset.
+- **Access both historical and real-time data**:
+    - seamless queries across full history and chain tip.
 
 ## Goals
 - **Safe**: least privilege access; secrets managed securely; full audit trail.
@@ -48,4 +54,4 @@ See [standards/nfr_slo.md](../standards/nfr_slo.md) for detailed targets.
 - **Scalability**: Horizontal scaling; tenant isolation (schema-ready, v1 is single-tenant)
 - **Cost Control**: Budget constraints; runaway spend prevention
 - **Security**: Least privilege; no default egress; PII auditable
-- **Operations** — IaC only; full observability
+- **Operations**: IaC only; full observability
