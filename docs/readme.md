@@ -111,27 +111,19 @@ flowchart LR
             gateway["Gateway (API/CLI)"]:::container
             dispatcher["Dispatcher"]:::container
             registry["Runtime Registry"]:::infra
+            eventbridge["EventBridge (cron)"]:::infra
         end
-        subgraph Queues["Queues (SQS)"]
-            task_sqs["Task Queues"]:::infra
-            buffers["Dataset Buffers"]:::infra
+        subgraph Execution["Execution"]
+            task_sqs["Task Queues (SQS)"]:::infra
+            ecs_workers["ECS Fargate"]:::container
+            lambda["Lambda Functions"]:::container
         end
-        subgraph Workers["Workers"]
-            subgraph WorkersVPC["ECS (VPC)"]
-                ecs_workers["ECS Fargate"]:::container
-                sinks["Dataset Sinks"]:::container
-            end
-            subgraph WorkersLambda["Lambda"]
-                lambda["Lambda Functions"]:::container
-            end
-        end
-        subgraph Serverless["Serverless"]
-            eventbridge["EventBridge"]:::infra
-        end
-        subgraph Storage["Storage"]
-            postgres_hot["Postgres (hot data)"]:::database
+        subgraph Data["Data"]
             postgres_state["Postgres (state)"]:::database
+            postgres_hot["Postgres (hot)"]:::database
             s3["S3 (Parquet cold)"]:::database
+            buffers["Dataset Buffers (SQS)"]:::infra
+            sinks["Dataset Sinks"]:::container
         end
         subgraph Query["Query"]
             duckdb["DuckDB"]:::container
