@@ -102,7 +102,64 @@ flowchart TB
     classDef ext fill:#eee,stroke:#666,color:#000;
 ```
 
-### Container View
+### Container View (C4)
+
+```mermaid
+flowchart TB
+    users["Users"]:::person
+    ops["Platform Ops"]:::person
+
+    subgraph Trace["Trace Platform"]
+        gateway["Gateway"]:::container
+        dispatcher["Dispatcher"]:::container
+        workers["Workers (ECS/Lambda)"]:::container
+        sinks["Dataset Sinks"]:::container
+        delivery["Delivery Service"]:::container
+        query["Query Service (DuckDB)"]:::container
+        postgres[("Postgres")]:::database
+    end
+
+    subgraph AWS["AWS Managed Services"]
+        sqs["SQS"]:::infra
+        s3[("S3")]:::database
+        cognito["Cognito"]:::infra
+        secrets["Secrets Manager"]:::infra
+        eventbridge["EventBridge"]:::infra
+        cloudwatch["CloudWatch"]:::infra
+    end
+
+    rpc["RPC Providers"]:::ext
+    webhooks["External Webhooks"]:::ext
+
+    users -->|API/CLI| gateway
+    ops -->|observe| cloudwatch
+    gateway --> cognito
+    gateway --> dispatcher
+    gateway --> query
+    dispatcher --> postgres
+    dispatcher --> sqs
+    sqs --> workers
+    workers --> postgres
+    workers --> s3
+    workers --> sqs
+    workers --> rpc
+    sinks --> postgres
+    query --> postgres
+    query --> s3
+    delivery --> postgres
+    delivery --> webhooks
+    eventbridge --> workers
+
+    classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
+    classDef container fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+    classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
+    classDef ext fill:#eee,stroke:#666,color:#000;
+```
+
+### Architecture Overview
+
+Detailed view showing internal structure and data flows.
 
 ```mermaid
 flowchart LR
