@@ -110,11 +110,12 @@ flowchart LR
         subgraph Orchestration["Orchestration"]
             gateway["Gateway (API/CLI)"]:::container
             dispatcher["Dispatcher"]:::container
-            registry["Runtime Registry"]:::infra
-            eventbridge["EventBridge (cron)"]:::infra
         end
         subgraph Execution["Execution"]
-            task_sqs["Task Queues (SQS)"]:::infra
+            subgraph Queues["Queues (SQS)"]
+                task_sqs["Task Queues"]:::infra
+                buffers["Dataset Buffers"]:::infra
+            end
             ecs_workers["ECS Fargate"]:::container
             lambda["Lambda Functions"]:::container
         end
@@ -122,22 +123,25 @@ flowchart LR
             postgres_state["Postgres (state)"]:::database
             postgres_hot["Postgres (hot)"]:::database
             s3["S3 (Parquet cold)"]:::database
-            buffers["Dataset Buffers (SQS)"]:::infra
             sinks["Dataset Sinks"]:::container
         end
         subgraph Query["Query"]
             duckdb["DuckDB"]:::container
         end
-        subgraph Platform["Platform Services"]
+        subgraph TracePlatform["Platform (Trace)"]
+            registry["Runtime Registry"]:::infra
             platformAuth["Auth/Policy"]:::infra
+        end
+        subgraph AWSServices["AWS Services"]
+            eventbridge["EventBridge (cron)"]:::infra
             platformSec["Secrets Manager"]:::infra
             platformObs["CloudWatch/CloudTrail"]:::infra
+            idp["Cognito (IdP)"]:::infra
         end
     end
 
     users["Users"]:::person
     ops["Platform Ops"]:::person
-    idp["IdP (Cognito/SSO)"]:::ext
     rpc["RPC Providers"]:::ext
     webhooks["External Webhooks"]:::ext
 
