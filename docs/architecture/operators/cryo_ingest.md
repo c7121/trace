@@ -65,7 +65,8 @@ Each cryo worker is configured with its own RPC API key. To run concurrent backf
   operator: cryo_ingest
   execution_strategy: PerPartition
   idle_timeout: 0
-  input_datasets: [backfill_requests]
+  inputs:
+    - from: { job: backfill_request, output: 0 }
   config:
     chain_id: 10143
     datasets: [blocks, transactions, logs]
@@ -73,7 +74,7 @@ Each cryo worker is configured with its own RPC API key. To run concurrent backf
   scaling:
     mode: backfill        # or 'steady' for single-partition
     max_concurrency: 20   # dispatcher limits parallel jobs
-  output_datasets: [cold_blocks, cold_transactions, cold_logs]
+  outputs: 3
   update_strategy: replace
   timeout_seconds: 3600
 ```

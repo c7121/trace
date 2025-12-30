@@ -8,7 +8,7 @@ Defense-in-depth verification and repair against canonical chain state.
 |----------|-------|
 | **Runtime** | `ecs_rust` |
 | **Activation** | `reactive` |
-| **Execution Strategy** | Bulk |
+| **Execution Strategy** | PerUpdate |
 | **Image** | `integrity_check:latest` |
 
 ## Description
@@ -68,14 +68,15 @@ This operator targets **finalized data only**. It does not check hot storage (Po
   activation: reactive
   runtime: ecs_rust
   operator: integrity_check
-  execution_strategy: Bulk
+  execution_strategy: PerUpdate
+  inputs:
+    - from: { job: daily_trigger, output: 0 }
+  outputs: 1
   config:
     chain_id: 10143
     check_range: last_30d_finalized
     rpc_pool: monad
     sample_rate: 0.01
-  input_datasets: [daily_events]
-  output_datasets: [integrity_checks]
   update_strategy: replace
   timeout_seconds: 300
 ```

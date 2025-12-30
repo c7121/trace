@@ -8,7 +8,7 @@ Execute federated queries across hot and cold storage.
 |----------|-------|
 | **Runtime** | `ecs_rust` |
 | **Activation** | `reactive` |
-| **Execution Strategy** | Bulk |
+| **Execution Strategy** | PerUpdate |
 | **Image** | `duckdb_query:latest` |
 
 ## Description
@@ -66,7 +66,10 @@ See [Query Capabilities](../query_service.md#query-capabilities) for the support
   activation: reactive
   runtime: ecs_rust
   operator: query
-  execution_strategy: Bulk
+  execution_strategy: PerUpdate
+  inputs:
+    - from: { job: daily_trigger, output: 0 }
+  outputs: 1
   config:
     query: |
       SELECT date_trunc('day', block_timestamp) as day,
@@ -76,8 +79,6 @@ See [Query Capabilities](../query_service.md#query-capabilities) for the support
       GROUP BY 1
     output_format: parquet
     output_path: s3://bucket/summaries/daily/
-  input_datasets: [hot_transactions, cold_transactions]
-  output_datasets: [daily_summaries]
   update_strategy: replace
   timeout_seconds: 3600
 ```

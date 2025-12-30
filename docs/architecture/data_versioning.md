@@ -27,7 +27,7 @@ Tracks the version (last materialization time) and config hash for each partitio
 
 ```sql
 CREATE TABLE partition_versions (
-    dataset TEXT NOT NULL,
+    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000" (block ranges are inclusive)
     version TIMESTAMPTZ NOT NULL DEFAULT now(),
     config_hash TEXT,                 -- job config at time of materialization
@@ -35,7 +35,7 @@ CREATE TABLE partition_versions (
     location TEXT,                    -- s3://bucket/path or postgres table
     row_count BIGINT,
     bytes BIGINT,
-    PRIMARY KEY (dataset, partition_key)
+    PRIMARY KEY (dataset_uuid, partition_key)
 );
 ```
 
@@ -45,12 +45,12 @@ Tracks high-water marks for cursor-based incremental jobs.
 
 ```sql
 CREATE TABLE dataset_cursors (
-    dataset TEXT NOT NULL,
+    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     job_id UUID NOT NULL,
     cursor_column TEXT NOT NULL,      -- e.g., "block_number"
     cursor_value TEXT NOT NULL,       -- e.g., "1005000" (stored as text for flexibility)
     updated_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (dataset, job_id)
+    PRIMARY KEY (dataset_uuid, job_id)
 );
 ```
 
@@ -61,7 +61,7 @@ Records when data needs reprocessing (reorgs, corrections, manual fixes).
 ```sql
 CREATE TABLE data_invalidations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    dataset TEXT NOT NULL,
+    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     scope TEXT NOT NULL,              -- 'partition' | 'row_range'
     partition_key TEXT,               -- for scope='partition'
     row_filter JSONB,                 -- for scope='row_range', e.g., {"block_number": {"gte": 995, "lte": 1005}}
@@ -72,7 +72,7 @@ CREATE TABLE data_invalidations (
     processed_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset) WHERE processed_at IS NULL;
+CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset_uuid) WHERE processed_at IS NULL;
 ```
 
 ---
@@ -208,9 +208,9 @@ sequenceDiagram
 When `block_follower` detects a reorg:
 
 ```sql
-INSERT INTO data_invalidations (dataset, scope, row_filter, reason, source_event)
+INSERT INTO data_invalidations (dataset_uuid, scope, row_filter, reason, source_event)
 VALUES (
-    'hot_blocks',
+    'uuid', -- dataset_uuid for hot_blocks
     'row_range',
     '{"block_number": {"gte": 995, "lte": 1005}}',
     'reorg',
@@ -247,7 +247,7 @@ Every job run records the `config_hash` (hash of job config at execution time).
 -- On job completion, update partition version
 UPDATE partition_versions
 SET version = now(), config_hash = $new_config_hash
-WHERE dataset = $dataset AND partition_key = $partition_key;
+WHERE dataset_uuid = $dataset_uuid AND partition_key = $partition_key;
 ```
 
 When config changes:
@@ -309,7 +309,7 @@ The Dispatcher watches for:
 
 ### Upstream Events ("New Rows Exist")
 
-When a job writes to one of its `output_datasets`, it emits an upstream event `{dataset, cursor|partition_key}` to the Dispatcher (one event per output dataset). The Dispatcher routes the event to dependent jobs (those whose `input_datasets` include that dataset) and enqueues tasks.
+When a job writes to one of its outputs, it emits an upstream event `{dataset_uuid, cursor|partition_key}` to the Dispatcher (one event per output). The Dispatcher routes the event to dependent jobs (those whose input edges reference that `dataset_uuid`) and enqueues tasks.
 
 Upstream events are best-effort push. For cursor-based jobs, if an event is missed, the next event catches the job up because it queries `WHERE cursor_column > last_cursor` (from `dataset_cursors`), not `WHERE cursor_column = event_cursor`.
 
@@ -323,19 +323,19 @@ sequenceDiagram
     participant S as Storage
 
     P->>S: Write output
-    P->>D: Emit event {dataset, cursor|partition_key}
+    P->>D: Emit event {dataset_uuid, cursor|partition_key}
     D->>PG: Find dependent jobs
     D->>PG: Create tasks
     D->>Q: Enqueue tasks
     Q->>W: Deliver task
     W->>D: Fetch task details
     W->>S: Read inputs, write outputs
-    W->>D: Report status + emit event(s) {dataset, cursor|partition_key}
+    W->>D: Report status + emit event(s) {dataset_uuid, cursor|partition_key}
 ```
 
 ### Invalidation Handling
 
-Jobs declare their input datasets in the DAG. When an invalidation is created for a dataset, the Dispatcher:
+Jobs declare their input edges in the DAG. When an invalidation is created for a dataset, the Dispatcher:
 
 1. Finds all jobs that depend on the invalidated dataset
 2. Creates tasks with `invalidation_id` in context

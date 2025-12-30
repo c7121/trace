@@ -126,12 +126,19 @@ DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at 
 
 ## Data Sources
 
+Query Service exposes **published** datasets from the dataset registry (see [ADR 0008](adr/0008-dataset-registry-and-publishing.md)). Internal unpublished edges are not directly queryable.
+
 | Source | Attachment | Access |
 |--------|------------|--------|
 | Hot storage | Postgres via `postgres_scanner` | Read-only user |
 | Cold storage | S3 Parquet via `httpfs` / `parquet_scan` | IAM role with S3 read |
 
 Virtual tables (e.g., `transactions`) unify hot and cold transparently.
+
+## Dataset Resolution
+
+- At query start, Query Service resolves `dataset_name -> dataset_uuid -> {backend, location}` from the registry and pins that mapping for the duration of the query (no “moving target” mid-query).
+- Published datasets are attached as DuckDB views/tables using `dataset_name` as the SQL identifier.
 
 ## Authentication
 

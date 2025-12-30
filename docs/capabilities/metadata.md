@@ -27,7 +27,7 @@ How the platform tracks data provenance, versioning, and job history.
 
 ## Debugging and Iteration
 
-- **Inspectable outputs**: every DAG node's output is viewable
+- **Inspectable outputs**: published datasets are discoverable/queryable; internal edges can be made queryable by publishing (see [ADR 0008](../architecture/adr/0008-dataset-registry-and-publishing.md))
 - **Error visibility**: failed jobs expose error messages, stack traces, logs
 - **Edit and re-run**: users can modify a job/node and re-run downstream jobs
 - **Selective re-run**: re-run a single job without re-running upstream

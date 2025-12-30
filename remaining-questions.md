@@ -1,33 +1,46 @@
-# Remaining architecture questions (next session)
+# Remaining architecture questions (follow-ups)
 
-This is the list of unresolved questions to confirm before we edit docs/ADRs.
+This is the list of unresolved questions to confirm and/or capture as ADRs. Docs have begun to be updated; remaining decisions should be reconciled into `docs/` as they’re answered.
 
 ## 1) Side effects (alerts/pages) + rematerialize/rollback
 
-- What is the intended **mechanism** for alerts/pages: a sink operator that calls PagerDuty/Slack directly, or an “alerts dataset” plus a notifier/consumer?
-- Is alerting explicitly **two-stage**:
-  - `alert_evaluate` produces `alert_events` (data)
-  - `alert_deliver` produces `alert_deliveries` (work items)
-  - a separate **Delivery Service** leases `alert_deliveries` and performs side effects (PagerDuty/Slack)?
-- What is the **idempotency key** for side-effect actions (e.g. `alert_rule_id + dataset_id + cursor`, something else)?
-- How do we prevent **backfill/rematerialize** from paging on “old” conditions:
-  - `max_event_age`/time-window gating at the notifier?
-  - an explicit `mode: live|backfill` flag propagated through tasks/events?
-  - something else?
+- Decision: operators/UDFs are **not permitted to communicate with the outside world**; alerts/pages must be delivered via a platform service.
+- Decision: keep delivery routing as **operators**, and keep delivery side effects in a platform **Delivery Service**:
+  - `alert_evaluate` produces `alert_events` (audit: “would have alerted”)
+  - one or more downstream routing operators produce `alert_deliveries` (work items; filtered by severity/channel/etc.)
+  - Delivery Service leases `alert_deliveries`, sends externally, and updates delivery status
+- Decision: use a **single shared `alert_deliveries` table** (or dataset) and a Delivery Service leasing loop; scale by running more Delivery Service instances before sharding by channel/destination.
+- Decision: side-effect idempotency keys are part of the **operator contract** and are assigned by the operator (must be deterministic across retries).
+- Decision: alert detectors emit an explicit **contextual event time** (e.g. `block_timestamp`), and user-configurable routing operators gate delivery creation by per-alert/route config like `max_delivery_age` (still record “would have alerted” rows even if delivery is suppressed).
+- Decision: no `mode: live|backfill` in v1; rely on contextual time-gating + idempotency to avoid “re-firing” during rematerialize/backfill.
 - If a deploy is rolled back, should side-effect operators run under the new DAG version at all, or be **paused** until cutover is stable?
+- Decision: deploy edits/rollbacks do **not** cancel pending `alert_deliveries`; if it made it into the deliveries queue, it should be sent (subject to `max_delivery_age`/`event_time` gating and idempotency).
 
 ## 2) Dataset identity + storage mapping
 
-- `dataset_id` is an opaque string: what are the **allowed characters/length** and the canonical normalization rules (case sensitivity, escaping)?
-- How is `dataset_id` mapped to physical storage across backends (parquet paths, Postgres identifiers): direct embedding, escaping, hashing, or “registry table” indirection?
+- `dataset_name` is a user-defined string: what are the **allowed characters/length** and the canonical normalization rules (case sensitivity, escaping)?
+- How is `dataset_name` mapped to physical storage across backends (parquet paths, Postgres identifiers): direct embedding, escaping, hashing, or “registry table” indirection (vs always using `dataset_uuid` for physical identifiers)?
 - Do we maintain a global **dataset registry table** (per org) that stores dataset metadata + storage location + current producer, and is populated/validated at deploy time (single producer enforcement)?
-- What is the exact shape of `dataset_version` (UUID? `(dag_version, epoch, partition)`?), and how does it relate to atomic cutover/rollback?
+- Permission model for datasets: do we attach ACLs at the dataset level (e.g., `read_roles`, `write_roles`, `owner_org_id`), and do DAGs/users interact with datasets via `{org_id, role, dag_id}` scoped identities?
+- Decision: DAG deploy/trigger permission implies permission to read **and** overwrite/create datasets produced by that DAG (DAG permission ⇒ dataset read+write for produced datasets).
+- Decision: datasets have independent `read_roles` for non-producers (shared reads) while producer DAG deploy/trigger permission still implies read+write.
+- Decision: dataset `read_roles` is managed via admin (registry) controls, not via DAG config.
+- Decision: the dataset registry is authoritative for resolving `dataset_name -> dataset_uuid -> {storage backend, location}` (not purely naming-convention derived).
+- Decision: yes — distinguish:
+  - `dataset_name` (human-readable, user-defined string; unique per org) used in registry + most APIs, and
+  - `dataset_uuid` (system-generated UUID primary key) used internally and in storage paths to avoid escaping issues.
+- Decision: the registry should link datasets back to their producer (`dag_id`, `job`, `output_index`) for navigation and “single producer” enforcement.
+- Decision: DAG YAML wiring can stay index-based; user-visible datasets are created via a top-level `publish:` section that maps `{job, output_index} -> dataset_name`.
+- Decision: `dataset_version` is a system-generated UUID; metadata lives in a `dataset_versions` table and `dataset_current` pointers are swapped atomically for cutover/rollback.
+- Decision: publishing is **metadata-only** (registry update/aliasing) and does not trigger rematerialization/backfill or change how the DAG runs.
+- Backlog: add **snapshot publishes** (pinned/immutable aliases) for “read as-of”; simplest shape is a one-shot/user-triggered action (or operator) that creates a new registry entry pointing to the current `dataset_version` and then never auto-advances.
 
 ## 3) Virtual (SQL) nodes + Query Service
 
 - How should “virtual SQL transforms” be represented in DAG config (e.g., `runtime: sql` + `query` + inputs)?
 - Clarify **Query Service vs Query Operator** responsibilities: small queries inline vs delegate to a standard operator for heavier work; query operator follows the normal worker contract and is swappable (DuckDB/Athena/Trino/etc.).
 - Are cross-backend queries in scope for v1 (parquet + Postgres in one query), or do we restrict to a single execution engine/backend per query?
+- Decision: Query Service only exposes **published** datasets (from `publish:` / registry); internal unpublished edges are not queryable.
 
 ## 4) Deploy/rematerialize mechanics + buffering
 
@@ -43,7 +56,7 @@ This is the list of unresolved questions to confirm before we edit docs/ADRs.
 
 ## 5) Aggregator/Splitter operator details (compaction/batching)
 
-- Where is Aggregator durable state stored (Postgres table schema + key): `{dataset_id, cursor_start, cursor_end, count, updated_at, ...}`?
+- Where is Aggregator durable state stored (Postgres table schema + key): `{dataset_uuid, cursor_start, cursor_end, count, updated_at, ...}`?
 - What is the manifest event schema for a batch range (minimum required fields)?
 - When do we actually need the Splitter (inverse operator) in v1 vs later (parallelism, fan-out, “stream of batches”)?
 
@@ -51,7 +64,7 @@ This is the list of unresolved questions to confirm before we edit docs/ADRs.
 
 - Decision: Dispatcher does **not** coalesce upstream events; keep “1 event → 1 task”.
 - If a job needs “bulk/compaction” behavior, model it explicitly in the DAG (e.g., Aggregator/Splitter) or have the source emit coarser-grain events.
-- Open: keep `execution_strategy: Bulk` in the schema at all? If yes, redefine/rename so it doesn’t imply Dispatcher coalescing.
+- Decision: remove `execution_strategy: Bulk` from the schema (or make it invalid) — “bulk” behavior is expressed explicitly via Aggregator/Splitter (or by source event granularity), not by Dispatcher semantics.
 
 ## 7) Worker contracts (internal APIs)
 
@@ -86,3 +99,7 @@ This is the list of unresolved questions to confirm before we edit docs/ADRs.
 - Event emission API ergonomics: do we support both
   - `POST /internal/events` mid-task, and
   - “final events” bundled with `/internal/task-complete`?
+
+## 12) PII handling (deferred)
+
+- PII tagging, column-level policies, and enforcement is explicitly deferred for a future pass.

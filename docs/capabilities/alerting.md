@@ -4,11 +4,12 @@ User-defined alerts on blockchain data — define conditions, evaluate against l
 
 ## Overview
 
-Alerting is a three-stage pipeline:
+Alerting is a four-stage pipeline:
 
 1. **Definition** — User creates alert rule with conditions and channels
 2. **Evaluation** — System evaluates conditions against data (real-time or historical)
-3. **Delivery** — System sends notifications to configured channels
+3. **Routing** — DAG jobs turn alert events into delivery work items (filters, destinations, staleness gating)
+4. **Delivery** — Platform Delivery Service sends notifications and records outcomes
 
 ## Alert Definitions
 
@@ -55,19 +56,21 @@ CREATE TABLE alert_events (
     block_number BIGINT,
     block_hash TEXT,                    -- changes on reorg
     tx_hash TEXT,                       -- nullable for block-level alerts
-    source_dataset TEXT,                -- dataset that triggered the alert (optional)
+    source_dataset_uuid UUID,           -- upstream dataset (optional)
     partition_key TEXT,                 -- e.g., '1000000-1010000' (optional)
     cursor_value TEXT,                  -- e.g., block height cursor (optional)
     payload JSONB NOT NULL DEFAULT '{}',-- producer-defined details
     dedupe_key TEXT NOT NULL,           -- deterministic idempotency key
+    event_time TIMESTAMPTZ NOT NULL,    -- domain time (e.g., block_timestamp); used for staleness gating
     created_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE (org_id, dedupe_key)
 );
 ```
 
 **DAG contract:**
-- Producers write `output_datasets: [alert_events]` with `update_strategy: append` and `unique_key: [dedupe_key]`.
+- Producers publish `alert_events` and write with `update_strategy: append` and `unique_key: [dedupe_key]`.
 - `dedupe_key` must be deterministic from input data and config (examples: `{alert_definition_id}:{block_hash}:{tx_hash}` or `{producer_job_id}:{chain_id}:{block_number}`).
+- `event_time` must be the contextual “when this happened” time (not task/run time).
 
 ## Evaluation (Reference Producers)
 
@@ -81,10 +84,12 @@ Runtime selection is per-job in the DAG. A single DAG can include multiple evalu
 
 ## Delivery
 
-`alert_deliver` operator (Lambda):
-- Reads from `alert_events`
-- Delivers to configured channels
-- Records delivery status
+Operators/UDFs do **not** communicate with the outside world. Delivery is split into:
+
+- **Routing operators (in the DAG)**: read `alert_events`, apply filters + staleness gating, and create `alert_deliveries` work items.
+- **Delivery Service (platform service)**: leases pending `alert_deliveries`, performs the external send, and updates delivery status.
+
+If a delivery row exists, it should be sent (deploy/rollback does not cancel pending deliveries).
 
 Delivery outcomes are recorded in `alert_deliveries` with one row per `(alert_event_id, channel)`. Retries overwrite/update the same row (replace/upsert semantics).
 
@@ -116,7 +121,7 @@ PII note: delivery destinations (email addresses, phone numbers, webhook URLs) l
 
 ### Delivery Guarantees (Never Missed, No Double-Fire)
 
-`alert_deliveries` is the durable work queue. The delivery worker:
+`alert_deliveries` is the durable work queue. The Delivery Service:
 
 1. Materializes work idempotently: create one row per `(org_id, alert_event_id, channel)` (unique constraint prevents duplicates).
 2. Claims work with a short lease (`leased_until`) so only one worker attempts a delivery at a time; if a worker dies mid-send, the lease expires and another worker retries.
@@ -142,24 +147,28 @@ Without downstream idempotency (provider- or receiver-side), no system can guara
 
 ### Routing (Filters)
 
-To route alerts by severity (or any column), run multiple delivery jobs with filtered inputs. Filters are read-time predicates on the input edge; see [ADR 0007](../architecture/adr/0007-input-edge-filters.md).
+To route alerts by severity (or any column), run multiple routing jobs with filtered inputs. Filters are read-time predicates on the input edge; see [ADR 0007](../architecture/adr/0007-input-edge-filters.md).
+
+Staleness gating is configured in routing jobs (e.g., `max_delivery_age`) and uses `alert_events.event_time`. Routing should still write `alert_events` for audit (“would have alerted”) even when delivery is suppressed.
 
 ```yaml
-- name: deliver_critical
-  operator: alert_deliver
-  input_datasets:
-    - name: alert_events
+- name: route_critical
+  operator: alert_route
+  inputs:
+    - from: { dataset: alert_events }
       where: "severity = 'critical'"
   config:
-    channels: [pagerduty]
+    channel: pagerduty
+    max_delivery_age: 7d
 
-- name: deliver_low
-  operator: alert_deliver
-  input_datasets:
-    - name: alert_events
+- name: route_low
+  operator: alert_route
+  inputs:
+    - from: { dataset: alert_events }
       where: "severity IN ('info','warning')"
   config:
-    channels: [slack]
+    channel: slack
+    max_delivery_age: 7d
 ```
 
 ## Deduplication
@@ -199,7 +208,7 @@ See operator docs for example DAG job entries:
 - [alert_evaluate_ts](../architecture/operators/alert_evaluate_ts.md#example-dag-config)
 - [alert_evaluate_py](../architecture/operators/alert_evaluate_py.md#example-dag-config)
 - [alert_evaluate_rs](../architecture/operators/alert_evaluate_rs.md#example-dag-config)
-- [alert_deliver](../architecture/operators/alert_deliver.md#example-dag-config)
+- [alert_route](../architecture/operators/alert_route.md#example-dag-config)
 
 See [dag_configuration.md](dag_configuration.md) for the job field reference.
 
@@ -208,5 +217,5 @@ See [dag_configuration.md](dag_configuration.md) for the job field reference.
 - [alert_evaluate_ts](../architecture/operators/alert_evaluate_ts.md)
 - [alert_evaluate_py](../architecture/operators/alert_evaluate_py.md)
 - [alert_evaluate_rs](../architecture/operators/alert_evaluate_rs.md)
-- [alert_deliver](../architecture/operators/alert_deliver.md)
+- [alert_route](../architecture/operators/alert_route.md)
 - [data_versioning.md](../architecture/data_versioning.md) — incremental processing and `unique_key` requirements

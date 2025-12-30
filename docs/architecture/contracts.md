@@ -30,17 +30,19 @@ Workers call Dispatcher for:
 
 Workers never have state DB credentials.
 
+Event emission is explicit via `/internal/events`. `/internal/task-complete` is lifecycle-only and should be called only after all intended events are successfully emitted.
+
 ## Task Completion (Worker → Dispatcher)
 
-Task completion includes an `outputs` array so a single task can materialize multiple datasets.
+Task completion includes an `outputs` array so a single task can materialize multiple outputs. Outputs are referenced internally by `dataset_uuid` (and optionally `output_index`).
 
 ```json
 {
   "task_id": "uuid",
   "status": "Completed",
   "outputs": [
-    { "dataset": "hot_blocks", "location": "postgres://hot_blocks", "cursor": 12345, "row_count": 1000 },
-    { "dataset": "hot_logs", "location": "postgres://hot_logs", "cursor": 12345, "row_count": 20000 }
+    { "output_index": 0, "dataset_uuid": "uuid", "location": "postgres://...", "cursor": 12345, "row_count": 1000 },
+    { "output_index": 1, "dataset_uuid": "uuid", "location": "postgres://...", "cursor": 12345, "row_count": 20000 }
   ],
   "error_message": null
 }
@@ -48,48 +50,46 @@ Task completion includes an `outputs` array so a single task can materialize mul
 
 ## Upstream Events (Worker → Dispatcher)
 
-Jobs can produce multiple datasets. DAG wiring is therefore:
-- `input_datasets`: array of dataset names (optionally with per-input filters)
-- `output_datasets`: array of dataset names
+Jobs can produce multiple outputs. DAG wiring in YAML is by `{job, output_index}` edges, but at runtime the Dispatcher routes by the upstream output identity (`dataset_uuid`).
 
-Input filters are read-time predicates applied by the consumer (Dispatcher still routes by dataset name only). See [ADR 0007](adr/0007-input-edge-filters.md).
+Input filters are read-time predicates applied by the consumer. See [ADR 0007](adr/0007-input-edge-filters.md).
 
 YAML example:
 
 ```yaml
-input_datasets:
-  - name: alert_events
+inputs:
+  - from: { dataset: alert_events }
     where: "severity = 'critical'"
 ```
 
-When a task materializes outputs, it emits **one event per output dataset** (either batched or as separate requests).
+When a task materializes outputs, it emits **one event per output** (either batched or as separate requests).
 
 Single-event shape:
 
 ```json
-{ "dataset": "hot_blocks", "cursor": 12345 }
+{ "dataset_uuid": "uuid", "cursor": 12345 }
 ```
 
 Partitioned shape:
 
 ```json
-{ "dataset": "cold_blocks", "partition_key": "1000000-1010000" }
+{ "dataset_uuid": "uuid", "partition_key": "1000000-1010000" }
 ```
 
-For block-range partitions, `partition_key` is `{start}-{end}` (inclusive) and maps to Cryo-style Parquet filenames `{dataset}_{start}_{end}.parquet`.
+For block-range partitions, `partition_key` is `{start}-{end}` (inclusive) and maps to Cryo-style Parquet filenames `{dataset}_{start}_{end}.parquet` (the dataset portion is a user-facing label; storage paths may use UUIDs).
 
 Batch shape:
 
 ```json
 {
   "events": [
-    { "dataset": "hot_blocks", "cursor": 12345 },
-    { "dataset": "hot_logs", "cursor": 12345 }
+    { "dataset_uuid": "uuid", "cursor": 12345 },
+    { "dataset_uuid": "uuid", "cursor": 12345 }
   ]
 }
 ```
 
-Dispatcher routes events to dependent jobs based on `input_datasets`.
+Dispatcher routes events to dependent jobs based on the stored input edges (by upstream `dataset_uuid`).
 
 ## Buffered Postgres Datasets (SQS Buffer → Sink → Postgres)
 
@@ -105,7 +105,7 @@ Message body (example):
 
 ```json
 {
-  "dataset": "alert_events",
+  "dataset_uuid": "uuid",
   "schema_hash": "sha256:...",
   "records": [
     {"org_id": "uuid", "dedupe_key": "job:10143:123", "severity": "warning", "payload": {"msg": "..."}, "created_at": "2025-12-27T12:00:00Z"}

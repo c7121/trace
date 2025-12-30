@@ -61,7 +61,7 @@ See the Build Plan in [docs/plan/build.md](../plan/build.md) for the phased deli
 | Enrich | Add labels, annotations, computed fields | address tagging |
 | Summarize | Aggregate, roll up, compute metrics | daily volumes |
 | Validate | Check invariants, data quality | `integrity_check` |
-| Alert | Evaluate conditions, deliver notifications | `alert_evaluate`, `alert_deliver` |
+| Alert | Evaluate conditions, route notifications | `alert_evaluate`, `alert_route` |
 
 ### Glossary
 
@@ -264,20 +264,20 @@ sequenceDiagram
     participant Sink as Dataset Sink
     participant S as Storage
 
-    Src->>D: Emit event {dataset, cursor}
-    D->>PG: Find jobs where input_datasets matches
+    Src->>D: Emit event {dataset_uuid, cursor}
+    D->>PG: Find dependent jobs by input edges (dataset_uuid)
     D->>PG: Create tasks
     alt runtime == lambda
         D->>L: Invoke {task_id}
         L->>D: Fetch task details
         L->>S: Execute, write output (S3/Postgres)
-        L->>D: Report status + emit event(s) {dataset, cursor|partition_key}
+        L->>D: Report status + emit event(s) {dataset_uuid, cursor|partition_key}
     else runtime == ecs_*
         D->>Q: Enqueue to operator queue
         Q->>W: Deliver task
         W->>D: Fetch task details
         W->>S: Execute, write output (S3/Postgres)
-        W->>D: Report status + emit event(s) {dataset, cursor|partition_key}
+        W->>D: Report status + emit event(s) {dataset_uuid, cursor|partition_key}
     end
 
     opt buffered Postgres dataset output (ADR 0006)
@@ -416,7 +416,7 @@ Central orchestration coordinator. The only platform service.
 **Responsibilities:**
 - Route all upstream events to dependent jobs
 - Create tasks and enqueue to operator queues (SQS)
-- Handle virtual operators (e.g., `aggregator`) directly — no worker needed
+- Handle `runtime: dispatcher` jobs in-process (platform-only)
 - Monitor source job health (ECS workers with `activation: source`, `source.kind: always_on`)
 - Track in-flight jobs per operator (scaling control)
 - Run reaper for dead tasks
@@ -425,24 +425,23 @@ Central orchestration coordinator. The only platform service.
 
 **Event model:**
 
-Every job emits **one event per output dataset** when it materializes data. The event is simple:
+Every job emits **one event per output** when it materializes data. At runtime, outputs are identified by `dataset_uuid` (a system UUID). User-facing `dataset_name` is resolved via the dataset registry for publishing/querying.
 
 ```json
-{"dataset": "hot_blocks", "cursor": 12345}
+{"dataset_uuid": "uuid", "cursor": 12345}
 ```
 
 Events can also include partition or row-range context when relevant:
 
 ```json
-{"dataset": "cold_blocks", "partition_key": "1000000-1010000"}
+{"dataset_uuid": "uuid", "partition_key": "1000000-1010000"}
 ```
 
-The Dispatcher routes based on dataset name alone. Reactive jobs that list the
-dataset as an input receive the event.
+The Dispatcher routes based on the upstream output identity (`dataset_uuid`). Reactive jobs that list the output as an input edge receive the event.
 
 **Event routing:**
-1. Worker emits event: `{dataset: "hot_blocks", cursor: 12345}`
-2. Dispatcher queries: jobs where `input_datasets` includes `"hot_blocks"`
+1. Worker emits event: `{dataset_uuid: "...", cursor: 12345}`
+2. Dispatcher queries: jobs whose input edges reference that `dataset_uuid`
 3. For each dependent reactive job:
    - If `runtime: dispatcher` → Dispatcher handles directly
    - Else if `runtime: lambda` → create task, invoke Lambda
@@ -491,12 +490,12 @@ Executors. One worker image per runtime.
 
 | Runtime | Execution | Use Case |
 |---------|-----------|----------|
-| `dispatcher` | In-process | Virtual operators (aggregator, wire_tap) |
+| `dispatcher` | In-process | Platform-only jobs |
 | `lambda` | AWS Lambda | Cron/webhook/manual sources, lightweight reactive operators |
 | `ecs_rust` | ECS (Rust) | Ingest, transforms, compaction |
 | `ecs_python` | ECS (Python) | ML, pandas |
 
-**Queue model (ECS):** One SQS queue per runtime. Task payload includes `operator`, `config`, and event context (`cursor` or `partition_key`).
+**Queue model (ECS):** One SQS queue per runtime. SQS payload includes `task_id` only; the worker wrapper fetches `operator`, `config`, and event context (`cursor`/`partition_key`) from the Dispatcher.
 
 **Lambda sources:** Invoked by EventBridge/API Gateway, emit upstream events to Dispatcher.
 

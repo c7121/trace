@@ -67,8 +67,9 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
   execution_strategy: PerUpdate
   idle_timeout: 5m
   config: {}
-  input_datasets: [hot_blocks]
-  output_datasets: [alert_events]
+  inputs:
+    - from: { job: block_follower, output: 0 }
+  outputs: 1
   update_strategy: append
   unique_key: [dedupe_key]
   timeout_seconds: 120

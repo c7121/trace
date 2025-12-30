@@ -62,7 +62,7 @@ Periodically fetches validator duties/attestations/rewards from chain APIs and w
     rpc_pool: monad
     validators: [0xabc..., 0xdef...]
     epoch_lookback: 2
-  output_datasets: [validator_performance]
+  outputs: 1
   update_strategy: replace
   timeout_seconds: 60
 ```

@@ -8,7 +8,7 @@ Compact hot storage data into cold Parquet files.
 |----------|-------|
 | **Runtime** | `ecs_rust` |
 | **Activation** | `reactive` |
-| **Execution Strategy** | Bulk |
+| **Execution Strategy** | PerPartition |
 | **Image** | `parquet_compact:latest` |
 
 ## Description
@@ -21,8 +21,7 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 |-------|------|-------------|
 | `chain_id` | config | Target chain (used for S3 layout) |
 | `dataset` | config | Which dataset to compact (blocks, logs, etc.) |
-| `start_block` | config | First block in range |
-| `end_block` | config | Last block in range |
+| `partition_key` | event | Block range to compact (e.g., `"1000000-1010000"`; inclusive) |
 | `chunk_size` | config | Rows per Parquet file |
 
 ## Outputs
@@ -34,7 +33,7 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
 
 ## Execution
 
-- **Threshold**: When hot storage reaches N blocks (from block_follower)
+- **Range-manifest driven**: Triggered by an upstream range/manifest producer (EIP Aggregator) that emits deterministic ranges
 - **Cron**: Scheduled compaction runs
 - **Manual**: On-demand compaction
 
@@ -68,14 +67,15 @@ Reads accumulated data from hot storage (Postgres) and writes optimized Parquet 
   activation: reactive
   runtime: ecs_rust
   operator: parquet_compact
-  execution_strategy: Bulk
+  execution_strategy: PerPartition
+  inputs:
+    - from: { job: block_range_aggregate, output: 0 }
+  outputs: 1
   config:
     chain_id: 10143
     dataset: blocks
     chunk_size: 10000
     delete_after_compact: true
-  input_datasets: [hot_blocks]
-  output_datasets: [cold_blocks]
   update_strategy: replace
   timeout_seconds: 1800
 ```

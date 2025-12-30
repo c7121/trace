@@ -27,6 +27,7 @@ User-defined code runs in isolated containers with strict constraints:
 - **Isolation**: Each invocation runs in its own container (see [security_model.md](../standards/security_model.md) for container/network isolation).
 - **Resource caps**: CPU (0.25 vCPU default), memory (512 MB default), timeout (60s default); configurable per job.
 - **No network**: UDFs cannot make outbound calls; data is injected, results returned.
+- **No platform control-plane access**: UDFs cannot call Trace internal APIs (e.g., `/internal/*`); only the worker wrapper/runtime may interact with platform endpoints.
 - **No filesystem**: Read-only except for ephemeral `/tmp`; no persistent state.
 - **Determinism**: UDFs must be deterministic—same inputs produce same outputs. Required for backfill/replay consistency. Non-deterministic functions (e.g., `random()`, `now()`) are prohibited or injected as parameters.
 - **Allowed imports**: Restricted to a vetted set of libraries per runtime; no arbitrary package installation.

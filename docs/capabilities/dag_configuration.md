@@ -8,12 +8,17 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 
 - **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_rust`, etc).
 - **Job** — a configured instance of an operator inside a DAG (`runtime` + `operator` + `config`).
-- **Dataset** — a named output/input in the DAG wiring. A dataset can be stored in S3 (Parquet) or Postgres, and some Postgres datasets are buffered through an SQS “connection queue” with a platform sink (see ADR 0006).
+- **Dataset** — a user-facing, **published** output with:
+  - `dataset_name` (human-readable string, unique per org) and
+  - `dataset_uuid` (system UUID primary key used internally + in storage paths).
+  The registry is the authoritative mapping from name → UUID → storage backend/location (see [ADR 0008](../architecture/adr/0008-dataset-registry-and-publishing.md)).
+- **Edge** — an internal connection from an upstream job output **by index** (e.g., `block_follower.output[0]`) to a downstream job input. Internal edges do **not** require dataset naming.
+- **Publish** — a top-level mapping that registers a specific `{job, output_index}` as a user-visible dataset in the registry (metadata-only; does not change execution/backfill).
 - **Filter** — an optional read-time predicate on an input edge (e.g., consume only `severity = 'critical'`). Filters are applied by the consumer, not the Dispatcher (see ADR 0007).
 - **Trigger** — what causes a job to run:
   - For `activation: source` jobs, the trigger is `source.kind` (`cron`, `webhook`, `manual`, or `always_on`).
-  - For `activation: reactive` jobs, the trigger is an upstream dataset event on any `input_datasets` (fan-out shaped by `execution_strategy`).
-- **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by dataset names (`input_datasets` / `output_datasets`).
+  - For `activation: reactive` jobs, the trigger is an upstream **output event** on any `inputs` edge (1 upstream event → 1 task; no dispatcher-side bulk/coalescing).
+- **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by explicit `inputs` edges.
 
 ## YAML Schema
 
@@ -28,26 +33,6 @@ defaults:
   max_queue_age: 5m
   backpressure_mode: pause
 
-datasets:
-  # Buffered Postgres dataset: producers write to an SQS buffer, a platform sink writes the table.
-  # Schema is deploy-time configuration; the platform creates the table + indexes.
-  alert_events:
-    storage: postgres
-    write_mode: buffered
-    schema:
-      columns:
-        - { name: org_id, type: uuid, nullable: false }
-        - { name: dedupe_key, type: text, nullable: false }
-        - { name: severity, type: text, nullable: true }
-        - { name: payload, type: jsonb, nullable: false }
-        - { name: created_at, type: timestamptz, nullable: false }
-      unique: [org_id, dedupe_key]
-      indexes:
-        - [org_id, created_at]
-    buffer:
-      kind: sqs
-      fifo: true
-
 jobs:
   # Source: Lambda cron emits daily event
   - name: daily_trigger
@@ -57,7 +42,7 @@ jobs:
     source:
       kind: cron
       schedule: "0 0 * * *"
-    output_datasets: [daily_events]
+    outputs: 1
     update_strategy: replace
 
   # Source: always-running block follower
@@ -70,7 +55,7 @@ jobs:
     config:
       chain_id: 10143
       rpc_pool: monad
-    output_datasets: [hot_blocks, hot_logs]
+    outputs: 2
     update_strategy: replace
     heartbeat_timeout_seconds: 60
 
@@ -81,7 +66,7 @@ jobs:
     operator: manual_source
     source:
       kind: manual
-    output_datasets: [backfill_requests]
+    outputs: 1
     update_strategy: replace
     
   # Reactive: evaluate alerts on new blocks
@@ -89,23 +74,40 @@ jobs:
     activation: reactive
     runtime: ecs_rust
     operator: alert_evaluate_rs
-    execution_strategy: PerUpdate
+    execution_strategy: PerUpdate # cursor-based event input
     idle_timeout: 5m
-    input_datasets: [hot_blocks]
-    output_datasets: [alert_events]
+    inputs:
+      - from: { job: block_follower, output: 0 }
+    outputs: 1
     update_strategy: append
     unique_key: [dedupe_key]
     timeout_seconds: 60
     
-  # Batch: compact triggered by daily cron
+  # Record-count batching: aggregate ordered updates into deterministic ranges (EIP Aggregator)
+  - name: block_range_aggregate
+    activation: reactive
+    runtime: ecs_rust
+    operator: range_aggregator
+    execution_strategy: PerUpdate
+    inputs:
+      - from: { job: block_follower, output: 0 }
+    config:
+      cursor_column: block_number
+      range_size: 10000
+    outputs: 1 # emits range manifests (partition_key like "1000000-1010000")
+    update_strategy: append
+    unique_key: [dedupe_key]
+    timeout_seconds: 60
+
+  # Compaction: consume range manifests and write cold Parquet partitions
   - name: compact_blocks
     activation: reactive
     runtime: ecs_rust
     operator: parquet_compact
-    execution_strategy: Bulk
-    idle_timeout: 0
-    input_datasets: [hot_blocks, daily_events]
-    output_datasets: [cold_blocks]
+    execution_strategy: PerPartition
+    inputs:
+      - from: { job: block_range_aggregate, output: 0 }
+    outputs: 1
     update_strategy: replace
     timeout_seconds: 1800
     
@@ -116,16 +118,50 @@ jobs:
     operator: cryo_ingest
     execution_strategy: PerPartition
     idle_timeout: 0
-    input_datasets: [backfill_requests]
+    inputs:
+      - from: { job: backfill_request, output: 0 }
     config:
       chain_id: 10143
       datasets: [blocks, transactions, logs]
     scaling:
       mode: backfill
       max_concurrency: 20
-    output_datasets: [cold_blocks, cold_transactions, cold_logs]
+    outputs: 3
     update_strategy: replace
     timeout_seconds: 3600
+
+publish:
+  # Publish is metadata-only: it registers a `{job, output_index}` as a user-visible dataset in the registry.
+  # Publishing does not change how the DAG runs; it only affects discoverability + Query Service exposure.
+
+  hot_blocks:
+    from: { job: block_follower, output: 0 }
+
+  hot_logs:
+    from: { job: block_follower, output: 1 }
+
+  alert_events:
+    from: { job: alert_evaluate_rs, output: 0 }
+    storage: postgres
+    write_mode: buffered
+    schema:
+      columns:
+        - { name: org_id, type: uuid, nullable: false }
+        - { name: dedupe_key, type: text, nullable: false }
+        - { name: severity, type: text, nullable: true }
+        - { name: payload, type: jsonb, nullable: false }
+        - { name: event_time, type: timestamptz, nullable: false }
+        - { name: created_at, type: timestamptz, nullable: false }
+      unique: [org_id, dedupe_key]
+      indexes:
+        - [org_id, event_time]
+    buffer:
+      kind: sqs
+      fifo: true
+
+  cold_blocks:
+    from: { job: compact_blocks, output: 0 }
+    storage: s3
 ```
 
 ## Job Fields
@@ -136,35 +172,36 @@ jobs:
 | `activation` | ✅ | `source` or `reactive` |
 | `runtime` | ✅ | `lambda`, `ecs_rust`, `ecs_python`, `dispatcher` |
 | `operator` | ✅ | Operator implementation to run |
-| `output_datasets` | ✅ | Datasets this job produces |
+| `outputs` | ✅ | Number of outputs exposed as `output[0..N-1]` for wiring and publishing |
 | `update_strategy` | ✅ | `append` or `replace` — how outputs are written |
 | `unique_key` | if append | Required for `append` — columns for dedupe |
-| `input_datasets` | reactive | Datasets this job consumes (strings, or `{name, where}` objects) |
-| `execution_strategy` | reactive | `PerUpdate`, `PerPartition`, `Bulk` |
+| `inputs` | reactive | Upstream edges (`from: {job, output}` or `from: {dataset: dataset_name}`), optionally with `where` |
+| `execution_strategy` | reactive | `PerUpdate` or `PerPartition` (Bulk is not supported; use explicit Aggregator/Splitter patterns) |
 | `source` | source | Source config: `kind`, `schedule`, etc. |
 | `config` | | Operator-specific config |
 | `secrets` | | Secret names to inject as env vars |
 | `timeout_seconds` | | Max execution time |
 
-### Input Dataset Filters
+### Input Filters
 
-`input_datasets` supports a long form for read-time filtering:
+`inputs` supports a long form for read-time filtering:
 
 ```yaml
-input_datasets:
-  - name: alert_events
+inputs:
+  - from: { dataset: alert_events }
     where: "severity = 'critical' AND chain_id = 1"
 ```
 
-The Dispatcher still routes by dataset name only; the consumer applies `where` when reading. See [ADR 0007](../architecture/adr/0007-input-edge-filters.md) for the v1 predicate rules.
+The Dispatcher routes by the upstream output identity only; the consumer applies `where` when reading. See [ADR 0007](../architecture/adr/0007-input-edge-filters.md) for the v1 predicate rules.
 
-## Dataset Fields (Optional)
+## Publish Fields (Optional)
 
-Datasets can be declared to configure storage and (for buffered Postgres datasets) schema + buffering. See [ADR 0006](../architecture/adr/0006-buffered-postgres-datasets.md).
+Published datasets can optionally include storage configuration (and for buffered Postgres datasets, schema + buffering). If omitted, storage/backing is resolved via the registry and/or the producing operator’s defaults. See [ADR 0006](../architecture/adr/0006-buffered-postgres-datasets.md).
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `storage` | ✅ | `postgres` or `s3` |
+| `from` | ✅ | `{job, output}` reference to publish |
+| `storage` | | `postgres` or `s3` (optional if preconfigured/implicit) |
 | `write_mode` | postgres | `buffered` (SQS → sink → table) or `direct` (platform jobs only) |
 | `schema` | buffered | Table schema: `columns`, `unique`, `indexes` |
 | `buffer` | buffered | Buffer config (v1: `kind: sqs`, optional `fifo`) |

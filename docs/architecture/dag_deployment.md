@@ -26,6 +26,8 @@ At deploy time, the system:
 
 1. Marks existing jobs for the DAG inactive (so removed jobs stop running)
 2. Upserts each job definition from YAML (so renamed/updated jobs take effect)
+   - Resolves `inputs` edges and `outputs` counts to internal `dataset_uuid`s stored in `jobs.input_datasets` / `jobs.output_datasets`
+   - Applies `publish:` entries to the dataset registry (see [ADR 0008](adr/0008-dataset-registry-and-publishing.md))
 3. Marks the resulting set active
 
 Example SQL (illustrative):
@@ -49,4 +51,3 @@ ON CONFLICT (dag_name, name) DO UPDATE SET
 ```
 
 See [orchestration.md](../capabilities/orchestration.md) for the `jobs` table schema and [data_versioning.md](data_versioning.md) for how `config_hash` interacts with staleness.
-

@@ -2,6 +2,8 @@
 
 Complete data model for all system tables.
 
+Note: `jobs.input_datasets` / `jobs.output_datasets` store internal dataset UUIDs (string form), not user-facing dataset names.
+
 ```mermaid
 erDiagram
     ORGS ||--o{ USERS : contains
@@ -9,6 +11,7 @@ erDiagram
     ORG_ROLES ||--o{ ORG_ROLE_MEMBERSHIPS : includes
     USERS ||--o{ ORG_ROLE_MEMBERSHIPS : assigned
     ORGS ||--o{ JOBS : owns
+    ORGS ||--o{ DATASETS : owns
     JOBS ||--o{ TASKS : creates
     TASKS ||--o{ TASK_INPUTS : records
     JOBS ||--o{ COLUMN_LINEAGE : tracks
@@ -80,6 +83,19 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
+
+    DATASETS {
+        uuid id PK
+        uuid org_id FK
+        text name
+        text producer_dag_name
+        text producer_job_name
+        int producer_output_index
+        jsonb storage
+        text[] read_roles
+        timestamptz created_at
+        timestamptz updated_at
+    }
     
     TASKS {
         uuid id PK
@@ -100,15 +116,15 @@ erDiagram
     
     TASK_INPUTS {
         uuid task_id PK
-        text input_dataset PK
-        text input_partition PK
+        uuid input_dataset_uuid PK
+        text input_partition_key PK
         timestamptz input_version
     }
     
     COLUMN_LINEAGE {
-        text output_dataset PK
+        uuid output_dataset_uuid PK
         text output_column PK
-        text input_dataset PK
+        uuid input_dataset_uuid PK
         text input_column PK
         uuid job_id FK
     }
@@ -179,11 +195,12 @@ erDiagram
         text block_hash
         text tx_hash
         bigint block_number
-        text source_dataset
+        uuid source_dataset_uuid
         text partition_key
         text cursor_value
         jsonb payload
         text dedupe_key
+        timestamptz event_time
         timestamptz created_at
     }
 
@@ -206,7 +223,7 @@ erDiagram
     }
     
     PARTITION_VERSIONS {
-        text dataset PK
+        uuid dataset_uuid PK
         text partition_key PK
         timestamptz version
         text config_hash
@@ -217,7 +234,7 @@ erDiagram
     }
     
     DATASET_CURSORS {
-        text dataset PK
+        uuid dataset_uuid PK
         uuid job_id PK
         text cursor_column
         text cursor_value
@@ -226,7 +243,7 @@ erDiagram
     
     DATA_INVALIDATIONS {
         uuid id PK
-        text dataset
+        uuid dataset_uuid
         text scope
         text partition_key
         jsonb row_filter
@@ -254,7 +271,7 @@ Full DDL with constraints and indexes:
 
 | Domain | Tables | Location |
 |--------|--------|----------|
-| Orchestration | orgs, users, org_roles, org_role_memberships, jobs, tasks, task_inputs, column_lineage | [orchestration.md](../capabilities/orchestration.md) |
+| Orchestration | orgs, users, org_roles, org_role_memberships, jobs, tasks, task_inputs, column_lineage, datasets | [orchestration.md](../capabilities/orchestration.md) |
 | Alerting | alert_definitions, alert_events, alert_deliveries | [alerting.md](../capabilities/alerting.md) |
 | Data Versioning | partition_versions, dataset_cursors, data_invalidations | [data_versioning.md](data_versioning.md) |
 | Query Service | saved_queries, query_results | [query_service.md](query_service.md) |

@@ -4,12 +4,12 @@
 - Accepted (December 2025)
 
 ## Decision
-- Filtering is expressed as an annotation on the **input edge** (the `input_datasets` entry), not as a standalone DAG node.
-- `input_datasets` supports a long form:
-  - `input_datasets: [dataset_a, dataset_b]` (no filter)
-  - `input_datasets: [{ name: dataset_a, where: "..." }]` (filtered)
-- Dispatcher routes by **dataset name only**; filters are applied by the consumer at read time.
-- Cursor semantics are unchanged: on each upstream event, the consumer advances its cursor for the input dataset **even if the filter matches zero rows**.
+- Filtering is expressed as an annotation on the **input edge** (an `inputs` entry), not as a standalone DAG node.
+- `inputs` supports a long form:
+  - `inputs: [{ from: { dataset: dataset_a } }]` (no filter)
+  - `inputs: [{ from: { dataset: dataset_a }, where: "..." }]` (filtered)
+- Dispatcher routes by the upstream output identity (internally `dataset_uuid`); filters are applied by the consumer at read time.
+- Cursor semantics are unchanged: on each upstream event, the consumer advances its cursor for the input edge **even if the filter matches zero rows**.
 
 ## Why
 - Avoids materializing intermediate “filtered datasets” solely for routing.
@@ -25,4 +25,3 @@
 - DAG validation must lint `where` and reject unsupported constructs.
 - Task details include the per-input `where` so operators can apply SQL pushdown (Postgres) or query-engine filtering (DuckDB).
 - When filters need reuse/audit/backpressure as a first-class signal, introduce a real intermediate dataset instead of an edge filter.
-

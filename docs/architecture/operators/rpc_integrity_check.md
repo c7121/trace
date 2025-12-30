@@ -58,14 +58,15 @@ For each new block event, fetch the same block from a configured set of RPC prov
   operator: rpc_integrity_check
   execution_strategy: PerUpdate
   idle_timeout: 5m
-  input_datasets: [hot_blocks]
+  inputs:
+    - from: { job: block_follower, output: 0 }
   secrets: [monad_rpc_key]
   config:
     chain_id: 10143
     rpc_pool: monad
     checks: [block_hash, state_root, tx_count]
     min_agreement: 2
-  output_datasets: [rpc_divergence_events]
+  outputs: 1
   update_strategy: replace
   timeout_seconds: 60
 ```
