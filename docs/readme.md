@@ -120,17 +120,15 @@ flowchart LR
             lambda["Lambda Functions"]:::container
         end
         subgraph Data["Data"]
-            postgres_state["Postgres (state)"]:::database
-            postgres_hot["Postgres (hot)"]:::database
-            s3["S3 (Parquet cold)"]:::database
+            postgres_hot[("Postgres (hot)")]:::database
+            s3[("S3 (Parquet cold)")]:::database
             sinks["Dataset Sinks"]:::container
-        end
-        subgraph Query["Query"]
-            duckdb["DuckDB"]:::container
         end
         subgraph TracePlatform["Platform (Trace)"]
             registry["Runtime Registry"]:::infra
             platformAuth["Auth/Policy"]:::infra
+            postgres_state[("Postgres (state)")]:::database
+            duckdb["DuckDB (Query)"]:::container
         end
         subgraph AWSServices["AWS Services"]
             eventbridge["EventBridge (cron)"]:::infra
