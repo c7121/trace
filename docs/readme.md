@@ -120,8 +120,8 @@ flowchart LR
             lambda["Lambda Functions"]:::container
         end
         subgraph Data["Data"]
-            postgres_hot[("Postgres (hot)")]:::database
-            s3[("S3 (Parquet cold)")]:::database
+            postgres[("Postgres")]:::database
+            s3[("S3 (Parquet)")]:::database
             sinks["Dataset Sinks"]:::container
         end
         subgraph TracePlatform["Platform (Trace)"]
@@ -129,6 +129,7 @@ flowchart LR
             platformAuth["Auth/Policy"]:::infra
             postgres_state[("Postgres (state)")]:::database
             duckdb["DuckDB (Query)"]:::container
+            delivery["Delivery Service"]:::container
         end
         subgraph AWSServices["AWS Services"]
             eventbridge["EventBridge (cron)"]:::infra
@@ -160,25 +161,28 @@ flowchart LR
     task_sqs -->|deliver task| ecs_workers
     
     ecs_workers -->|fetch task, status, heartbeat| dispatcher
-    ecs_workers -->|write hot data| postgres_hot
-    ecs_workers -->|write cold data| s3
+    ecs_workers -->|write| postgres
+    ecs_workers -->|write| s3
     ecs_workers -->|publish buffered records| buffers
     ecs_workers -->|fetch secrets| platformSec
     ecs_workers -->|fetch chain data| rpc
-    ecs_workers -->|deliver alerts| webhooks
     ecs_workers -->|emit telemetry| platformObs
     ecs_workers -->|emit upstream event| dispatcher
 
-    lambda -->|write hot data| postgres_hot
-    lambda -->|write cold data| s3
+    delivery -->|poll pending deliveries| postgres
+    delivery -->|send notifications| webhooks
+    delivery -->|update delivery status| postgres
+
+    lambda -->|write| postgres
+    lambda -->|write| s3
     lambda -->|publish buffered records| buffers
     lambda -->|fetch secrets| platformSec
 
     buffers -->|drain| sinks
-    sinks -->|write hot data| postgres_hot
+    sinks -->|write| postgres
     sinks -->|emit upstream event| dispatcher
     
-    duckdb -->|federated query| postgres_hot
+    duckdb -->|federated query| postgres
     duckdb -->|federated query| s3
 
     classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
@@ -188,7 +192,7 @@ flowchart LR
     classDef ext fill:#eee,stroke:#666,color:#000;
 ```
 
-Storage split: Postgres (state) for orchestration metadata (multi-AZ, PITR); Postgres (hot) for recent mutable data (partitioned with retention); S3 for cold Parquet.
+**Storage:** Postgres (state) holds orchestration metadata (multi-AZ, PITR). Postgres and S3 are available for job data — the "hot" (recent/mutable) vs "cold" (historical/immutable) split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not an architectural distinction. DuckDB federates across both.
 
 ### Event Flow
 
@@ -297,7 +301,7 @@ flowchart LR
     sqs["SQS"]:::infra
     buffers["Dataset Buffers (SQS)"]:::infra
     dispatcher["Dispatcher"]:::component
-    postgres_hot["Postgres (hot)"]:::database
+    postgres["Postgres"]:::database
     s3["S3"]:::database
     secrets["Secrets Manager"]:::infra
     rpc["RPC Providers"]:::ext
@@ -308,8 +312,8 @@ flowchart LR
     wrapper -->|inject config + secrets| operator
     wrapper -->|heartbeat| dispatcher
     
-    operator -->|read/write hot| postgres_hot
-    operator -->|write cold| s3
+    operator -->|read/write| postgres
+    operator -->|write| s3
     operator -->|publish buffered records| buffers
     operator -.->|platform jobs only| rpc
     
@@ -328,12 +332,12 @@ flowchart LR
 flowchart LR
     gateway["Gateway"]:::container
     duckdb["DuckDB"]:::component
-    postgres["Postgres (hot)"]:::database
-    s3["S3 Parquet (cold)"]:::database
+    postgres["Postgres"]:::database
+    s3["S3 (Parquet)"]:::database
 
     gateway -->|SQL query| duckdb
-    duckdb -->|recent data| postgres
-    duckdb -->|historical data| s3
+    duckdb -->|query| postgres
+    duckdb -->|query| s3
 
     classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
     classDef container fill:#d6ffe7,stroke:#1f9a6f,color:#000;

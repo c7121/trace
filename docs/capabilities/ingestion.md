@@ -12,8 +12,10 @@ How data enters the platform — onchain and offchain, real-time and historical.
 
 | Mode | Operator | Storage | Use Case |
 |------|----------|---------|----------|
-| Real-time | `block_follower` | Postgres (hot) | Chain tip, reorg handling |
-| Historical | `cryo_ingest` | S3 Parquet (cold) | Backfills, archive |
+| Real-time | `block_follower` | Postgres | Chain tip, reorg handling |
+| Historical | `cryo_ingest` | S3 (Parquet) | Backfills, archive |
+
+> **Note:** "Hot" (Postgres) and "cold" (S3) are naming conventions used by these operators, not architectural distinctions. Other operators may use either storage backend.
 
 ### Requirements
 
