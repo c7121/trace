@@ -1,4 +1,3 @@
-```markdown
 # Gateway
 
 Entry point for all external API traffic. Routes requests to backend services.
@@ -79,5 +78,3 @@ Allowed origins configured per environment. Default: same-origin only.
 - [query_service.md](../architecture/query_service.md) — query endpoint details
 - [contracts.md](../architecture/contracts.md) — dispatcher API contracts
 - [security_model.md](../standards/security_model.md) — auth model
-
-```

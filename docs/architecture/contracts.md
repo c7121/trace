@@ -10,6 +10,16 @@ SQS message contains only `task_id`. Worker fetches full task details from the D
 { "task_id": "uuid" }
 ```
 
+## Dispatcher → Lambda (runtime=lambda)
+
+For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no SQS). Invocation payload includes only `task_id`:
+
+```json
+{ "task_id": "uuid" }
+```
+
+The Lambda follows the same worker contract: fetch task details and report completion/failure via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is described in [orchestration.md](../capabilities/orchestration.md).
+
 ## Worker → Dispatcher
 
 Workers call Dispatcher for:

@@ -8,7 +8,7 @@ Non-phase-specific items deferred from v1.
 - Physical tenant isolation — logical isolation sufficient for v1
 - Multiple chains — Monad only initially
 - Aggregator (fan-in) virtual operator — requires correlation state per partition
-- Additional worker runtimes in the registry (e.g., `ecs_r`, `ecs_scala`); languages mentioned in `overview.md` beyond v1 are future
+- Additional worker runtimes in the registry (e.g., `ecs_r`, `ecs_scala`) are deferred
 
 ## Data Lineage
 

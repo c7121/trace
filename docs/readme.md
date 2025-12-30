@@ -24,7 +24,7 @@
 
 A general-purpose ETL orchestration system designed for:
 
-- **Multi-runtime support** — Rust, Python, R, TypeScript, Scala
+- **Multi-runtime support** — Rust, Python, TypeScript (v1); additional runtimes are deferred (see backlog)
 - **Asset-based lineage** — Everything produces trackable assets
 - **Flexible partitioning** — Data-driven, not static time-based
 - **Source jobs** — Long-running services with `activation: source` (e.g., blockchain followers)
@@ -111,16 +111,22 @@ flowchart LR
             gateway["Gateway (API/CLI)"]:::container
             dispatcher["Dispatcher"]:::container
             registry["Runtime Registry"]:::infra
-            task_sqs["SQS Task Queues"]:::infra
-            buffers["Dataset Buffers (SQS)"]:::infra
         end
-        subgraph Compute["Workers (VPC)"]
-            workers["Workers (ECS Fargate)"]:::container
-            sinks["Dataset Sink (ECS)"]:::container
+        subgraph Queues["Queues (SQS)"]
+            task_sqs["Task Queues"]:::infra
+            buffers["Dataset Buffers"]:::infra
+        end
+        subgraph Workers["Workers"]
+            subgraph WorkersVPC["ECS (VPC)"]
+                ecs_workers["ECS Fargate"]:::container
+                sinks["Dataset Sinks"]:::container
+            end
+            subgraph WorkersLambda["Lambda"]
+                lambda["Lambda Functions"]:::container
+            end
         end
         subgraph Serverless["Serverless"]
             eventbridge["EventBridge"]:::infra
-            lambda["Lambda Functions"]:::container
         end
         subgraph Storage["Storage"]
             postgres_hot["Postgres (hot data)"]:::database
@@ -157,17 +163,22 @@ flowchart LR
     dispatcher -->|create tasks| postgres_state
     dispatcher -->|resolve runtime| registry
     dispatcher -->|enqueue| task_sqs
-    task_sqs -->|deliver task| workers
+    task_sqs -->|deliver task| ecs_workers
     
-    workers -->|fetch task, status, heartbeat| dispatcher
-    workers -->|write hot data| postgres_hot
-    workers -->|write cold data| s3
-    workers -->|publish buffered records| buffers
-    workers -->|fetch secrets| platformSec
-    workers -->|fetch chain data| rpc
-    workers -->|deliver alerts| webhooks
-    workers -->|emit telemetry| platformObs
-    workers -->|emit upstream event| dispatcher
+    ecs_workers -->|fetch task, status, heartbeat| dispatcher
+    ecs_workers -->|write hot data| postgres_hot
+    ecs_workers -->|write cold data| s3
+    ecs_workers -->|publish buffered records| buffers
+    ecs_workers -->|fetch secrets| platformSec
+    ecs_workers -->|fetch chain data| rpc
+    ecs_workers -->|deliver alerts| webhooks
+    ecs_workers -->|emit telemetry| platformObs
+    ecs_workers -->|emit upstream event| dispatcher
+
+    lambda -->|write hot data| postgres_hot
+    lambda -->|write cold data| s3
+    lambda -->|publish buffered records| buffers
+    lambda -->|fetch secrets| platformSec
 
     buffers -->|drain| sinks
     sinks -->|write hot data| postgres_hot
@@ -434,7 +445,7 @@ Executors. One worker image per runtime.
 
 **Lambda sources:** Invoked by EventBridge/API Gateway, emit upstream events to Dispatcher.
 
-**Lambda reactive jobs:** Invoked by Dispatcher when upstream datasets update (for jobs with `runtime: lambda`).
+**Lambda reactive jobs:** Invoked by Dispatcher when upstream datasets update (jobs with `runtime: lambda`). Dispatcher invokes the Lambda with `task_id` (no SQS) and does not wait; a task is “done” only when the Lambda reports `/internal/task-complete`. Timeouts/crashes are handled by the reaper + retries (`max_attempts`).
 
 **ECS:** Long-polls SQS, stays warm per `idle_timeout`, heartbeats to Dispatcher.
 

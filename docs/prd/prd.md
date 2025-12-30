@@ -42,4 +42,4 @@ As an analyst or researcher, I can:
 
 ## Non-Functional Requirements
 
-See [standards/nfr_slo.md](../standards/nfr_slo.md) for detailed targets.
+See [standards/nfr.md](../standards/nfr.md) for detailed targets.
