@@ -6,24 +6,29 @@ AWS architecture and Terraform structure.
 
 ```mermaid
 flowchart TB
+    %% NOTE: API Gateway is an AWS-managed edge service (not deployed into subnets).
+    %% If private integration is desired, use API Gateway VPC Link -> ALB/NLB.
+    subgraph Edge["AWS Edge / Managed"]
+        APIGW[API Gateway]
+    end
+
     subgraph VPC["VPC"]
         subgraph Public["Public Subnets"]
             ALB[Application Load Balancer]
-            APIGW[API Gateway]
         end
-        
+
         subgraph Private["Private Subnets"]
             subgraph ECS["ECS Cluster"]
                 DISPATCHER_SVC[Dispatcher Service]
-                POLARS_WORKERS[Polars Workers]
-                PYTHON_WORKERS[Python Workers]
+                RUST_WORKERS[Rust Workers (ecs_rust)]
+                PYTHON_WORKERS[Python Workers (ecs_python)]
                 INGEST_WORKERS[Ingest Workers]
             end
-            
+
             RDS[(RDS Postgres)]
         end
     end
-    
+
     subgraph Serverless["Serverless"]
         EVENTBRIDGE[EventBridge Rules]
         LAMBDA[Lambda Functions]
@@ -48,21 +53,21 @@ flowchart TB
     DISPATCHER_SVC --> SQS_QUEUES
     DISPATCHER_SVC --> CW
     
-    SQS_QUEUES --> POLARS_WORKERS
+    SQS_QUEUES --> RUST_WORKERS
     SQS_QUEUES --> PYTHON_WORKERS
     SQS_QUEUES --> INGEST_WORKERS
     
-    POLARS_WORKERS --> DISPATCHER_SVC
+    RUST_WORKERS --> DISPATCHER_SVC
     PYTHON_WORKERS --> DISPATCHER_SVC
     INGEST_WORKERS --> DISPATCHER_SVC
     
-    POLARS_WORKERS -->|hot data| RDS
-    POLARS_WORKERS --> S3_BUCKET
+    RUST_WORKERS -->|hot data| RDS
+    RUST_WORKERS --> S3_BUCKET
     PYTHON_WORKERS -->|hot data| RDS
     PYTHON_WORKERS --> S3_BUCKET
     INGEST_WORKERS -->|hot data| RDS
     
-    POLARS_WORKERS --> SM
+    RUST_WORKERS --> SM
     INGEST_WORKERS --> SM
     
     ECR --> ECS
@@ -87,9 +92,9 @@ flowchart TB
 
 ## Key Resources
 
-- **VPC**: Private/public subnets, VPC endpoints for S3/SQS/Secrets Manager
+- **VPC**: Private/public subnets, VPC endpoints for S3/SQS/Secrets Manager (and other AWS APIs as needed)
 - **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)
-- **RDS**: Postgres 15, encrypted, multi-AZ in prod
+- **RDS**: Postgres 15, encrypted, multi-AZ in prod. Deployed into **private subnets** with no public accessibility.
 - **SQS**: FIFO with deduplication, 5min visibility, DLQ after 3 failures
 - **S3**: Versioned, lifecycle to Glacier after 1 year
 

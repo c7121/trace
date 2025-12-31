@@ -1,6 +1,12 @@
 # Dispatcher
 
-Central orchestration coordinator. The only platform service.
+Central orchestration coordinator. Primary control-plane service.
+
+> **Note on Postgres:** the docs use “Postgres” as a technology for two separate databases:
+> - **Postgres (state)** — control-plane source of truth (jobs, tasks, versions, leases)
+> - **Postgres (data)** — data-plane hot tables (alerts, hot chain tables, query results, etc.)
+>
+> They are deployed as **two separate instances/clusters** (e.g., two RDS databases), even if they share the same engine/version.
 
 ## Architecture Overview
 
@@ -22,7 +28,7 @@ flowchart LR
             lambda["Lambda Functions"]:::container
         end
         subgraph Data["Data"]
-            postgres[("Postgres")]:::database
+            postgres_data[("Postgres (data)")]:::database
             s3[("S3 (Parquet)")]:::database
             sinks["Dataset Sinks"]:::container
         end
@@ -63,7 +69,7 @@ flowchart LR
     task_sqs -->|deliver task| ecs_workers
     
     ecs_workers -->|fetch task, status, heartbeat| dispatcher
-    ecs_workers -->|write| postgres
+    ecs_workers -->|write| postgres_data
     ecs_workers -->|write| s3
     ecs_workers -->|publish buffered records| buffers
     ecs_workers -->|fetch secrets| platformSec
@@ -71,20 +77,20 @@ flowchart LR
     ecs_workers -->|emit telemetry| platformObs
     ecs_workers -->|emit upstream event| dispatcher
 
-    delivery -->|poll pending deliveries| postgres
+    delivery -->|poll pending deliveries| postgres_data
     delivery -->|send notifications| webhooks
-    delivery -->|update delivery status| postgres
+    delivery -->|update delivery status| postgres_data
 
-    lambda -->|write| postgres
+    lambda -->|write| postgres_data
     lambda -->|write| s3
     lambda -->|publish buffered records| buffers
     lambda -->|fetch secrets| platformSec
 
     buffers -->|drain| sinks
-    sinks -->|write| postgres
+    sinks -->|write| postgres_data
     sinks -->|emit upstream event| dispatcher
     
-    duckdb -->|federated query| postgres
+    duckdb -->|federated query| postgres_data
     duckdb -->|federated query| s3
 
     classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;

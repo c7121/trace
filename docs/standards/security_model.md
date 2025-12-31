@@ -65,13 +65,15 @@ jobs:
 ## Network Isolation
 
 - Jobs run in a VPC with **no internet egress by default**.
-- Allowlisted endpoints only:
-  - S3 (via VPC endpoint)
-  - RDS Postgres (via VPC endpoint)
-  - SES/SNS (via VPC endpoint, for alert delivery)
-  - Pre-approved webhook URLs (for alert delivery)
+- Permit outbound traffic only to:
+  - **AWS VPC endpoints / PrivateLink** for required AWS APIs (e.g., S3, SQS, ECR, CloudWatch Logs, Secrets Manager, KMS).
+  - **In-VPC services** (Dispatcher, sinks, Query Service) via private DNS / security groups.
+  - **Designated egress services** that enforce an allowlist for external destinations (Delivery/webhooks, RPC).
+- External egress (internet) is allowed only from dedicated, platform-managed egress services:
+  - **Delivery Service / Webhook Egress Gateway** for outbound webhooks.
+  - **RPC Egress Gateway** (or in-VPC nodes) for blockchain RPC access.
 - User jobs cannot make arbitrary outbound HTTP calls.
-- Platform jobs (e.g., `block_follower`, `cryo_ingest`) may access allowlisted RPC endpoints.
+- Platform jobs (e.g., `block_follower`, `cryo_ingest`) may access allowlisted RPC endpoints **only via the RPC egress gateway** (or an in-VPC node).
 - No inbound connections to job containers.
 - **TLS required**: all internal and external traffic uses TLS 1.2+.
 - Internal platform APIs (`/internal/*`) are reachable only from platform components (e.g., the worker wrapper) and are not directly callable by user/operator code.
