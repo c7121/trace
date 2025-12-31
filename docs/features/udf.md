@@ -4,7 +4,7 @@ User-defined code for alerts, transforms, enrichments, and custom operators.
 
 ## Overview
 
-UDFs allow users to define custom logic in their preferred runtime. All UDFs share a common sandbox and contract.
+UDFs allow users to define custom logic in their preferred runtime.
 
 ## Supported Runtimes
 
@@ -16,65 +16,63 @@ UDFs allow users to define custom logic in their preferred runtime. All UDFs sha
 
 ## Contract
 
-- **Input**: Data partition or row set, plus config/parameters.
-- **Output**: Result set (e.g., triggered alerts, enriched rows, transformed data).
-- **Stateless**: No state persists between invocations; all context passed in.
+- **Input**: A pinned dataset version (or partition/range), plus config/parameters.
+- **Output**: A result set (alerts, enriched rows, transformed partitions).
+- **Stateless**: No state persists between invocations; all context is passed in.
 
 ## Sandbox
 
-User-defined code runs in isolated containers with strict constraints:
+UDFs are **untrusted**. The full sandbox and isolation requirements live in
+[security_model.md](../standards/security_model.md) (single source of truth).
 
-- **Isolation**: Each invocation runs in its own container (see [security_model.md](../standards/security_model.md) for container/network isolation).
-- **Resource caps**: CPU (0.25 vCPU default), memory (512 MB default), timeout (60s default); configurable per job.
-- **No internet egress**: UDFs cannot make arbitrary outbound calls. Network access is limited to in-VPC platform services and required AWS VPC endpoints.
-- **No platform control-plane access**: UDFs cannot call Trace internal APIs (e.g., `/internal/*`); only the worker wrapper/runtime may interact with platform endpoints.
-- **No direct database access**: UDFs cannot connect to Postgres. Any ad-hoc reads must go through the Query Service.
-- **No filesystem**: Read-only except for ephemeral `/tmp`; no persistent state.
-- **Determinism**: UDFs must be deterministic—same inputs produce same outputs. Required for backfill/replay consistency. Non-deterministic functions (e.g., `random()`, `now()`) are prohibited or injected as parameters.
-- **Allowed imports**: Restricted to a vetted set of libraries per runtime; no arbitrary package installation.
+In v1, assume:
 
-### Data Access (v1)
+- Runs in isolated ECS tasks with CPU/memory/timeout limits.
+- No internet egress; UDFs can only call in-VPC platform services and required AWS VPC endpoints.
+- No direct Postgres access; ad-hoc reads go through the Query Service.
+- No Secrets Manager access; secrets (when needed for trusted platform tasks) are injected at task launch.
 
-UDFs are untrusted and therefore never receive broad infrastructure credentials.
+UDFs should be deterministic for backfill/replay. Any non-deterministic values (e.g., time) must be passed explicitly as inputs/parameters.
 
-Instead, UDFs access data through two platform primitives:
+### Data Access
+
+UDFs do not receive broad infrastructure credentials.
+
+They access data through two platform primitives:
 
 1. **Query Service** (SQL gateway)
-   - UDFs can issue arbitrary **SELECT-only** SQL, but only over the datasets declared as inputs to the task.
-   - Query Service pins dataset versions at query start and enforces dataset visibility.
+   - UDFs can issue arbitrary **SELECT-only** SQL, but only over the datasets declared as inputs to the task (enforced by the task capability token).
    - Large results can be exported to S3 (Parquet) and returned as an S3 location.
 
 2. **Credential Broker** (scoped S3 credentials)
-   - At task start, the worker wrapper provides the UDF a short-lived **capability token** that encodes:
-     - `task_id`, `attempt`, `org_id`
-     - allowed input dataset version prefixes (S3)
-     - allowed output prefix (S3)
-     - task scratch/export prefix (S3)
-     - expiry
-   - The UDF exchanges the token with the Credential Broker for short-lived STS credentials restricted to those prefixes.
-   - The UDF uses those credentials to read input Parquet partitions and write output Parquet objects.
-
-This model achieves “arbitrary queries” without granting UDFs any direct network path to Postgres or Secrets Manager.
+   - The worker wrapper provides a short-lived **capability token** for the task attempt.
+   - The UDF exchanges the token for short-lived STS credentials restricted to:
+     - input dataset prefixes
+     - output dataset prefix
+     - task scratch/export prefix
 
 ```mermaid
 flowchart LR
-    subgraph U["UDF Task"]
-        udf["User Code"]:::component
-        wrapper["Worker Wrapper"]:::component
+    subgraph U[UDF Task]
+        wrapper[Worker Wrapper]:::component
+        udf[User Code]:::component
     end
 
-    qs["Query Service"]:::component
-    broker["Credential Broker"]:::component
-    pg[("Postgres hot")]:::database
-    s3[("S3 Parquet")]:::database
+    qs[Query Service]:::component
+    broker[Credential Broker]:::component
+    pg[(Postgres hot)]:::database
+    s3[(S3 Parquet)]:::database
 
-    wrapper -->|"capability token"| udf
-    udf -->|"SELECT SQL"| qs
-    qs -->|"read"| pg
-    qs -->|"read/write"| s3
-    udf -->|"exchange token"| broker
-    broker -->|"scoped STS creds"| udf
-    udf -->|"read/write"| s3
+    wrapper -->|capability token| udf
+
+    udf -->|SELECT SQL| qs
+    qs -->|read| pg
+    qs -->|read/write| s3
+
+    udf -->|exchange token| broker
+    broker -->|scoped STS creds| udf
+
+    udf -->|read/write| s3
 
     classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
     classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
@@ -83,13 +81,16 @@ flowchart LR
 ## Use Cases
 
 | Use Case | Description | Docs |
-|----------|-------------|------|
+|---------|-------------|------|
 | Alert conditions | Evaluate user-defined conditions on data | [alerting.md](alerting.md) |
 
-Additional use cases (custom transforms, enrichments) are in the [backlog](../plan/backlog.md#udf).
+Additional use cases (custom transforms, enrichments) are in the
+[backlog](../plan/backlog.md#udf).
 
 ## Packaging
 
-UDFs are submitted as code bundles (e.g., zip) and validated before execution. Bundles are versioned and signed; see [security_model.md](../standards/security_model.md) for signing requirements.
+UDFs are submitted as code bundles (e.g., zip) and validated before execution.
+See:
 
-v1 uses AWS Lambda-style zip bundles (including Rust custom runtime `bootstrap`) executed in ECS for maximum tooling reuse. See [ADR 0003](../architecture/adr/0003-udf-bundles.md).
+- [ADR 0003](../architecture/adr/0003-udf-bundles.md) for bundle format.
+- [security_model.md](../standards/security_model.md) for signing/provenance requirements.
