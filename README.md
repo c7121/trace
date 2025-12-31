@@ -18,4 +18,4 @@ Trace lets analysts and researchers curate, combine, enrich, alert on, and analy
 
 ## Status
 
-Design phase. See [Build Plan](docs/plan/build.md) for implementation roadmap.
+Design phase. See [backlog.md](docs/plan/backlog.md) for implementation roadmap.

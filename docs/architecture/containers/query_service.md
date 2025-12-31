@@ -10,6 +10,24 @@ Stateless service for interactive and batch SQL queries across hot and cold stor
 | **Runtime** | Rust + embedded DuckDB |
 | **Deployment** | ECS Fargate, behind ALB |
 
+## Component View
+
+```mermaid
+flowchart LR
+    gateway["Gateway"]:::container
+    duckdb["DuckDB"]:::component
+    postgres["Postgres"]:::database
+    s3["S3 (Parquet)"]:::database
+
+    gateway -->|SQL query| duckdb
+    duckdb -->|query| postgres
+    duckdb -->|query| s3
+
+    classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef container fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+```
+
 ## Description
 
 Accepts SQL queries via REST API and executes against federated hot (Postgres) and cold
