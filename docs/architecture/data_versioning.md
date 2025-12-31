@@ -6,6 +6,8 @@ How the system tracks data changes, handles reorgs, and efficiently reprocesses 
 
 **Delivery semantics:** Tasks may be delivered more than once (at-least-once via SQS). Idempotency is achieved through `update_strategy`: `replace` overwrites the scope; `append` dedupes via `unique_key`. The combination provides exactly-once *effect*.
 
+Reactive jobs trigger per upstream output event (1 event → 1 task for each dependent job). To batch/coalesce updates, model it explicitly via operators like `range_aggregator` / `range_splitter`.
+
 **Dataset generations:** Each published dataset has a stable `dataset_uuid`. Deploy/rematerialize creates a new `dataset_version` (a generation) so the platform can build new outputs in parallel and then swap “current” pointers atomically (cutover/rollback). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
 
 Within a single `dataset_version`, the platform still does incremental updates (new partitions/rows) over time. Query pinning ensures reads are not a “moving target” mid-query even while new data arrives.
@@ -198,6 +200,16 @@ This ensures:
 - Reprocessing the same data doesn't create duplicate alerts
 - Reorgs with same tx in new block → new alert (different `block_hash`)
 - Same tx in same block reprocessed → no duplicate (same key)
+
+### Working default idempotency key shape
+
+For append-only datasets that use a single `dedupe_key` column (common for buffered Postgres sinks), a reasonable working default is to dedupe by:
+
+- `producer_task_id` (the producing task/run),
+- `dataset_uuid` (the logical output identity), and
+- a scope key (`cursor_value` or `partition_key` / `{start,end}` range)
+
+This is a guideline (not a mandate) and should be revisited if it causes surprising suppression across producers; multi-writer sinks should include a producer identity (e.g., `producer_job_id` or `alert_definition_id`) in the key when appropriate.
 
 ### Unique Key Requirements
 

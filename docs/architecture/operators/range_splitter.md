@@ -20,6 +20,8 @@ Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010
 | Input | Type | Description |
 |-------|------|-------------|
 | `partition_key` | event | Range to split (e.g., `"1000000-1010000"`) |
+| `start` | event | Inclusive range start (preferred over parsing `partition_key`) |
+| `end` | event | Inclusive range end (preferred over parsing `partition_key`) |
 | `chunk_size` | config | Optional subdivision size (e.g., `1000` blocks per emitted event) |
 
 ## Outputs
@@ -30,8 +32,8 @@ Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010
 
 ## Behavior
 
-- Parses the incoming `partition_key` range.
-- Emits one event per subrange (deterministically) based on `chunk_size`.
+- Uses `start`/`end` fields when present; otherwise parses the incoming `partition_key`.
+- Emits one event per subrange (deterministically) based on `chunk_size`, including `partition_key` plus explicit `start`/`end` fields on each emitted event.
 - Idempotent under retries (deterministic subdivision).
 
 ## Example DAG Config
@@ -50,4 +52,3 @@ Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010
   update_strategy: replace
   timeout_seconds: 60
 ```
-

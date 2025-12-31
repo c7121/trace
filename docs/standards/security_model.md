@@ -74,6 +74,7 @@ jobs:
 - Platform jobs (e.g., `block_follower`, `cryo_ingest`) may access allowlisted RPC endpoints.
 - No inbound connections to job containers.
 - **TLS required**: all internal and external traffic uses TLS 1.2+.
+- Internal platform APIs (`/internal/*`) are reachable only from platform components (e.g., the worker wrapper) and are not directly callable by user/operator code.
 
 ## Resource Limits
 
@@ -87,6 +88,12 @@ jobs:
 
 - **Scoped credentials**: each job receives credentials for only the datasets it's configured to read.
 - **Org isolation**: queries are automatically filtered by `org_id`; jobs cannot access other orgs' data.
+- **Dataset visibility**: dataset read access is enforced via the dataset registry (`datasets.read_roles`) and applies to Query Service reads and DAG-to-dag reads (`inputs: from: { dataset: ... }`).
+  - If `read_roles` is empty: the dataset is private to the producing DAG’s deployers/triggerers plus org admins.
+  - If `read_roles` is non-empty: those org roles also get read access (in addition to producing DAG deployers/triggerers + org admins).
+  - `read_roles` is admin-managed in v1 (registry), not embedded in DAG YAML.
+  - v1 does not implement “anti re-sharing” controls: if you grant someone dataset read access, they can use it in their own DAG (subject to their own DAG permissions).
+- **DAG deploy/trigger permission**: permission to deploy/trigger a DAG implies permission to read and overwrite/create datasets produced by that DAG.
 - **RPC access**:
   - **Platform jobs** (e.g., `block_follower`, `cryo_ingest`): may access allowlisted RPC endpoints.
   - **User jobs** (alerts, enrichments, custom transforms): query platform storage only, no raw RPC access.

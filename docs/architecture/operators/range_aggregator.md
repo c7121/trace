@@ -17,6 +17,8 @@ Consumes an ordered stream of upstream events (e.g., `block_number` updates) and
 
 This makes “bulk/compaction” behavior explicit in the DAG (instead of implicit Dispatcher coalescing).
 
+This is a normal operator node in v1 (not a “virtual” planner node). The inverse operator is [`range_splitter`](range_splitter.md).
+
 ## Inputs
 
 | Input | Type | Description |
@@ -33,11 +35,28 @@ This makes “bulk/compaction” behavior explicit in the DAG (instead of implic
 
 ## Behavior
 
+- Range/window definition belongs to the DAG/operator config (`cursor_column`, `range_size`), not the Dispatcher.
+- v1 assumes ordered inputs for a given cursor (monotonic by `cursor`); if inputs are not ordered, behavior is undefined and should be treated as a configuration error.
 - Maintains durable aggregation state per input stream (e.g., `{last_emitted_end, pending_start}`).
 - On each incoming cursor event:
   - Advances internal cursor tracking
   - When enough progress is observed to form one or more full ranges, emits one manifest event per range.
 - Emission is idempotent under retries (deterministic ranges + unique/constraint-backed bookkeeping).
+
+## Output event shape
+
+Each emitted manifest includes both:
+
+- `partition_key`: `"start-end"` (inclusive), and
+- explicit range fields: `start`, `end` (inclusive)
+
+See `docs/architecture/contracts.md` for the canonical `/internal/events` partitioned event shape.
+
+## Durable state
+
+Aggregation state is persisted in a platform-managed Postgres operator state table keyed by `(org_id, job_id)` (and optionally a `state_key` such as `input_dataset_uuid` if a job needs multiple independent cursors).
+
+See `docs/capabilities/orchestration.md` (`operator_state`) for the schema sketch.
 
 ## Example DAG Config
 
@@ -57,4 +76,3 @@ This makes “bulk/compaction” behavior explicit in the DAG (instead of implic
   unique_key: [dedupe_key]
   timeout_seconds: 60
 ```
-

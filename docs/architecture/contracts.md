@@ -2,6 +2,8 @@
 
 Component boundaries: task payloads, results, and upstream events.
 
+> `/internal/*` endpoints are internal-only and are not exposed to end users. They are called only by platform components (worker wrapper, operator runtimes, sinks, Delivery Service).
+
 ## SQS → Worker
 
 SQS message contains only `task_id`. Worker fetches full task details from the Dispatcher.
@@ -43,11 +45,27 @@ Workers call Dispatcher for:
 
 Workers never have state DB credentials.
 
+Operator/UDF code must not be able to call `/internal/*`. The worker wrapper is the protection boundary: it authenticates to the Dispatcher, fetches task details/secrets, enforces the contract, and runs untrusted operator code with no internal credentials.
+
 Event emission is explicit via `/internal/events` (mid-task) and may also be bundled as “final events” on `/internal/task-complete`.
+
+Workers should only call `/internal/task-complete` after all intended events have been accepted (either emitted earlier via `/internal/events` or included as “final events” on `/internal/task-complete`).
 
 To support retries and late replies (especially for Lambda), workers include an `attempt` number on `/internal/events` and `/internal/task-complete`. The Dispatcher accepts events/completion only for the **current** attempt and rejects stale attempts once a newer attempt has started.
 
 Late replies for the current attempt may still be accepted even if the task was already marked timed out (as long as no newer attempt has started).
+
+Producer identity: upstream events are associated with a producing `task_id` and an `attempt`. The `task_id` is durable across retries and can be treated as a `producer_task_id`/run ID for idempotency and auditing. For long-running sources, the source runtime should preserve a stable producer run ID across restarts whenever feasible (treat restarts like retries of the same run).
+
+### Task Fetch (`/internal/task-fetch`)
+
+Workers fetch task details by `task_id` (read-only from the worker’s perspective):
+
+```
+GET /internal/task-fetch?task_id=<uuid>
+```
+
+If the task is canceled (e.g., during rollback), the Dispatcher may return `status: "Canceled"`. In that case the wrapper exits without running operator code and reports the cancellation via `/internal/task-complete` with `status: "Canceled"`.
 
 ## Task Completion (Worker → Dispatcher)
 

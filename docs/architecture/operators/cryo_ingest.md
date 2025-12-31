@@ -48,6 +48,7 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 
 Each cryo worker is configured with its own RPC API key. To run concurrent backfills:
 - Define a `worker_pools` entry with N slots (each slot maps `MONAD_RPC_KEY` → a distinct secret name)
+- Each slot can include multiple `secret_env` entries if the operator needs more than one secret.
 - Configure the job with `scaling.worker_pool` and `scaling.max_concurrency: N`
 - Dispatcher leases one slot per running task; effective concurrency is `min(max_concurrency, pool size)`
 

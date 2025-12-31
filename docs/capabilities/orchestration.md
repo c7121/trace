@@ -227,6 +227,21 @@ CREATE TABLE column_lineage (
 );
 ```
 
+## Operator State
+
+Some operators maintain durable per-job state (e.g., `range_aggregator` cursor/range bookkeeping). This state lives in Postgres and is keyed by `(org_id, job_id)` plus an optional `state_key` when a single job needs multiple independent state slots.
+
+```sql
+CREATE TABLE operator_state (
+    org_id UUID NOT NULL REFERENCES orgs(id),
+    job_id UUID NOT NULL REFERENCES jobs(id),
+    state_key TEXT NOT NULL DEFAULT 'default',
+    state JSONB NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (org_id, job_id, state_key)
+);
+```
+
 ## Task Lifecycle
 
 The `status` field tracks task state:
@@ -243,6 +258,8 @@ stateDiagram-v2
 ```
 
 **Retry behavior:** Failed tasks retry up to `max_attempts`. The `next_retry_at` field schedules retries with backoff.
+
+**Attempts:** `tasks.attempts` is the current attempt number (0 means “never started”). Each retry reuses the same `task_id`, increments `attempts`, and updates `started_at` for the new attempt.
 
 **Heartbeats:** Running tasks update `last_heartbeat`. Tasks exceeding `heartbeat_timeout_seconds` without a heartbeat are marked Failed by the reaper.
 

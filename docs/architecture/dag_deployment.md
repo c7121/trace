@@ -7,6 +7,7 @@ How `dag.yaml` is parsed and synced into orchestration state (jobs/tasks) and ho
 - DAG YAML is the source of truth; Postgres stores the runtime state.
 - Deployment is idempotent: the same `dag.yaml` produces the same deploy record (`dag_version`) and job definitions.
 - Deploy/rematerialize is **non-destructive** and uses **atomic cutover/rollback** (see [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md)).
+- Reactive triggers are per-update: **1 upstream event → 1 task** for each dependent reactive job (no dispatcher-side coalescing/bulk).
 
 ## Flow
 

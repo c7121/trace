@@ -11,7 +11,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 - **Dataset** — a user-facing, **published** output with:
   - `dataset_name` (human-readable string, unique per org) and
   - `dataset_uuid` (system UUID primary key used internally + in storage paths).
-  The registry is the authoritative mapping from name → UUID and dataset metadata (see [ADR 0008](../architecture/adr/0008-dataset-registry-and-publishing.md)); versioned storage locations are resolved via `dataset_versions` + DAG pointer sets (see [ADR 0009](../architecture/adr/0009-atomic-cutover-and-query-pinning.md)). Some datasets (e.g., buffered sink datasets like `alert_events`) are multi-writer within a DAG.
+  The registry is the authoritative mapping from name → UUID and dataset metadata (see [ADR 0008](../architecture/adr/0008-dataset-registry-and-publishing.md)); versioned storage locations are resolved via `dataset_versions` + DAG pointer sets (see [ADR 0009](../architecture/adr/0009-atomic-cutover-and-query-pinning.md)). Some datasets (e.g., buffered sink datasets like `alert_events`) are multi-writer within a DAG. Reads are gated by registry ACLs (`datasets.read_roles`) for Query Service and cross-DAG `inputs: from: { dataset: ... }`.
 - **Edge** — an internal connection from an upstream job output **by index** (e.g., `block_follower.output[0]`) to a downstream job input. Internal edges do **not** require dataset naming.
 - **Publish** — a top-level mapping that registers a specific `{job, output_index}` as a user-visible dataset in the registry (metadata-only; does not change execution/backfill).
 - **Filter** — an optional read-time predicate on an input edge (e.g., consume only `severity = 'critical'`). Filters are applied by the consumer, not the Dispatcher (see ADR 0007).
@@ -19,6 +19,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
   - For `activation: source` jobs, the trigger is `source.kind` (`cron`, `webhook`, `manual`, or `always_on`).
   - For `activation: reactive` jobs, the trigger is an upstream **output event** on any `inputs` edge (1 upstream event → 1 task; no dispatcher-side bulk/coalescing).
 - **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by explicit `inputs` edges.
+- **Multi-source** — model multiple input streams as multiple source jobs. Each source stream has its own ordered cursor; aggregate per source as needed (e.g., `range_aggregator`), then join downstream.
 - **Worker pool** — optional named pool of per-worker “slots” (env + secrets) used when concurrent tasks must run with distinct credentials (e.g., Cryo backfills where each task needs a unique RPC key). Jobs reference a pool and set `scaling.max_concurrency`; effective concurrency is limited by pool size.
 
 ## YAML Schema

@@ -125,6 +125,8 @@ DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at 
 - For Postgres-backed datasets, views filter underlying tables by `org_id`
 - User cannot query other orgs' data
 
+Dataset registry ACLs (`datasets.read_roles`) are the shared visibility enforcement point across the platform (Query Service reads and DAG-to-dag reads that reference a published dataset by name).
+
 ## Data Sources
 
 Query Service exposes **published** datasets from the dataset registry (see [ADR 0008](adr/0008-dataset-registry-and-publishing.md)). Internal unpublished edges are not directly queryable.
@@ -153,6 +155,8 @@ Concretely (v1 model):
 - Lookup `dataset_version` in `dag_version_datasets` by `(dag_version_id, dataset_uuid)`.
 - Lookup `storage_location` in `dataset_versions` by `(dataset_uuid, dataset_version)`.
 - Attach a DuckDB view named `dataset_name` that points at that pinned `storage_location` (Postgres table/view or S3 prefix/manifest).
+
+For Postgres-backed datasets, `storage_location` points at a UUID-based physical table/view (implementation detail). Query Service keeps user SQL ergonomic by always exposing a stable view named `dataset_name` that resolves to the pinned physical location at query start.
 
 Pinning means no “moving target” mid-query:
 - Postgres reads run inside a single transaction snapshot (e.g., `REPEATABLE READ`).

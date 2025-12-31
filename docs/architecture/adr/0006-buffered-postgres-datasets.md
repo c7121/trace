@@ -7,6 +7,7 @@
 - The platform supports a general “buffer → sink” pattern for Postgres-backed datasets:
   - Producers **publish records** to a dataset buffer (SQS).
   - A platform-managed sink service drains the buffer and writes to a Postgres table.
+- v1 uses **one SQS queue per buffered dataset** and a sink consumer per dataset queue (shared code, per-dataset config) for isolation and backpressure visibility.
 - Dataset schema is declared at deploy time (as part of publishing the dataset in DAG config / registry) and the platform creates the table (and indexes/constraints) during deploy/startup.
 - v1 uses **SQS** for dataset buffers (Kinesis is deferred until real throughput/ordering problems are observed).
 
