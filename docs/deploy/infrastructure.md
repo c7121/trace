@@ -20,8 +20,8 @@ flowchart TB
         subgraph Private["Private Subnets"]
             subgraph ECS["ECS Cluster"]
                 DISPATCHER_SVC[Dispatcher Service]
-                RUST_WORKERS[Rust Workers (ecs_rust)]
-                PYTHON_WORKERS[Python Workers (ecs_python)]
+                RUST_WORKERS["Rust Workers - ecs_rust"]
+                PYTHON_WORKERS["Python Workers - ecs_python"]
                 INGEST_WORKERS[Ingest Workers]
             end
 
