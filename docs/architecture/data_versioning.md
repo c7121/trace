@@ -72,7 +72,7 @@ Jobs declare their incremental mode in YAML config:
 For jobs operating on partitioned data (typically cold storage).
 
 **Behavior:**
-1. Upstream completion emits an event `{dataset_uuid, dataset_version, partition_key}` (at-least-once).
+1. After output commit, Dispatcher emits an event `{dataset_uuid, dataset_version, partition_key}` (at-least-once).
 2. Dispatcher creates a downstream task pinned to the triggering `dataset_version`.
 3. Job reads the input partition and writes the output partition (replace).
 4. Dispatcher records the materialization in `partition_versions` when it accepts task completion.
@@ -119,6 +119,19 @@ How jobs write their output:
 |----------|----------|----------|
 | `replace` | Overwrite a materialized scope (partition/range) | Compaction, rollups, derived views |
 | `append` | Append immutable facts, dedupe by `unique_key` | Event logs, audit trails |
+
+### Replace Output Commit Protocol (S3 / Parquet)
+
+`update_strategy: replace` must be crash-safe and tolerate retries. The platform separates **write** from **commit**:
+
+1. **Write (worker)**: write Parquet objects to a unique, attempt-scoped **staging prefix** (includes `task_id` + `attempt`).
+2. **Finalize (worker)**: write a small `_manifest.json` and a `_SUCCESS` marker under the same prefix.
+3. **Commit (Dispatcher)**: on `/internal/task-complete`, verify the marker/manifest exists and atomically update scope metadata (e.g., `partition_versions`) for `(dataset_uuid, dataset_version, partition_key)` to point at the staging prefix.
+4. **Emit (Dispatcher)**: only after commit, emit the upstream event `{dataset_uuid, dataset_version, partition_key}`.
+
+This avoids S3 “renames” (copy+delete) and avoids rewriting data: Parquet files are written once; commit is metadata.
+
+Uncommitted staging prefixes are garbage-collected after a TTL.
 
 ### Replace and Downstream Invalidations
 
@@ -260,31 +273,19 @@ The Dispatcher watches for:
 2. **Unprocessed invalidations** → create tasks with invalidation context
 3. **Manual sources** → create tasks via API
 
-### Upstream Events ("New Rows Exist")
+### Upstream Events (New Rows Exist)
 
-When a job writes to one of its outputs, it emits an upstream event `{dataset_uuid, cursor|partition_key}` to the Dispatcher (one event per output). The Dispatcher routes the event to dependent jobs (those whose input edges reference that `dataset_uuid`) and enqueues tasks.
+When a task materializes an output, it reports completion to the Dispatcher with `outputs` describing what was written (including the changed scope: `cursor` or `partition_key`). The Dispatcher then:
 
-Upstream events are best-effort push. For cursor-based jobs, if an event is missed, the next event catches the job up because it queries `WHERE cursor_column > last_cursor` (from `dataset_cursors`), not `WHERE cursor_column = event_cursor`.
+1. **Commits** the output for the pinned `{dataset_uuid, dataset_version}` (updates `partition_versions` or advances `dataset_cursors`).
+2. **Emits** an upstream event `{dataset_uuid, dataset_version, cursor|partition_key}` after commit.
 
-```mermaid
-sequenceDiagram
-    participant P as Producer (source/reactive)
-    participant D as Dispatcher
-    participant PG as Postgres (state)
-    participant Q as SQS
-    participant W as Worker
-    participant S as Storage
+Events are **wake-ups**, not authoritative payloads: duplicates and out-of-order delivery are expected.
 
-    P->>S: Write output
-    P->>D: Emit event {dataset_uuid, cursor|partition_key}
-    D->>PG: Find dependent jobs
-    D->>PG: Create tasks
-    D->>Q: Enqueue tasks
-    Q->>W: Deliver task
-    W->>D: Fetch task details
-    W->>S: Read inputs, write outputs
-    W->>D: Report status + emit event(s) {dataset_uuid, cursor|partition_key}
-```
+- For cursor-based jobs, missed events are harmless because consumers query `WHERE cursor_column > last_cursor` (from `dataset_cursors`), not `WHERE cursor_column = event_cursor`.
+- For partition-based jobs, events may be dropped; the Dispatcher must periodically reconcile upstream partitions vs downstream materializations to schedule any missing partitions.
+
+See [event_flow.md](event_flow.md) for the end-to-end sequence.
 
 ### Invalidation Handling
 

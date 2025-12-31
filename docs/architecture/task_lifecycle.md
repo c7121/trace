@@ -133,7 +133,8 @@ These loops ensure:
 Ordering is enforced by **DAG dependencies** and **dataset versioning**, not by queue ordering.
 
 - SQS is treated as unordered at-least-once.
-- Schema changes and "add column" style changes are handled by dataset generations (`dataset_version`) and atomic cutover.
+- Schema evolution is a first-class ETL concern: jobs may add/rename/recode fields as part of their output.
+- Correctness comes from pinning to `{dataset_uuid, dataset_version}` and committing outputs atomically; avoid in-place DDL on shared Postgres tables (especially from untrusted code).
 
 ## Related
 

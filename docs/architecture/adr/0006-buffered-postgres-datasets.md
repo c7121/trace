@@ -29,7 +29,8 @@
 
 ## Consequences
 - Dataset update events for buffered datasets are emitted **by the sink** after commit (not directly by producers).
-- Schema changes are deploy-time concerns (DAG update + migration behavior), not runtime “first writer creates table”.
+- Buffered Postgres dataset schema is managed by the platform and updated via deploy-time migrations (DAG update + controlled migration), not runtime “first writer creates table”.
+- Schema evolution for derived datasets is a first-class ETL concern and is handled via dataset versions and output commits (see [data_versioning.md](../data_versioning.md)).
 - Multi-writer datasets are supported: multiple producers can publish to the same buffer and rely on sink-side idempotency keys / unique constraints.
 
 ## Open Questions

@@ -19,16 +19,20 @@ sequenceDiagram
     D->>PG: Create downstream tasks (dedupe)
     alt runtime == lambda
         D->>L: Invoke with full task payload
-        L->>S: Execute, write output
-        L->>D: POST /internal/task-complete {task_id, attempt, lease_token, status, events}
+        L->>S: Execute, write output to staging
+        L->>D: POST /internal/task-complete {task_id, attempt, lease_token, status, outputs}
+        D->>PG: Commit outputs (advance cursor or record partition)
+        D->>D: Emit and route dataset events after commit
     else runtime == ecs_*
         D->>TaskQ: Enqueue wake-up {task_id}
         TaskQ->>W: Deliver {task_id}
         W->>D: POST /internal/task-claim {task_id, worker_id}
         D->>PG: Acquire lease (Queued -> Running)
         D->>W: {attempt, lease_token, task payload}
-        W->>S: Execute, write output
-        W->>D: POST /internal/task-complete {task_id, attempt, lease_token, status, events}
+        W->>S: Execute, write output to staging
+        W->>D: POST /internal/task-complete {task_id, attempt, lease_token, status, outputs}
+        D->>PG: Commit outputs (advance cursor or record partition)
+        D->>D: Emit and route dataset events after commit
     end
 
     opt buffered Postgres dataset output (ADR 0006)
@@ -45,6 +49,7 @@ sequenceDiagram
 
 - SQS is treated as unordered at-least-once. Workers must claim tasks (leases) before running.
 - Workers extend SQS visibility for long tasks and heartbeat leases to Dispatcher.
+- For `replace` outputs to S3, workers write to a staging prefix and the Dispatcher commits the output (metadata) before routing events (see [data_versioning.md](data_versioning.md)).
 
 ## Related
 
