@@ -560,9 +560,9 @@ See [erd.md](erd.md) for the complete entity relationship diagram with all field
 
 Full DDL for all tables:
 
-- **Orchestration** (orgs, users, jobs, tasks, task_inputs, column_lineage): [capabilities/orchestration.md](../capabilities/orchestration.md)
-- **PII** (pii_access_log): [capabilities/pii.md](../capabilities/pii.md)
-- **Alerting** (alert_definitions, alert_events, alert_deliveries): [capabilities/alerting.md](../capabilities/alerting.md)
+- **Orchestration** (orgs, users, jobs, tasks, task_inputs, column_lineage): [architecture/data_model/orchestration.md](architecture/data_model/orchestration.md)
+- **PII** (pii_access_log): [architecture/data_model/pii.md](architecture/data_model/pii.md)
+- **Alerting** (alert_definitions, alert_events, alert_deliveries): [features/alerting.md](features/alerting.md)
 - **Data Versioning** (partition_versions, dataset_cursors, data_invalidations): [data_versioning.md](data_versioning.md)
 - **Query Service** (saved_queries, query_results): [query_service.md](query_service.md)
 - **Operators** (address_labels): [operators/address_labels.md](operators/address_labels.md)
@@ -573,7 +573,7 @@ Full DDL for all tables:
 
 **Hierarchy:** Global → Org → Permission Role (reader/writer/admin) → User
 
-**Org Roles:** User-defined roles used for visibility scoping (e.g., `role:finance`). See [orchestration.md](../capabilities/orchestration.md) and [pii.md](../capabilities/pii.md).
+**Org Roles:** User-defined roles used for visibility scoping (e.g., `role:finance`). See [orchestration.md](architecture/data_model/orchestration.md) and [pii.md](architecture/data_model/pii.md).
 
 **Identity:** Users authenticate via external IdP (OIDC/SAML). `external_id` links to IdP subject.
 
@@ -589,7 +589,7 @@ Full DDL for all tables:
 
 ## PII and User Data
 
-PII is a column-level classification with visibility controls and audit logging. See [capabilities/pii.md](../capabilities/pii.md) for visibility semantics (including org-defined roles) and `pii_access_log`.
+PII is a column-level classification with visibility controls and audit logging. See [architecture/data_model/pii.md](architecture/data_model/pii.md) for visibility semantics (including org-defined roles) and `pii_access_log`.
 
 ---
 
@@ -597,8 +597,8 @@ PII is a column-level classification with visibility controls and audit logging.
 
 Jobs are defined in DAG YAML and synced into Postgres. The Dispatcher creates task instances for reactive jobs when upstream datasets update; source jobs run continuously and emit upstream events.
 
-- Job fields and configuration: [dag_configuration.md](../capabilities/dag_configuration.md)
-- Task lifecycle, retries, heartbeats: [orchestration.md](../capabilities/orchestration.md#task-lifecycle)
+- Job fields and configuration: [dag_configuration.md](features/dag_configuration.md)
+- Task lifecycle, retries, heartbeats: [orchestration.md](architecture/data_model/orchestration.md#task-lifecycle)
 - Incremental processing, staleness, reorg invalidations: [data_versioning.md](data_versioning.md)
 - Operator contract (task input/output + emit event): [operators/README.md](operators/README.md)
 
@@ -606,7 +606,7 @@ Jobs are defined in DAG YAML and synced into Postgres. The Dispatcher creates ta
 
 ## DAG Configuration
 
-See [dag_configuration.md](../capabilities/dag_configuration.md) for:
+See [dag_configuration.md](features/dag_configuration.md) for:
 - YAML schema with examples
 
 See [dag_deployment.md](dag_deployment.md) for:
@@ -617,7 +617,7 @@ See [dag_deployment.md](dag_deployment.md) for:
 
 ## Infrastructure
 
-See [infrastructure.md](../capabilities/infrastructure.md) for:
+See [infrastructure.md](deploy/infrastructure.md) for:
 - AWS architecture diagram
 - Terraform module structure
 - Deployment order and rollback

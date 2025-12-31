@@ -11,7 +11,7 @@ Trace lets analysts and researchers curate, combine, enrich, alert on, and analy
 - [Product Requirements](docs/prd/prd.md)
 - [Architecture Overview](docs/readme.md)
 - [Interface Contracts](docs/architecture/contracts.md) — Task, event, and API schemas
-- [Capabilities](docs/capabilities/) — Alerting, Gateway, Ingestion, Metadata, DAG Config
+- [Features](docs/features/) — Alerting, Ingestion, Metadata, DAG Config, UDF
 - [Standards](docs/standards/) — NFRs/SLOs, Security
 - [Operator Catalog](docs/architecture/operators/README.md)
 - [Architecture Decision Records](docs/architecture/adr/)

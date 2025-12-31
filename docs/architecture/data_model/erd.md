@@ -311,7 +311,7 @@ Full DDL with constraints and indexes:
 | Domain | Tables | Location |
 |--------|--------|----------|
 | Orchestration | orgs, users, org_roles, org_role_memberships, dag_versions, dag_current_versions, jobs, tasks, task_inputs, column_lineage, datasets, dataset_versions, dag_version_datasets | [orchestration.md](orchestration.md) |
-| Alerting | alert_definitions, alert_events, alert_deliveries | [alerting.md](../../capabilities/alerting.md) |
+| Alerting | alert_definitions, alert_events, alert_deliveries | [alerting.md](../../features/alerting.md) |
 | Data Versioning | partition_versions, dataset_cursors, data_invalidations | [data_versioning.md](../data_versioning.md) |
 | Query Service | saved_queries, query_results | [query_service.md](../containers/query_service.md) |
 | PII | pii_access_log | [pii.md](pii.md) |
