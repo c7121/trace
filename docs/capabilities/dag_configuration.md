@@ -19,6 +19,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
   - For `activation: source` jobs, the trigger is `source.kind` (`cron`, `webhook`, `manual`, or `always_on`).
   - For `activation: reactive` jobs, the trigger is an upstream **output event** on any `inputs` edge (1 upstream event → 1 task; no dispatcher-side bulk/coalescing).
 - **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by explicit `inputs` edges.
+- **Worker pool** — optional named pool of per-worker “slots” (env + secrets) used when concurrent tasks must run with distinct credentials (e.g., Cryo backfills where each task needs a unique RPC key). Jobs reference a pool and set `scaling.max_concurrency`; effective concurrency is limited by pool size.
 
 ## YAML Schema
 
@@ -32,6 +33,17 @@ defaults:
   max_queue_depth: 1000
   max_queue_age: 5m
   backpressure_mode: pause
+
+worker_pools:
+  # Each worker pool is an explicit list of “slots”. The Dispatcher leases a slot per running task.
+  # `secret_env` maps env var name -> secret name (so all slots can expose the same env var names,
+  # but resolve to different underlying secrets).
+  monad_rpc_keys:
+    slots:
+      - secret_env:
+          MONAD_RPC_KEY: monad_rpc_key_1
+      - secret_env:
+          MONAD_RPC_KEY: monad_rpc_key_2
 
 jobs:
   # Source: Lambda cron emits daily event
@@ -120,12 +132,13 @@ jobs:
     idle_timeout: 0
     inputs:
       - from: { job: backfill_request, output: 0 }
-    config:
-      chain_id: 10143
-      datasets: [blocks, transactions, logs]
-    scaling:
-      mode: backfill
-      max_concurrency: 20
+  config:
+    chain_id: 10143
+    datasets: [blocks, transactions, logs]
+    rpc_pool: monad
+  scaling:
+    worker_pool: monad_rpc_keys
+    max_concurrency: 20
     outputs: 3
     update_strategy: replace
     timeout_seconds: 3600
@@ -180,6 +193,7 @@ publish:
 | `source` | source | Source config: `kind`, `schedule`, etc. |
 | `config` | | Operator-specific config |
 | `secrets` | | Secret names to inject as env vars |
+| `scaling` | | Optional scaling hints (v1: `worker_pool`, `max_concurrency`) |
 | `timeout_seconds` | | Max execution time |
 
 ### Input Filters
@@ -220,6 +234,19 @@ jobs:
 ```
 
 See [security_model.md](../standards/security_model.md#secrets-injection) for how secrets are injected.
+
+### Worker Pools (Per-Worker Secrets)
+
+Some jobs need **distinct credentials per concurrent task** (e.g., Cryo backfills where each task must use a different RPC key). In that case:
+
+1. Define a `worker_pools` entry with explicit `slots`.
+2. Configure the job’s `scaling.worker_pool` and `scaling.max_concurrency`.
+
+Each slot can provide:
+- `env`: plain env vars injected into the worker container.
+- `secret_env`: mapping of env var name → secret name. This keeps the env var **stable** (e.g., always `MONAD_RPC_KEY`) while allowing each slot to resolve a different secret.
+
+`scaling.mode` is ignored/unsupported in v1.
 
 ### Update Strategy & Unique Key
 

@@ -121,7 +121,8 @@ DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at 
 ## Org Isolation
 
 - Bearer token resolved to `org_id` via IdP / auth service
-- DuckDB attaches **per-org views** that filter underlying tables by `org_id`
+- Query Service attaches **per-org dataset views** and enforces dataset visibility (e.g., via `datasets.read_roles`)
+- For Postgres-backed datasets, views filter underlying tables by `org_id`
 - User cannot query other orgs' data
 
 ## Data Sources
@@ -137,9 +138,27 @@ Virtual tables (e.g., `transactions`) unify hot and cold transparently.
 
 ## Dataset Resolution
 
-- At query start, Query Service resolves `dataset_name -> dataset_uuid -> {backend, location}` from the registry and pins that mapping for the duration of the query (no “moving target” mid-query).
-- Published datasets are attached as DuckDB views/tables using `dataset_name` as the SQL identifier.
-- For deploy/rematerialize cutover/rollback and query pinning semantics, see [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
+Users query using `dataset_name` (human-readable). Physical storage uses UUIDs and versioned locations; Query Service resolves names to concrete locations “under the hood”.
+
+At query start, Query Service resolves and pins:
+
+1. `dataset_name -> dataset_uuid` (registry)
+2. `dataset_uuid -> current dataset_version` (producer DAG’s current `dag_version` pointer set)
+3. `(dataset_uuid, dataset_version) -> storage_location` (version-addressed location)
+
+Concretely (v1 model):
+
+- Lookup `datasets` by `(org_id, dataset_name)` to get `dataset_uuid`, storage backend config, and `producer_dag_name`.
+- Lookup producer DAG’s current `dag_version_id` in `dag_current_versions` by `(org_id, producer_dag_name)`.
+- Lookup `dataset_version` in `dag_version_datasets` by `(dag_version_id, dataset_uuid)`.
+- Lookup `storage_location` in `dataset_versions` by `(dataset_uuid, dataset_version)`.
+- Attach a DuckDB view named `dataset_name` that points at that pinned `storage_location` (Postgres table/view or S3 prefix/manifest).
+
+Pinning means no “moving target” mid-query:
+- Postgres reads run inside a single transaction snapshot (e.g., `REPEATABLE READ`).
+- S3/Parquet reads use a fixed manifest/file list resolved at query start.
+
+For deploy/rematerialize cutover/rollback semantics, see [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
 
 ## Authentication
 

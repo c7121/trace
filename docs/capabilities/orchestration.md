@@ -102,7 +102,7 @@ CREATE TABLE jobs (
     output_datasets TEXT[],             -- output dataset UUIDs by output index (string form)
     update_strategy TEXT NOT NULL,      -- 'append' | 'replace'
     unique_key TEXT[],                  -- required if update_strategy = 'append'
-    scaling JSONB,                      -- { "mode": "backfill", "max_concurrency": 20 }
+    scaling JSONB,                      -- { "worker_pool": "monad_rpc_keys", "max_concurrency": 20 }
     timeout_seconds INT,
     heartbeat_timeout_seconds INT,
     max_attempts INT DEFAULT 3,

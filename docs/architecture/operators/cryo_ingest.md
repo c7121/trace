@@ -47,9 +47,9 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ## Scaling
 
 Each cryo worker is configured with its own RPC API key. To run concurrent backfills:
-- Deploy N workers, each with its own secret reference
-- Set `max_concurrency: N` in DAG config
-- Dispatcher scales worker count based on workload (up to N)
+- Define a `worker_pools` entry with N slots (each slot maps `MONAD_RPC_KEY` → a distinct secret name)
+- Configure the job with `scaling.worker_pool` and `scaling.max_concurrency: N`
+- Dispatcher leases one slot per running task; effective concurrency is `min(max_concurrency, pool size)`
 
 ## Dependencies
 
@@ -72,7 +72,7 @@ Each cryo worker is configured with its own RPC API key. To run concurrent backf
     datasets: [blocks, transactions, logs]
     rpc_pool: monad
   scaling:
-    mode: backfill        # or 'steady' for single-partition
+    worker_pool: monad_rpc_keys
     max_concurrency: 20   # dispatcher limits parallel jobs
   outputs: 3
   update_strategy: replace
