@@ -4,9 +4,12 @@ Component boundaries: task payloads, results, and upstream events.
 
 > `/internal/*` endpoints are internal-only and are not exposed to end users. They are called only by platform components (worker wrapper, operator runtimes, sinks, Delivery Service).
 
+
+**Delivery semantics:** tasks and upstream events are **at-least-once**. Duplicates and out-of-order delivery are expected; correctness comes from attempt/lease gating plus idempotent output commits. See [task_lifecycle.md](task_lifecycle.md).
+
 ## SQS → Worker
 
-SQS message contains only `task_id`. Worker fetches full task details from the Dispatcher.
+SQS message contains only `task_id` (wake-up). The worker then claims the task from the Dispatcher to obtain a lease and the full task payload. Duplicates are expected.
 
 ```json
 { "task_id": "uuid" }
@@ -38,7 +41,8 @@ Small Lambda operators can be implemented in TypeScript/JavaScript, Rust, or Pyt
 ## Worker → Dispatcher
 
 Workers call Dispatcher for:
-- Fetch task details (`/internal/task-fetch`)
+- Claim a task and obtain a lease + payload (`/internal/task-claim`)
+- (Optional) Fetch task details (`/internal/task-fetch`)
 - Report task completion/failure (`/internal/task-complete`)
 - Heartbeat (`/internal/heartbeat`)
 - Emit upstream events (`/internal/events`)
@@ -76,6 +80,52 @@ The token is enforced by:
 
 UDF code never connects to Postgres directly.
 
+
+
+### Task Claim (`/internal/task-claim`)
+
+Workers must **claim** a task before executing operator/UDF code. Claiming acquires a short-lived lease so only one worker may run the current attempt.
+
+```
+POST /internal/task-claim
+```
+
+Request:
+
+```json
+{
+  "task_id": "uuid",
+  "worker_id": "ecs:cluster/service/task"
+}
+```
+
+Response (claimed):
+
+```json
+{
+  "status": "Claimed",
+  "attempt": 1,
+  "lease_token": "uuid",
+  "lease_expires_at": "2025-12-31T12:00:00Z",
+  "task": {
+    "task_id": "uuid",
+    "attempt": 1,
+    "job": { "dag_name": "monad", "name": "block_follower" },
+    "operator": "block_follower",
+    "config": { "...": "..." },
+    "inputs": [{ "...": "..." }]
+  }
+}
+```
+
+Response (not claimed):
+
+```json
+{ "status": "NotClaimed", "reason": "AlreadyRunning|Completed|Canceled|NotFound" }
+```
+
+If not claimed, the worker should **not** execute the task and should ack/delete the SQS message.
+
 ### Task Fetch (`/internal/task-fetch`)
 
 Workers fetch task details by `task_id` (read-only from the worker’s perspective):
@@ -84,7 +134,26 @@ Workers fetch task details by `task_id` (read-only from the worker’s perspecti
 GET /internal/task-fetch?task_id=<uuid>
 ```
 
-If the task is canceled (e.g., during rollback), the Dispatcher may return `status: "Canceled"`. In that case the wrapper exits without running operator code and reports the cancellation via `/internal/task-complete` with `status: "Canceled"`.
+If the task is canceled (e.g., during rollback), the Dispatcher may return `status: "Canceled"`.
+In that case the wrapper exits without running operator code and reports the cancellation via `/internal/task-complete` with `status: "Canceled"`.
+
+### Heartbeat (`/internal/heartbeat`)
+
+Workers extend their lease while executing.
+
+```
+POST /internal/heartbeat
+```
+
+```json
+{
+  "task_id": "uuid",
+  "attempt": 1,
+  "lease_token": "uuid"
+}
+```
+
+Dispatcher rejects heartbeats for stale attempts or stale lease tokens.
 
 ## Task Completion (Worker → Dispatcher)
 
@@ -94,13 +163,14 @@ Task completion includes an `outputs` array so a single task can materialize mul
 {
   "task_id": "uuid",
   "attempt": 1,
+  "lease_token": "uuid",
   "status": "Completed",
   "events": [
-    { "dataset_uuid": "uuid", "cursor": 12345 }
+    { "dataset_uuid": "uuid", "dataset_version": "uuid", "cursor": 12345 }
   ],
   "outputs": [
-    { "output_index": 0, "dataset_uuid": "uuid", "location": "postgres_table:dataset_{dataset_uuid}", "cursor": 12345, "row_count": 1000 },
-    { "output_index": 1, "dataset_uuid": "uuid", "location": "postgres_table:dataset_{dataset_uuid}", "cursor": 12345, "row_count": 20000 }
+    { "output_index": 0, "dataset_uuid": "uuid", "dataset_version": "uuid", "location": "postgres_table:dataset_{dataset_uuid}", "cursor": 12345, "row_count": 1000 },
+    { "output_index": 1, "dataset_uuid": "uuid", "dataset_version": "uuid", "location": "postgres_table:dataset_{dataset_uuid}", "cursor": 12345, "row_count": 20000 }
   ],
   "error_message": null
 }
@@ -128,7 +198,7 @@ Single-event shape:
 {
   "task_id": "uuid",
   "attempt": 1,
-  "events": [{ "dataset_uuid": "uuid", "cursor": 12345 }]
+  "events": [{ "dataset_uuid": "uuid", "dataset_version": "uuid", "cursor": 12345 }]
 }
 ```
 
@@ -138,7 +208,7 @@ Partitioned shape:
 {
   "task_id": "uuid",
   "attempt": 1,
-  "events": [{ "dataset_uuid": "uuid", "partition_key": "1000000-1010000", "start": 1000000, "end": 1010000 }]
+  "events": [{ "dataset_uuid": "uuid", "dataset_version": "uuid", "partition_key": "1000000-1010000", "start": 1000000, "end": 1010000 }]
 }
 ```
 
@@ -153,13 +223,15 @@ Batch shape:
   "task_id": "uuid",
   "attempt": 1,
   "events": [
-    { "dataset_uuid": "uuid", "cursor": 12345 },
-    { "dataset_uuid": "uuid", "cursor": 12345 }
+    { "dataset_uuid": "uuid", "dataset_version": "uuid", "cursor": 12345 },
+    { "dataset_uuid": "uuid", "dataset_version": "uuid", "cursor": 12345 }
   ]
 }
 ```
 
 Dispatcher routes events to dependent jobs based on the stored input edges (by upstream `dataset_uuid`).
+
+Dispatcher treats events as at-least-once and idempotent. By default, it routes only events that refer to the dataset's **current** `dataset_version` (events for old generations may be accepted for audit but are not routed).
 
 ## Buffered Postgres Datasets (SQS Buffer → Sink → Postgres)
 

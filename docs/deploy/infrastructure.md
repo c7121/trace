@@ -99,7 +99,7 @@ flowchart TB
     /vpc           # VPC, subnets, NAT, VPC endpoints
     /rds           # Postgres, security groups
     /ecs           # Cluster, services, task definitions, autoscaling
-    /sqs           # FIFO queues, DLQ
+    /sqs           # SQS queues, DLQ
     /s3            # Data bucket, lifecycle rules
     /lambda        # Lambda functions (sources + operators), API Gateway
     /eventbridge   # Cron schedules
@@ -116,7 +116,7 @@ flowchart TB
   - **Postgres (state)** for orchestration metadata
   - **Postgres (data)** for hot tables and platform-managed datasets
   Both are Postgres 15, encrypted, multi-AZ in prod, deployed into **private subnets**.
-- **SQS**: FIFO with deduplication, 5min visibility, DLQ after 3 failures
+- **SQS**: Standard queues (one per runtime) + DLQ. Base visibility is minutes; worker wrappers extend visibility for long tasks. Ordering is enforced by DAG dependencies, not SQS.
 - **S3**: Data bucket for dataset storage + scratch bucket for query exports and task scratch
 - **Query Service**: DuckDB federation layer (read-only Postgres user) + result export to S3
 - **Credential Broker**: Issues short-lived, prefix-scoped STS credentials for untrusted UDF tasks

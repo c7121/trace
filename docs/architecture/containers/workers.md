@@ -26,7 +26,7 @@ flowchart LR
     rpcgw["RPC Egress Gateway"]:::component
 
     sqs -->|task_id| wrapper
-    wrapper -->|fetch task| dispatcher
+    wrapper -->|claim task + lease| dispatcher
     wrapper -->|inject config + env| operator
     wrapper -->|heartbeat| dispatcher
     
@@ -62,7 +62,7 @@ flowchart LR
     s3[("S3 Parquet")]:::database
 
     sqs -->|task_id| wrapper
-    wrapper -->|fetch task| dispatcher
+    wrapper -->|claim task + lease| dispatcher
     wrapper -->|inject config + capability token| udf
     wrapper -->|heartbeat| dispatcher
 
@@ -92,13 +92,15 @@ flowchart LR
 | `ecs_udf_python` | ECS (Python) | untrusted | User-defined ML/pandas |
 | `ecs_udf_rust` | ECS (Rust) | untrusted | User-defined high-perf scanning |
 
-**Queue model (ECS):** One SQS queue per runtime. SQS payload includes `task_id` only; the worker wrapper fetches `operator`, `config`, and event context (`cursor`/`partition_key`) from the Dispatcher.
+**Queue model (ECS):** One SQS queue per runtime. SQS payload includes `task_id` only; the worker wrapper **claims** the task from the Dispatcher to acquire a lease and receive the full task payload.
 
 **Lambda sources:** Invoked by EventBridge/API Gateway, emit upstream events to Dispatcher.
 
 **Lambda reactive jobs:** Invoked by Dispatcher when upstream datasets update (jobs with `runtime: lambda`). Dispatcher invokes the Lambda with the **full task payload** (same shape as `/internal/task-fetch`) and does not wait; a task is “done” only when the Lambda reports `/internal/task-complete`. Timeouts/crashes are handled by the reaper + retries (`max_attempts`) and Lambda built-in retries should be disabled (Dispatcher owns retries uniformly).
 
 **ECS:** Long-polls SQS, stays warm per `idle_timeout`, heartbeats to Dispatcher.
+
+**SQS visibility:** The wrapper extends visibility (`ChangeMessageVisibility`) for long-running tasks until completion; this avoids premature redelivery while the task is still running.
 
 **UDF runtimes:** Use locked-down network security groups and task roles:
 - No internet egress.
@@ -112,6 +114,7 @@ flowchart LR
 
 - [contracts.md](../contracts.md) — worker/dispatcher contract
 - [dispatcher.md](dispatcher.md) — orchestration and backpressure
+- [task_lifecycle.md](../task_lifecycle.md) — leasing, retries, rehydration
 - [udf.md](../../features/udf.md) — sandbox model (for user code)
 - [security_model.md](../../standards/security_model.md) — isolation model
 

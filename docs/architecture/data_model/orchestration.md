@@ -174,31 +174,96 @@ See [readme.md](../../readme.md) for diagrams and [contracts.md](../contracts.md
 
 ## Tasks
 
-Task instances (append-only).
+Task instances. Durable state lives in Postgres (state). SQS carries only `task_id` wake-ups; workers must claim tasks to acquire a lease. See [task_lifecycle.md](../task_lifecycle.md).
 
 ```sql
 CREATE TABLE tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id UUID NOT NULL REFERENCES jobs(id),
-    status TEXT NOT NULL DEFAULT 'Queued',
+
+    -- Optional idempotency key for the unit of work (recommended for reactive jobs).
+    -- Examples:
+    --   partition:{dataset_uuid}:{dataset_version}:{partition_key}
+    --   cursor:{dataset_uuid}:{dataset_version}:{cursor_value}
+    dedupe_key TEXT,
+
+    status TEXT NOT NULL DEFAULT 'Queued',  -- Queued | Running | Completed | Failed | Canceled
+
+    -- Current attempt number (1-based). Incremented on retry.
+    attempt INT NOT NULL DEFAULT 1,
+
     partitions TEXT[],
     input_versions JSONB,
+
+    -- Lease (only one active worker may run the current attempt).
     worker_id TEXT,
+    lease_token UUID,
+    lease_expires_at TIMESTAMPTZ,
+    last_heartbeat TIMESTAMPTZ,
+
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
-    last_heartbeat TIMESTAMPTZ,
-    attempts INT DEFAULT 0,
+
     next_retry_at TIMESTAMPTZ,
     error_message TEXT,
-    outputs JSONB,                      -- per-dataset outputs (paths, cursors, partitions, metrics)
+    outputs JSONB,                      -- per-output metadata (paths, cursors, partitions, metrics)
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_tasks_status ON tasks(status) WHERE status IN ('Queued', 'Running');
-CREATE INDEX idx_tasks_job_id ON tasks(job_id);
-CREATE INDEX idx_tasks_next_retry ON tasks(next_retry_at) WHERE status = 'Failed';
-CREATE INDEX idx_tasks_last_heartbeat ON tasks(last_heartbeat) WHERE status = 'Running';
+-- Prevent duplicate task creation for the same unit-of-work.
+CREATE UNIQUE INDEX idx_tasks_job_dedupe
+    ON tasks(job_id, dedupe_key)
+    WHERE dedupe_key IS NOT NULL;
+
+CREATE INDEX idx_tasks_status
+    ON tasks(status)
+    WHERE status IN ('Queued', 'Running');
+
+CREATE INDEX idx_tasks_next_retry
+    ON tasks(next_retry_at)
+    WHERE status = 'Failed';
+
+CREATE INDEX idx_tasks_lease_expiry
+    ON tasks(lease_expires_at)
+    WHERE status = 'Running';
 ```
+
+### Claim (Lease Acquisition)
+
+Workers claim tasks via the Dispatcher. A claim is an atomic update:
+
+- `Queued -> Running`
+- sets `worker_id`, `lease_token`, and `lease_expires_at`
+
+This prevents concurrent execution even if SQS delivers duplicates.
+
+### Outbox (Recommended)
+
+To make SQS publishing and event routing **rehydratable**, the Dispatcher can use an outbox table.
+
+- Mutations (task completion, task creation, event acceptance) happen in Postgres transactions.
+- Side effects (send SQS messages, route events) are represented as outbox rows created in those same transactions.
+- A background worker drains the outbox and performs the side effects.
+
+```sql
+CREATE TABLE outbox (
+    id BIGSERIAL PRIMARY KEY,
+    kind TEXT NOT NULL,               -- 'enqueue_task' | 'route_event'
+    payload JSONB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Pending', -- Pending | Processing | Done | Failed
+    available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    attempts INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    processed_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_outbox_pending
+    ON outbox(status, available_at)
+    WHERE status = 'Pending';
+```
+
+In v1, a simpler alternative is to scan `tasks` directly (enqueue reconciler) and skip an explicit outbox. The outbox is the more robust, testable pattern.
 
 ## Task Inputs
 
@@ -244,24 +309,25 @@ CREATE TABLE operator_state (
 
 ## Task Lifecycle
 
-The `status` field tracks task state:
+Task execution is at-least-once and lease-based. Only the worker holding the current `lease_token` for the current `attempt` may heartbeat or complete the task. See [task_lifecycle.md](../task_lifecycle.md).
 
 ```mermaid
 stateDiagram-v2
     [*] --> Queued: Task created
-    Queued --> Running: Worker picks up
+    Queued --> Running: Claim (lease acquired)
     Running --> Completed: Success
-    Running --> Failed: Error / Timeout
-    Failed --> Queued: Retry (if attempts < max)
-    Failed --> [*]: Max retries exceeded
+    Running --> Failed: Error
+    Running --> Failed: Lease expired / timeout
+    Failed --> Queued: Retry scheduled
+    Failed --> [*]: Max attempts exceeded
     Completed --> [*]
 ```
 
-**Retry behavior:** Failed tasks retry up to `max_attempts`. The `next_retry_at` field schedules retries with backoff.
+**Retry behavior:** failed tasks retry up to `jobs.max_attempts`. `next_retry_at` schedules retries with backoff; retries reuse the same `task_id` and increment `tasks.attempt`.
 
-**Attempts:** `tasks.attempts` is the current attempt number (0 means “never started”). Each retry reuses the same `task_id`, increments `attempts`, and updates `started_at` for the new attempt.
+**Leasing:** `tasks.lease_expires_at` is extended by `/internal/heartbeat`. If the lease expires, the reaper marks the task failed and schedules a retry.
 
-**Heartbeats:** Running tasks update `last_heartbeat`. Tasks exceeding `heartbeat_timeout_seconds` without a heartbeat are marked Failed by the reaper.
+**Idempotent creation:** when `dedupe_key` is set, the Dispatcher enforces one task per `(job_id, dedupe_key)` even if an upstream event is delivered multiple times.
 
 ## Source Job Lifecycle
 

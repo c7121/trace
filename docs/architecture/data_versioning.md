@@ -4,9 +4,9 @@ How the system tracks data changes, handles reorgs, and efficiently reprocesses 
 
 ## Overview
 
-**Delivery semantics:** Tasks may be delivered more than once (at-least-once via SQS). Idempotency is achieved through `update_strategy`: `replace` overwrites the scope; `append` dedupes via `unique_key`. The combination provides exactly-once *effect*.
+**Delivery semantics:** Tasks and upstream events are **at-least-once**. The platform uses leasing to prevent concurrent execution, and uses `update_strategy` plus `unique_key` (for append) to achieve an exactly-once *effect* for datasets. See [task_lifecycle.md](task_lifecycle.md).
 
-Reactive jobs trigger per upstream output event (1 event → 1 task for each dependent job). To batch/coalesce updates, model it explicitly via operators like `range_aggregator` / `range_splitter`.
+Reactive jobs trigger on upstream output events. Events include `dataset_uuid` + `dataset_version` plus scope (`cursor` or `partition_key`). Duplicates and out-of-order delivery are expected; the Dispatcher dedupes task creation and operators must be idempotent.
 
 **Dataset generations:** Each published dataset has a stable `dataset_uuid`. Deploy/rematerialize creates a new `dataset_version` (a generation) so the platform can build new outputs in parallel and then swap “current” pointers atomically (cutover/rollback). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
 
@@ -72,10 +72,10 @@ Jobs declare their incremental mode in YAML config:
 For jobs operating on partitioned data (typically cold storage).
 
 **Behavior:**
-1. Trigger fires with `partition_key` (e.g., `"1000000-1010000"`; block ranges are inclusive)
-2. Job reads entire partition from input dataset
-3. Job writes output partition
-4. System updates `partition_versions.materialized_at` for the current `dataset_version`
+1. Upstream completion emits an event `{dataset_uuid, dataset_version, partition_key}` (at-least-once).
+2. Dispatcher creates a downstream task pinned to the triggering `dataset_version`.
+3. Job reads the input partition and writes the output partition (replace).
+4. Dispatcher records the materialization in `partition_versions` when it accepts task completion.
 
 **On invalidation:**
 1. Invalidation created with `scope: partition`
@@ -88,10 +88,10 @@ For jobs operating on partitioned data (typically cold storage).
 For jobs operating on unpartitioned data (typically hot storage).
 
 **Behavior:**
-1. Job reads `cursor_value` from `dataset_cursors` (e.g., block 1000)
-2. Job queries: `WHERE block_number > 1000`
-3. Job processes new rows, writes output
-4. Job updates `cursor_value` to max processed (e.g., block 1050)
+1. Dispatcher resolves the pinned input `dataset_version` for the task and reads the consumer cursor from `dataset_cursors`.
+2. Job queries incrementally (e.g., `WHERE block_number > last_cursor`).
+3. Job writes output (append or replace depending on strategy).
+4. Dispatcher advances `dataset_cursors.cursor_value` when it accepts task completion.
 
 **On invalidation:**
 1. Invalidation created with `scope: row_range` and `row_filter`
@@ -143,30 +143,17 @@ This ensures:
 - Reorgs with same tx in new block → new alert (different `block_hash`)
 - Same tx in same block reprocessed → no duplicate (same key)
 
-### Working default idempotency key shape
-
-For append-only datasets that use a single `dedupe_key` column (common for buffered Postgres sinks), a reasonable working default is to dedupe by:
-
-- `producer_task_id` (the producing task/run),
-- `dataset_uuid` (the logical output identity), and
-- a scope key (`cursor_value` or `partition_key` / `{start,end}` range)
-
-This is a guideline (not a mandate) and should be revisited if it causes surprising suppression across producers; multi-writer sinks should include a producer identity (e.g., `producer_job_id` or `alert_definition_id`) in the key when appropriate.
-
 ### Unique Key Requirements
 
-`unique_key` must be **deterministic** — derived solely from input data, never execution context.
+For `update_strategy: append`, `unique_key` must be **deterministic** from input data and stable configuration. Avoid timestamps and runtime-generated values.
 
-**Valid unique_key columns** (examples):
-- Input data fields: `block_hash`, `tx_hash`, `log_index`, `record_id`, `external_id`
-- Config references: `alert_definition_id`, `job_id`
-- Any field that comes from the input dataset or job config
+Good examples (often combined):
+- Input identity: `block_hash`, `tx_hash`, `log_index`, `record_id`, `external_id`
+- Stable config identity: `alert_definition_id`, `producer_job_id`
 
-**Invalid unique_key columns (will cause duplicates on retry):**
-- `created_at`, `processed_at` — different timestamp per attempt
-- `task_id`, `worker_id` — different per execution
-- `now()`, `random()` — non-deterministic functions
-- Any value generated at execution time
+Avoid: `created_at`, `processed_at`, `now()`, `random()`, and other per-execution values.
+
+> **Note:** platform-level idempotency uses `task_id` + `attempt` gating, but dataset-level `unique_key` should not depend on task execution identity unless the dataset is explicitly a run log.
 
 ---
 

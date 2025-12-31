@@ -128,26 +128,28 @@ flowchart LR
 
 ## Event Model
 
-**Event model:**
+Every job emits events when it materializes outputs. At runtime, outputs are identified by a stable `dataset_uuid` plus a **generation** `dataset_version`.
 
-Every job emits **one event per output** when it materializes data. At runtime, outputs are identified by `dataset_uuid` (a system UUID). User-facing `dataset_name` is resolved via the dataset registry for publishing/querying.
-
-```json
-{"dataset_uuid": "uuid", "cursor": 12345}
-```
-
-Events can also include partition or row-range context when relevant:
+Minimal cursor event:
 
 ```json
-{"dataset_uuid": "uuid", "partition_key": "1000000-1010000"}
+{"dataset_uuid": "uuid", "dataset_version": "uuid", "cursor": 12345}
 ```
 
-The Dispatcher routes based on the upstream output identity (`dataset_uuid`). Reactive jobs that list the output as an input edge receive the event.
+Partition event (block-range example):
+
+```json
+{"dataset_uuid": "uuid", "dataset_version": "uuid", "partition_key": "1000000-1010000", "start": 1000000, "end": 1010000}
+```
+
+**Routing rule:** by default, the Dispatcher routes only events for the dataset's **current** `dataset_version` (older generations may be accepted for audit but are not routed).
+
+Events are treated as **at-least-once** and may be duplicated or arrive out of order. Correctness comes from task leasing + idempotent outputs. See [task_lifecycle.md](../task_lifecycle.md).
 
 ## Event Routing
 
 **Event routing:**
-1. Worker emits event: `{dataset_uuid: "...", cursor: 12345}`
+1. Worker emits event: `{dataset_uuid: "...", dataset_version: "...", cursor: 12345}`
 2. Dispatcher queries: jobs whose input edges reference that `dataset_uuid`
 3. For each dependent reactive job:
    - If `runtime: dispatcher` → Dispatcher handles directly
@@ -173,29 +175,34 @@ Propagates upstream through DAG edges. When a queue trips its threshold (depth o
 
 ## Failure Mode
 
-**Failure mode:**
+Dispatcher is stateless — durable state lives in Postgres. On failure/restart:
 
-Dispatcher is stateless — all state lives in Postgres. On failure:
-- ECS auto-restarts the service (RTO: ~1 minute)
-- Workers continue executing in-flight tasks from SQS
-- Source jobs (e.g., `block_follower`) continue running and writing data
-- Event routing pauses, but no events are lost — downstream jobs use cursor-based catch-up on restart
-- No data loss, only delayed processing
+- ECS restarts the service.
+- In-flight workers may continue executing their current attempt.
+- If a worker cannot heartbeat/report completion during the outage, it retries until the Dispatcher is reachable again.
+- Queued tasks are not lost: the enqueue reconciler will republish SQS wake-ups after restart.
+
+Because execution is **at-least-once**, a long outage may cause some duplicate work (e.g., leases expire and tasks are retried). Output commits and routing are designed to be idempotent.
 
 ## SQS Queues
 
 Task dispatch mechanism for ECS workers.
 
-**Why SQS over Postgres-as-queue:**
-- Efficient long-polling (workers block on SQS, not busy-loop on Postgres)
-- Native ECS autoscaling integration
-- Built-in visibility timeout
-- Workers stay dumb — no orchestration logic
+**Model:**
+- SQS carries a pointer (`task_id`) as a wake-up.
+- Workers must **claim** the task from the Dispatcher to acquire a lease before executing.
+- Duplicates are expected; leasing prevents concurrent execution.
+
+**Why SQS (wake-up) + Postgres (source of truth):**
+- Efficient long-polling and ECS autoscaling integration.
+- Durable task state and retries live in Postgres, so lost/duplicated messages do not lose work.
 
 **Configuration:**
-- FIFO queue with deduplication
-- Visibility timeout: 5 minutes (configurable per job)
-- Dead letter queue after 3 failed receives
+- Standard queue (FIFO is not required for correctness).
+- Visibility timeout: minutes (base), with worker-side visibility extension for long tasks.
+- DLQ for poison messages / repeated receive failures.
+
+See [task_lifecycle.md](../task_lifecycle.md) for leasing, visibility extension, and rehydration loops.
 
 ## Component View
 
