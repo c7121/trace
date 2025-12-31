@@ -35,6 +35,13 @@ Non-phase-specific items deferred from v1.
 - Discovery — browse available datasets, jobs, assets within org
 - Per-org and per-user rate limits
 
+## Visualization
+
+- Dashboard builder — visual representation of query results (charts, tables, maps)
+- Job type: `Represent` — following Ben Fry's pipeline taxonomy (Acquire → Parse → Filter → Mine → Represent → Refine → Interact)
+- Interactive exploration — user-driven filtering/drill-down on visualized data
+- Embedded views — share/embed visualizations externally
+
 ## Enterprise Integration Patterns
 
 Patterns for advanced orchestration. See [EIP](https://www.enterpriseintegrationpatterns.com/).
