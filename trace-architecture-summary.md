@@ -34,6 +34,7 @@ It supersedes `remaining-questions.md` (now an archive pointer).
 - **SQS payload**: `task_id` only (thin message).
 - For SQS/ECS workers: wrapper calls `GET /internal/task-fetch?task_id=...` to fetch the full task payload (read-only from the worker’s perspective).
 - For `runtime: lambda` jobs: Dispatcher invokes Lambda with the **full task payload** (operator/config/event context), not just `task_id` (still track status in Postgres; this is only about invocation payload shape).
+- Lambda operators (small operators) can be implemented in **TypeScript/JavaScript**, **Rust**, or **Python**.
 - Cooperative cancel: `/internal/task-fetch` can return `status: "Canceled"`; wrapper exits without running operator code and reports `/internal/task-complete` as canceled (no outputs/events emitted).
 - Lambda retries/timeouts:
   - Disable Lambda built-in retries; Dispatcher owns retries uniformly across runtimes.
