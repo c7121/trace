@@ -70,4 +70,4 @@ During rollback/rollover, the system pauses DAG processing:
 - In-flight tasks are canceled cooperatively (workers see `status: "Canceled"` on `/internal/task-fetch` and exit without running operator code).
 - Because outputs are written as versioned artifacts (`dataset_version`), results from the rolled-back version cannot become “current” after rollback.
 
-See [orchestration.md](../capabilities/orchestration.md) for the current `jobs`/`tasks` schema and [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md) for the cutover/rollback model.
+See [orchestration.md](data_model/orchestration.md) for the current `jobs`/`tasks` schema and [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md) for the cutover/rollback model.

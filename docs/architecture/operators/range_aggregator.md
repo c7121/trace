@@ -56,7 +56,7 @@ See `docs/architecture/contracts.md` for the canonical `/internal/events` partit
 
 Aggregation state is persisted in a platform-managed Postgres operator state table keyed by `(org_id, job_id)` (and optionally a `state_key` such as `input_dataset_uuid` if a job needs multiple independent cursors).
 
-See `docs/capabilities/orchestration.md` (`operator_state`) for the schema sketch.
+See `docs/architecture/data_model/orchestration.md` (`operator_state`) for the schema sketch.
 
 ## Example DAG Config
 

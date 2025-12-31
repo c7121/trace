@@ -20,7 +20,7 @@ Allows users to upload or define labels for blockchain addresses. Produces a dat
 |-------|------|-------------|
 | `address` | user input | Blockchain address |
 | `label` | user input | User-defined label |
-| `visibility` | user input | Visibility (see [pii.md](../../capabilities/pii.md)) |
+| `visibility` | user input | Visibility (see [pii.md](../data_model/pii.md)) |
 
 ## Outputs
 
@@ -37,7 +37,7 @@ CREATE TABLE address_labels (
     user_id UUID NOT NULL REFERENCES users(id),
     address TEXT NOT NULL,
     label TEXT NOT NULL,
-    visibility TEXT NOT NULL DEFAULT 'private',  -- see ../../capabilities/pii.md
+    visibility TEXT NOT NULL DEFAULT 'private',  -- see ../data_model/pii.md
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE (org_id, user_id, address, label)
@@ -50,7 +50,7 @@ CREATE INDEX idx_address_labels_address ON address_labels(address);
 
 ## PII Handling
 
-PII column: `address_labels.label` (user-provided). Mark it as PII in dataset metadata; see [pii.md](../../capabilities/pii.md) for visibility and audit rules.
+PII column: `address_labels.label` (user-provided). Mark it as PII in dataset metadata; see [pii.md](../data_model/pii.md) for visibility and audit rules.
 
 ## Example DAG Config
 
@@ -67,4 +67,4 @@ PII column: `address_labels.label` (user-provided). Mark it as PII in dataset me
 
 ## Related
 
-- [PII Handling](../../capabilities/pii.md) — visibility rules, audit logging
+- [PII Handling](../data_model/pii.md) — visibility rules, audit logging

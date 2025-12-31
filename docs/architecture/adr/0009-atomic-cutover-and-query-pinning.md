@@ -90,7 +90,7 @@ CREATE TABLE dag_version_datasets (
 
 This ADR focuses on the *cutover/rollback model*. The concrete schemas live in:
 
-- `docs/capabilities/orchestration.md` (deploy + pointer tables: `dag_versions`, `dag_current_versions`, `dag_version_datasets`, `dataset_versions`)
+- `docs/architecture/data_model/orchestration.md` (deploy + pointer tables: `dag_versions`, `dag_current_versions`, `dag_version_datasets`, `dataset_versions`)
 - `docs/architecture/data_versioning.md` (incremental processing tables within a `dataset_version`: `partition_versions`, `dataset_cursors`, `data_invalidations`)
 
 ## Open Questions

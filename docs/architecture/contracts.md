@@ -29,7 +29,7 @@ For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no 
 
 Exact payload fields are still evolving; the invariant is that Lambda has everything it needs to run the operator without database credentials.
 
-The Lambda follows the same worker contract: report completion/failure and emit events via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is described in [orchestration.md](../capabilities/orchestration.md).
+The Lambda follows the same worker contract: report completion/failure and emit events via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is described in [orchestration.md](data_model/orchestration.md).
 
 Lambda built-in retries should be disabled; the Dispatcher owns retries/attempts uniformly across runtimes.
 
@@ -169,5 +169,5 @@ The sink is responsible for idempotent writes (e.g., `UNIQUE (org_id, dedupe_key
 ## Related
 
 - [readme.md](../readme.md) — system diagrams
-- [orchestration.md](../capabilities/orchestration.md) — task/job schemas
+- [orchestration.md](data_model/orchestration.md) — task/job schemas
 - [data_versioning.md](data_versioning.md) — cursor and partition semantics
