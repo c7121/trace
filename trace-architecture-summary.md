@@ -126,6 +126,7 @@ It supersedes `remaining-questions.md` (now an archive pointer).
 
 - `dataset_version` is a system-generated UUID; metadata lives in `dataset_versions` and `dataset_current` pointers are swapped atomically for cutover/rollback.
 - Retention/GC is **admin-only**: retain all `dataset_version`s until explicit purge (no automatic deletion in v1).
+- For block-range Parquet partitions, keep the `{start}_{end}` range in the Parquet object key / filename (e.g., Cryo-style `blocks_{start}_{end}.parquet`) even if the directory prefix is UUID/version-based.
 - Invalidations **cascade transitively**: when a job reprocesses due to an upstream invalidation, it invalidates its own outputs so downstream recomputes without needing awareness of upstream causes.
 - `update_strategy` semantics:
   - `replace`: when a job rewrites a scope/range, it **always** emits invalidations downstream for that replaced scope/range.

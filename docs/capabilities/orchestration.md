@@ -119,7 +119,7 @@ CREATE TABLE datasets (
 The `runtime` field determines how the Dispatcher executes a task:
 
 - `ecs_*`: Dispatcher enqueues `task_id` to an SQS task queue; ECS workers long-poll, execute, then report completion.
-- `lambda`: Dispatcher invokes a Lambda with `task_id` (no SQS); the Lambda fetches task details and reports completion via the same Dispatcher endpoints.
+- `lambda`: Dispatcher invokes a Lambda directly (no SQS) with the **full task payload** (same shape as `/internal/task-fetch`); the Lambda runs without database credentials and reports completion via the same Dispatcher endpoints.
 - `dispatcher`: Dispatcher runs the operator in-process (no SQS, no Lambda).
 
 See [readme.md](../readme.md) for diagrams and [contracts.md](../architecture/contracts.md) for the invocation payload shape.

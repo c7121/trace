@@ -12,13 +12,26 @@ SQS message contains only `task_id`. Worker fetches full task details from the D
 
 ## Dispatcher → Lambda (runtime=lambda)
 
-For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no SQS). Invocation payload includes only `task_id`:
+For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no SQS). Invocation payload includes the **full task payload** (same shape as `/internal/task-fetch`) so the Lambda does not need to fetch task details before executing:
 
 ```json
-{ "task_id": "uuid" }
+{
+  "task_id": "uuid",
+  "attempt": 1,
+  "job": { "dag_name": "monad", "name": "block_follower" },
+  "operator": "block_follower",
+  "config": { "...": "..." },
+  "inputs": [{ "...": "..." }]
+}
 ```
 
-The Lambda follows the same worker contract: fetch task details and report completion/failure via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is described in [orchestration.md](../capabilities/orchestration.md).
+Exact payload fields are still evolving; the invariant is that Lambda has everything it needs to run the operator without database credentials.
+
+The Lambda follows the same worker contract: report completion/failure and emit events via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is described in [orchestration.md](../capabilities/orchestration.md).
+
+Lambda built-in retries should be disabled; the Dispatcher owns retries/attempts uniformly across runtimes.
+
+Small Lambda operators can be implemented in TypeScript/JavaScript, Rust, or Python.
 
 ## Worker → Dispatcher
 
@@ -30,7 +43,11 @@ Workers call Dispatcher for:
 
 Workers never have state DB credentials.
 
-Event emission is explicit via `/internal/events`. `/internal/task-complete` is lifecycle-only and should be called only after all intended events are successfully emitted.
+Event emission is explicit via `/internal/events` (mid-task) and may also be bundled as “final events” on `/internal/task-complete`.
+
+To support retries and late replies (especially for Lambda), workers include an `attempt` number on `/internal/events` and `/internal/task-complete`. The Dispatcher accepts events/completion only for the **current** attempt and rejects stale attempts once a newer attempt has started.
+
+Late replies for the current attempt may still be accepted even if the task was already marked timed out (as long as no newer attempt has started).
 
 ## Task Completion (Worker → Dispatcher)
 
@@ -39,10 +56,14 @@ Task completion includes an `outputs` array so a single task can materialize mul
 ```json
 {
   "task_id": "uuid",
+  "attempt": 1,
   "status": "Completed",
+  "events": [
+    { "dataset_uuid": "uuid", "cursor": 12345 }
+  ],
   "outputs": [
-    { "output_index": 0, "dataset_uuid": "uuid", "location": "postgres://...", "cursor": 12345, "row_count": 1000 },
-    { "output_index": 1, "dataset_uuid": "uuid", "location": "postgres://...", "cursor": 12345, "row_count": 20000 }
+    { "output_index": 0, "dataset_uuid": "uuid", "location": "postgres_table:dataset_{dataset_uuid}", "cursor": 12345, "row_count": 1000 },
+    { "output_index": 1, "dataset_uuid": "uuid", "location": "postgres_table:dataset_{dataset_uuid}", "cursor": 12345, "row_count": 20000 }
   ],
   "error_message": null
 }
@@ -67,21 +88,33 @@ When a task materializes outputs, it emits **one event per output** (either batc
 Single-event shape:
 
 ```json
-{ "dataset_uuid": "uuid", "cursor": 12345 }
+{
+  "task_id": "uuid",
+  "attempt": 1,
+  "events": [{ "dataset_uuid": "uuid", "cursor": 12345 }]
+}
 ```
 
 Partitioned shape:
 
 ```json
-{ "dataset_uuid": "uuid", "partition_key": "1000000-1010000" }
+{
+  "task_id": "uuid",
+  "attempt": 1,
+  "events": [{ "dataset_uuid": "uuid", "partition_key": "1000000-1010000", "start": 1000000, "end": 1010000 }]
+}
 ```
 
-For block-range partitions, `partition_key` is `{start}-{end}` (inclusive) and maps to Cryo-style Parquet filenames `{dataset}_{start}_{end}.parquet` (the dataset portion is a user-facing label; storage paths may use UUIDs).
+For block-range partitions, `partition_key` is `{start}-{end}` (inclusive).
+
+For Parquet datasets (especially Cryo-derived datasets), keep the `{start}_{end}` range in the Parquet object key / filename (e.g., `blocks_{start}_{end}.parquet`) for interoperability and debugging. The dataset root/prefix is still resolved via the registry and may be UUID-based (e.g., `.../dataset/{dataset_uuid}/version/{dataset_version}/...`).
 
 Batch shape:
 
 ```json
 {
+  "task_id": "uuid",
+  "attempt": 1,
   "events": [
     { "dataset_uuid": "uuid", "cursor": 12345 },
     { "dataset_uuid": "uuid", "cursor": 12345 }
