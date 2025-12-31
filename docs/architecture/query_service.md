@@ -139,6 +139,7 @@ Virtual tables (e.g., `transactions`) unify hot and cold transparently.
 
 - At query start, Query Service resolves `dataset_name -> dataset_uuid -> {backend, location}` from the registry and pins that mapping for the duration of the query (no “moving target” mid-query).
 - Published datasets are attached as DuckDB views/tables using `dataset_name` as the SQL identifier.
+- For deploy/rematerialize cutover/rollback and query pinning semantics, see [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
 
 ## Authentication
 

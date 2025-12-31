@@ -28,6 +28,7 @@ At deploy time, the system:
 2. Upserts each job definition from YAML (so renamed/updated jobs take effect)
    - Resolves `inputs` edges and `outputs` counts to internal `dataset_uuid`s stored in `jobs.input_datasets` / `jobs.output_datasets`
    - Applies `publish:` entries to the dataset registry (see [ADR 0008](adr/0008-dataset-registry-and-publishing.md))
+   - If deploy triggers rematerialization, uses non-destructive rebuild + atomic cutover/rollback semantics (see [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md))
 3. Marks the resulting set active
 
 Example SQL (illustrative):

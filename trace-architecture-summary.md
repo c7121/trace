@@ -1,109 +1,177 @@
-# Trace architecture summary (Codex, current understanding)
+# Trace architecture: canonical decisions + update plan
 
-This file captures what I believe we agreed on during the architecture walkthrough, plus the doc/ADR edits to make next.
+This is the single source of truth for the architecture decisions captured during the Codex-assisted walkthrough.
+It supersedes `remaining-questions.md` (now an archive pointer).
 
-## System shape (high level)
+## Canonical decisions
 
-- **Postgres is the system database** (durable queue/state/metadata). We’re “NiFi-like”: Postgres is a slow queue; SQS is a dispatch/notification layer.
-- **Dispatcher** writes tasks/state to Postgres, meters work out to SQS.
-- Dispatcher should not “silently” change DAG semantics (e.g., coalescing/compacting work); batching/compaction should be modeled explicitly in the DAG via operators.
-- **Workers** execute tasks via a **wrapper** process that enforces the platform contract + security boundary around UDF/operator code.
-- **Query Service** reads “current” dataset versions and can evaluate virtual (SQL) datasets.
+### System shape
 
-## Interfaces / contracts
+- **Postgres is the system database** (durable queue/state/metadata). We’re “NiFi-like”: Postgres is the slow queue; SQS is a dispatch/notification layer.
+- **Dispatcher** writes tasks/state to Postgres and meters work out to workers (SQS/ECS and/or direct invocation).
+- Dispatcher must not silently change DAG semantics (no implicit batching/compaction); batching/compaction is modeled explicitly in the DAG via operators.
+- **Workers** execute tasks via a **wrapper** that enforces the platform contract and is the security boundary around operator/UDF code.
+- **Query Service** resolves dataset identity + current versions from the registry and executes queries with pinned versions.
 
-- **SQS payload**: `task_id` only.
-- Worker uses an **internal Dispatcher API** (e.g. `/internal/task-fetch`) to fetch task details by `task_id` (read-only from the worker’s perspective).
-- `/internal/*` endpoints are for **platform components** (worker wrapper, operator runtimes), not end users.
-- **UDF/operator code must not be able to call `/internal/*`**; the wrapper is the protection boundary.
+### Events, tasks, delivery
 
-## Events, tasks, and delivery semantics
+- Incoming semantics (v1): **1 event → 1 task**. No dispatcher-side coalescing.
+- Outgoing: **1 task → many events** is normal (batch→stream fan-out).
+- Event emission is explicit:
+  - `POST /internal/events` for mid-task/progress/streaming events.
+  - `POST /internal/task-complete` for lifecycle completion **and** optionally “final events” bundled atomically with completion.
+- Task completion happens only after all intended events have been accepted (either emitted earlier via `/internal/events` or included as “final events” on `/internal/task-complete`).
+- Delivery is **at-least-once with idempotency**. Operators that can create/update data must be idempotent.
+- Preferred idempotency key shape (current working assumption; revisit if dicey): dedupe by `(producer_task_id, dataset_uuid, cursor|partition_key|range)`.
+- Sources should have a durable `producer_task_id` / source run ID; source restarts behave like retry of the same run to preserve idempotency.
+- “Bulk” is not a Dispatcher feature: express batching/compaction explicitly via Aggregator/Splitter (or by source event granularity).
+- `execution_strategy: Bulk` is not supported (remove/forbid it in DAG schema); model “bulk” explicitly via Aggregator/Splitter.
 
-- One incoming **event** triggers one **task** (1→1 on the incoming side).
-- One task may emit **many outgoing events** (batch→stream style fan-out).
-- Event emission is **explicit**: use `POST /internal/events`.
-- `POST /internal/task-complete` is lifecycle-only and happens **after** all intended events are successfully emitted.
-- Delivery is **at-least-once with idempotency**.
-- Current preferred idempotency approach (“Option B”): dedupe by something like `(producer_task_id, dataset_uuid, cursor|partition_key)`; note to reconsider if it becomes dicey.
-- **Source runs** should have a durable identifier used as `producer_task_id`; source restarts behave like retry of the same source run to preserve idempotency.
+### Worker + Dispatcher contracts (internal APIs)
 
-## DAG deploy, rematerialization, and rollback
+- `/internal/*` endpoints are for platform components (worker wrapper, operator runtimes), not end users.
+- Operator/UDF code must not be able to call `/internal/*`; the wrapper is the protection boundary.
+- **SQS payload**: `task_id` only (thin message).
+- For SQS/ECS workers: wrapper calls `GET /internal/task-fetch?task_id=...` to fetch the full task payload (read-only from the worker’s perspective).
+- For `runtime: lambda` jobs: Dispatcher invokes Lambda with the **full task payload** (operator/config/event context), not just `task_id` (still track status in Postgres; this is only about invocation payload shape).
+- Cooperative cancel: `/internal/task-fetch` can return `status: "Canceled"`; wrapper exits without running operator code and reports `/internal/task-complete` as canceled (no outputs/events emitted).
+- Lambda retries/timeouts:
+  - Disable Lambda built-in retries; Dispatcher owns retries uniformly across runtimes.
+  - Use **attempt-gated** `/internal/events` + `/internal/task-complete`:
+    - Dispatcher records `started_at` per attempt.
+    - Reaper marks timeout when `now() > started_at + timeout_seconds` and schedules retry until `max_attempts`.
+    - Events/completion include attempt number and are accepted only if it matches the current attempt.
+    - Late completion is accepted if it matches the **current** attempt and the task is not `Canceled`/`Completed` (prevents “attempt 3 succeeded late but wasn’t recorded”); older attempts are rejected once a newer attempt starts.
 
-- Deploy/rematerialize should be **non-destructive**: build new versions, then cut over; keep old versions for fast rollback.
-- Prefer **atomic cutover** over progressive cutover.
-- It’s acceptable to serve **old (stale-but-consistent) outputs** until the rematerialization finishes and the atomic cutover occurs.
-- Rematerialization scope is **changed jobs + downstream subgraph** (not necessarily whole DAG).
-- Separate config into **materialization-affecting** vs **execution-only** properties; runtime changes are materialization-affecting.
-- Incoming side is fixed to **1 event → 1 task** for v1; “bulk/compaction” behavior is expressed explicitly in the DAG (Aggregator/Splitter) or by source event granularity (no Dispatcher coalescing).
-- **Query safety**:
-  - Query Service resolves `dataset_uuid -> dataset_version` once at query start and pins that mapping for the duration of the query (no “moving target”).
-  - Deploy cutover updates the whole affected `dataset_uuid -> current_version` pointer set **atomically** (single Postgres transaction).
-  - Rollback is a single operation that atomically restores the prior pointer set **and** restores the active `dag_version` (full control-plane + data-plane rollback).
-- Rollback/task handling recommendation:
-  - Stop leasing/dispatching tasks for the rolled-back (bad) `dag_version`.
-  - Cancel queued tasks for that `dag_version` in Postgres.
-  - Cooperative cancel for in-flight tasks via `/internal/task-fetch` / `/internal/heartbeat` returning “canceled”.
-  - Ensure outputs are written to **versioned artifacts** so nothing from the bad version becomes “current” after rollback.
+### Dataset identity, registry, publishing
 
-## Batching / compaction (EIP operators)
-
-- Replace “planner” terminology with explicit EIP operators: **Aggregator** + **Splitter** (inverse of each other).
-- For v1, Aggregator/Splitter are **normal operators** (ship fast). Backlog: consider “virtual operators” later (could still just be a small `lambda` operator that rewrites/augments a downstream query).
-- For record-count batching (e.g., 10k-block parquet partitions): Aggregator emits a **deterministic batch manifest** with explicit boundaries.
-- Cursor/ordering key is **user-defined in the DAG** (not necessarily “rows”); example is `block_height` driving transaction materialization.
-- Batching is **event-driven** (per-unit events accumulate) and v1 assumes the stream is **ordered**.
-- Range/window definition belongs to the DAG/operator (Aggregator), not the Dispatcher.
-- Multi-chain is modeled as multiple source nodes (one ordered cursor per source); aggregate per source then join downstream.
-
-## Dataset identity and ownership
-
-- `dataset_name` is a **human-readable, user-defined string** (unique per org) used for discovery/navigation in the registry and most user-facing APIs. Docs can recommend conventions.
-- `dataset_uuid` is a **system-generated UUID primary key** used internally and in storage paths to avoid escaping issues.
-- Cross-DAG **shared reads** are a supported use case.
-- Cross-DAG **shared writes** are not: enforce “single producing DAG active per `dataset_uuid`” (DAG-level ownership), while allowing multiple operators within a DAG to participate in a pipeline that ultimately produces a dataset.
-- Likely permission model: datasets are scoped to an org and access is controlled via org roles; DAGs/users interact with datasets under `{org_id, role, dag_id}` scoped identities (exact ACL shape TBD).
-- If you can deploy/trigger a DAG, you implicitly have permission to read **and** overwrite/create the datasets it produces (DAG permission ⇒ dataset read+write for produced datasets).
-- Datasets can also expose `read_roles` to allow shared reads by non-producers (without granting DAG edit/deploy rights).
-- `read_roles` should be managed via admin controls on the dataset registry (not embedded in DAG config).
-- Dataset registry is the authoritative mapping for `dataset_name -> dataset_uuid -> {storage backend, location}` (not purely derived from naming conventions) and should link datasets back to their producer (`dag_id`, `job`, `output_index`) for navigation.
-- DAG YAML primarily wires `node.output[i] -> other_node.input[j]` and does not require global dataset naming for every edge. User-visible datasets are created by a top-level `publish:` section that maps `{job, output_index} -> dataset_name`; ACLs remain admin-managed in the registry.
-- Publishing is metadata-only: it registers/aliases an existing node output as a user-visible dataset in the registry (does not trigger rematerialization/backfill or change execution).
-- Backlog: support **snapshot publishes** (pinned/immutable aliases) for “read this dataset as-of a point in time”; simplest shape is a one-shot/user-triggered action (or operator) that creates a new registry entry pointing to the current `dataset_version` and then never auto-advances.
-- `dataset_version` should be an opaque system UUID; version metadata lives in `dataset_versions`, and `dataset_current` pointers are swapped atomically for deploy/rollback.
+- Distinguish:
+  - `dataset_name`: human-readable, user-defined identifier (unique per org).
+  - `dataset_uuid`: system-generated UUID primary key used internally and in physical storage names/paths.
+- Cross-DAG **shared reads** are supported.
+- Cross-DAG **shared writes** are not (v1): enforce “single producing DAG active per `dataset_uuid`”.
 - A dataset’s materialization lifecycle is owned by its producing DAG; other DAGs can read/subscribe to it (shared reads) but do not “drive” the producer dataset’s materialization.
+- `dataset_name` format (v1):
+  - regex `^[a-z][a-z0-9_]{0,127}$` (lower snake_case), max length 128, unique per org.
+- Physical storage identifiers always use `dataset_uuid` (and `dataset_version`), never `dataset_name`:
+  - S3 paths are UUID-based (recommend including `org_id` prefix): `.../org/{org_id}/dataset/{dataset_uuid}/version/{dataset_version}/...`
+  - Postgres physical tables are UUID-based (e.g., `dataset_{dataset_uuid}`); user-facing access is via Query Service views named `dataset_name` (and optionally Postgres views like `published.<dataset_name>`).
+- Dataset registry is a **mandatory system table** and is authoritative for `dataset_name → dataset_uuid → {backend, location} (+ current dataset_version)`.
+- Registry links datasets back to their producer (`dag_id`, `job`, `output_index`) for navigation and “single producer” enforcement.
+- DAG YAML wiring stays index-based; user-visible datasets are created via a top-level `publish:` mapping `{job, output_index} -> dataset_name`.
+- Publishing is **metadata-only** (registry update/aliasing) and does not trigger rematerialization/backfill.
+- Backlog: “snapshot publish” (pinned alias) for “read as-of”; simplest is a one-shot/user-triggered action/operator that registers an alias pointing to the current `dataset_version` and then never auto-advances.
 
-## Materialization boundaries (lazy vs persisted)
+### Permissions (simple + safe defaults)
 
-- “Lazy dataframe” mental model: DAG may contain logical transforms; not every node must persist a table/file.
-- For v1, allow **virtual/lazy nodes only for declarative transforms** (SQL/query-spec composition).
-- Any non-declarative operator (Rust/UDF/etc.) is a **materialization boundary**.
-- v1 Query Service should **not** auto-materialize/cached-persist virtual datasets while serving reads (simplicity).
-- Query Service should only expose **published** datasets (from `publish:` / registry). Unpublished internal edges are not directly queryable (publish a new dataset if needed).
+- Dataset ACLs are registry-managed:
+  - If `read_roles` is NULL/empty: dataset is **private** to the producing DAG (users who can deploy/trigger that DAG) plus org admins (no org-wide-by-default footguns).
+  - If `read_roles` is non-empty: those org roles get read access in addition to producing DAG + org admins.
+- `read_roles` gates **all reads**: Query Service reads and DAG-to-dag reads via `inputs: from: {dataset: ...}`.
+- DAG deploy/trigger permission implies permission to read **and** overwrite/create datasets produced by that DAG.
+- Dataset `read_roles` is admin-managed (registry), not embedded in DAG config.
+- No “anti re-sharing” controls in v1: if you grant someone read access to a dataset, they can use it in their DAGs and publish derived datasets.
 
-## Side effects (alerts/pages)
+### Query Service + query ergonomics
 
-- Side effects are in scope (alerts/pages).
-- Operators/UDFs are not permitted to communicate with the outside world; side effects must be handled by a platform service (e.g., Delivery Service).
-- Alert evaluation should record “would have alerted” durably (e.g., `alert_events`) even when delivery is suppressed.
-- Alert detectors should emit an explicit **contextual event time** (domain timestamp like `block_timestamp`, not processing/created time).
-- Staleness gating should be applied by user-configurable routing operators when creating `alert_deliveries` (e.g., `max_delivery_age` against contextual `event_time`); Delivery Service just sends pending deliveries.
-- Avoid `live|backfill` modes in v1; rely on contextual time-gating + idempotency for delivery.
-- Idempotency keys for alert deliveries are assigned by the alert operator(s) as part of the operator contract (deterministic across retries).
-- Keep alert routing as operators: downstream operators can filter `alert_events` and write `alert_deliveries` for different destinations; only the Delivery Service performs external sends and updates delivery status.
-- Use a single shared `alert_deliveries` table/dataset and scale Delivery Service horizontally via leasing (before introducing per-channel sharding).
-- Deploy edits/rollbacks do **not** cancel pending deliveries: if a delivery is in `alert_deliveries` it should be sent (still subject to `max_delivery_age`/`event_time` gating and idempotency).
+- Query Service resolves `dataset_name → dataset_uuid → {backend, location} (+ current dataset_version)` from the registry and attaches views so user SQL can stay `SELECT * FROM dataset_name`.
+- Query pinning: Query Service resolves `dataset_uuid → dataset_version` once at query start and pins that mapping for the duration (no “moving target”).
+- v1 supports cross-backend reads (Postgres + Parquet/S3 in one query) via DuckDB, with interactive limits and an escape hatch to a batch “query operator” for heavier work.
+- v1 Query Service does not auto-materialize/cache intermediate datasets while serving reads (simplicity).
+- v1 only exposes **published** datasets; unpublished internal edges are not directly queryable.
+- v1 does **not** introduce “virtual SQL nodes” / `runtime: sql`; SQL transforms are expressed as normal operators (e.g., `operator: sql_transform`).
 
-## Doc + ADR edits applied
+### Deploy/rematerialize, buffering, rollback
 
-- Updated `docs/readme.md` to align with the `task_id`-only dispatch contract and `dataset_uuid` event routing.
-- Updated `docs/architecture/contracts.md` to use `dataset_uuid`, explicit `/internal/events`, and output indexing.
-- Rewrote `docs/capabilities/dag_configuration.md` around index-wired edges + top-level `publish:` and removed `execution_strategy: Bulk` (use explicit Aggregator/Splitter operators).
-- Updated alerting docs to match “operators route, Delivery Service sends” and added contextual `event_time` + `max_delivery_age` gating (`docs/capabilities/alerting.md`, `docs/architecture/adr/0004-alert-event-sinks.md`).
-- Added dataset registry/publishing ADR: `docs/architecture/adr/0008-dataset-registry-and-publishing.md`.
-- Updated data model docs to include the dataset registry + `dataset_uuid` usage (`docs/capabilities/orchestration.md`, `docs/architecture/erd.md`, `docs/architecture/data_versioning.md`).
-- Updated operator docs and catalog; renamed `alert_deliver` → `alert_route` and added `range_aggregator` / `range_splitter`.
+- Deploy/rematerialize is **non-destructive**: build new versions, then **atomic cutover**; keep old versions for fast rollback.
+- Prefer atomic cutover over progressive/probabilistic cutovers (simpler, less error-prone).
+- Cutover and rollback are **single Postgres transactions** that atomically update the “current” pointers for all affected datasets **and** the active `dag_version` (control-plane + data-plane together).
+- Outputs are written as **versioned artifacts** (`dataset_version`); “current” is a pointer swap, not in-place mutation.
+- It’s acceptable to serve old (stale-but-consistent) outputs until rematerialization finishes and cutover occurs.
+- “From the edit onward” means the edited job plus everything that depends on it **transitively**.
+- Rematerialization scope is the edited job + downstream subgraph (not necessarily the whole DAG).
+- Separate job config into **materialization-affecting** vs **execution-only** fields; edits to materialization-affecting fields trigger rematerialization (v1: at minimum, runtime/operator/config that affects outputs).
+- During a deploy that triggers rematerialization:
+  - Unchanged source operators keep running/emitting events.
+  - Dispatcher continues accepting `/internal/events` and persisting resulting work in Postgres, but **buffers** it (no worker dispatch) for the invalidated downstream subgraph until cutover, then drains buffered work using the new DAG version.
+- Rollback/rollover pauses all DAG processing. Delivery Service is outside the DAG and continues sending any queued deliveries.
+- Rollback cancels queued work for the rolled-back `dag_version` (and relies on cooperative cancel for in-flight tasks) so no outputs from the bad version can become “current”.
 
-## Remaining follow-ups
+### Buffered Postgres datasets
 
-- Add an ADR for atomic cutover/rollback + query pinning details (and reconcile with the existing `partition_versions`/`dataset_cursors` approach).
-- Work through the remaining items in `remaining-questions.md` (buffering/cutover line, aggregator durable state schema, secrets/roles, etc.).
+- Buffered Postgres datasets use **one SQS queue per dataset** and a **dedicated sink consumer per dataset queue** (same code, deployed/configured per dataset) for isolation/backpressure.
+
+### Batching / compaction (Aggregator/Splitter, EIP)
+
+- Replace “planner” terminology with explicit EIP operators: **range_aggregator** + **range_splitter** (inverse of each other).
+- v1: these are normal operators (ship fast); backlog “virtual operators” exploration later.
+- Range/window definition belongs to the DAG/operator (Aggregator), not the Dispatcher.
+- Cursor/ordering key is user-defined in the DAG (e.g., `block_height`); batching is event-driven and v1 assumes ordered inputs.
+- Multi-source is modeled as multiple source jobs (one ordered cursor per source); aggregate per source, then join downstream.
+- Aggregator durable state lives in a platform-managed Postgres operator-state table keyed by `(org_id, job_id)` (and/or `input_dataset_uuid` if needed).
+- Range manifest events include explicit range fields (not just `partition_key`), e.g. `{dataset_uuid, partition_key, start, end}`.
+- For deterministic “fixed-size partition” use cases (e.g., Parquet files per 10k blocks), Aggregator emits deterministic manifests with explicit boundaries.
+
+### Worker pools (Cryo backfill)
+
+- Remove/ignore `scaling.mode` in v1; use `scaling.max_concurrency`.
+- DAGs can define one or more named **worker_pools** as explicit arrays of worker “slots” (not an array of secrets):
+  - Each slot is a bundle of env vars + a mapping of env var → secret name(s) (and future per-worker metadata).
+  - Jobs (primarily `ecs_*`) select a pool by name and set `scaling.max_concurrency`; effective concurrency is `min(max_concurrency, pool size)`.
+  - Dispatcher leases one slot per running task and releases on completion/failure/timeout; wrapper injects env and fetches slot secrets.
+  - v1 primary driver: Cryo backfills where each concurrent task needs its own RPC API key (and potentially multiple secrets) as a per-slot bundle.
+
+### Data versioning + invalidations
+
+- `dataset_version` is a system-generated UUID; metadata lives in `dataset_versions` and `dataset_current` pointers are swapped atomically for cutover/rollback.
+- Retention/GC is **admin-only**: retain all `dataset_version`s until explicit purge (no automatic deletion in v1).
+- Invalidations **cascade transitively**: when a job reprocesses due to an upstream invalidation, it invalidates its own outputs so downstream recomputes without needing awareness of upstream causes.
+- `update_strategy` semantics:
+  - `replace`: when a job rewrites a scope/range, it **always** emits invalidations downstream for that replaced scope/range.
+  - `append`: append means **don’t delete** — the job only inserts and dedupes by `unique_key`; reprocessing may leave orphaned historical rows behind (auditable). If retractions/corrections are required, use `replace` (or a future tombstone design).
+
+### Side effects (alerts/pages)
+
+- Operators/UDFs are not permitted to communicate with the outside world; side effects are handled by a platform service.
+- Keep delivery routing as operators + delivery as a platform service:
+  - `alert_evaluate` produces `alert_events` (audit: “would have alerted”).
+  - One or more routing operators produce `alert_deliveries` (work items; filtered by severity/channel/etc.).
+  - Delivery Service leases `alert_deliveries`, sends externally, and updates delivery status.
+- Delivery idempotency keys are part of the operator contract and must be deterministic across retries (operator assigns them; Delivery Service relies on them).
+- Use a single shared `alert_deliveries` table/dataset and scale Delivery Service horizontally via leasing before sharding.
+- Alert detectors emit a contextual `event_time` (e.g., `block_timestamp`).
+- User-configurable routing operators gate delivery creation by config like `max_delivery_age` (still record “would have alerted” rows even if delivery is suppressed).
+- No `mode: live|backfill` in v1; rely on contextual time-gating + idempotency.
+- Deploy edits/rollbacks do not cancel pending deliveries: if it made it into `alert_deliveries`, it should be sent (subject to `max_delivery_age`/`event_time` gating and idempotency).
+
+## Open items / ADR backlog
+
+- Define the exact `/internal/task-fetch` response payload shape (operator runtime/config, input event, dataset refs, idempotency context).
+- Dispatcher HA/concurrency model (single process vs leader election/sharding).
+- Secrets/roles work:
+  - platform vs user secrets namespaces; workers must not get platform secrets by default
+  - Secret Writer Service (write-only, role-scoped)
+  - consolidate `users.role` vs org memberships into one model
+- Schema cleanup: clarify `tasks.input_versions JSONB` vs `task_inputs` table responsibilities (fast-path vs lineage/memoization).
+- Future: snapshot publishes and tombstones for `append`.
+
+## Update plan (staged, with review checkpoints)
+
+Stage 0 (done): Collate decisions into this document and de-duplicate `remaining-questions.md`.
+
+Stage 1: Align core contracts (you review after)
+- Update `docs/architecture/contracts.md` to match: lambda full payload, attempt-gating, and “final events in task-complete”.
+- Update `docs/architecture/dag_deployment.md` to match: transitive downstream invalidation, buffering during rematerialize, and atomic cutover/rollback semantics.
+
+Stage 2: Align data/versioning + registry semantics (you review after)
+- Update `docs/architecture/data_versioning.md` to match: invalidation cascade, `update_strategy` rules, admin-only retention, and where invalidation events live.
+- Reconcile ADR 0009’s schema narrative with the concrete tables referenced in `docs/architecture/data_versioning.md` / `docs/capabilities/orchestration.md`.
+
+Stage 3: Align DAG config + worker pools + query docs (you review after)
+- Update `docs/capabilities/dag_configuration.md` to include DAG-level `worker_pools` + job references and remove/ignore `scaling.mode`.
+- Update `docs/architecture/query_service.md` to match: name→uuid resolution, view attachment, and pinned versions.
+
+Stage 4: Consistency sweep (you review after)
+- `rg` for stale terminology/assumptions (`live|backfill` modes, `execution_strategy: Bulk`, `task_id`-only Lambda invocation, `scaling.mode`, etc.) and reconcile remaining contradictions across `docs/`.
+
+After each stage, I’ll stop and ask you to review the diffs before moving on.
