@@ -25,11 +25,19 @@ Security model for the Trace platform. This document is the single source of tru
 - Each job runs in its own Fargate task (no shared compute with other jobs or orgs).
 - **No privileged mode**: containers cannot access host resources.
 - **Read-only root filesystem**: writes only to designated output paths.
-- **No IAM role assumption**: task role has minimal, scoped permissions.
+- **No IAM role assumption**: tasks do not assume arbitrary IAM roles at runtime.
+  - **Untrusted UDF tasks** run with a near-zero-permission task role; they obtain scoped data access via capability tokens (see “Credential Handling”).
+  - **Platform operators** (trusted code) run with a narrow platform task role appropriate for their function.
 
 ### Secrets Injection
 
-Worker wrapper fetches secrets from Secrets Manager and injects them as environment variables. Operator code reads secrets from env vars — it never calls Secrets Manager directly.
+Secrets are injected into job containers as environment variables by the platform at **task launch**.
+
+- In AWS ECS/Fargate, secrets are referenced in the task definition and fetched by the **task execution role**.
+- The **task role** does not need Secrets Manager access (and untrusted tasks must not have it).
+- User/operator code reads secrets from environment variables and never calls Secrets Manager directly.
+
+> **Design note:** ECS secret references are typically static in the task definition. For jobs that need distinct credentials per concurrent task (worker pools), the platform uses separate task definitions per slot (or another equivalent mechanism) so secrets remain injected by ECS rather than fetched dynamically by untrusted code.
 
 ### Secrets Naming Convention
 
@@ -54,11 +62,12 @@ jobs:
     secrets: [monad_rpc_key]
 ```
 
-**Worker behavior**:
-1. Worker receives `secrets: ["monad_rpc_key"]` in task payload
-2. Worker fetches `/{env}/{org_slug}/monad_rpc_key` from Secrets Manager
-3. Worker injects as `MONAD_RPC_KEY` env var (uppercase, underscores)
-4. Operator reads `std::env::var("MONAD_RPC_KEY")`
+**Platform behavior (ECS)**:
+1. During task launch, the platform resolves the secret reference (e.g., `/{env}/{org_slug}/monad_rpc_key`) into the ECS task definition `secrets` mapping.
+2. ECS fetches the secret using the **task execution role** and injects it as an env var (e.g., `MONAD_RPC_KEY`).
+3. Operator code reads `std::env::var("MONAD_RPC_KEY")`.
+
+The secret **value** never appears in the task payload and untrusted code never receives credentials that can call Secrets Manager.
 
 **Scoping**: In v1 (single-tenant), all secrets are under one org. Future multi-tenant deployments isolate secrets per org via IAM policies on the `/{env}/{org_slug}/*` path.
 
@@ -74,6 +83,7 @@ jobs:
   - **RPC Egress Gateway** (or in-VPC nodes) for blockchain RPC access.
 - User jobs cannot make arbitrary outbound HTTP calls.
 - Platform jobs (e.g., `block_follower`, `cryo_ingest`) may access allowlisted RPC endpoints **only via the RPC egress gateway** (or an in-VPC node).
+- Untrusted UDF tasks must not have a network path to Postgres (RDS) or Secrets Manager endpoints; they access hot storage only via Query Service.
 - No inbound connections to job containers.
 - **TLS required**: all internal and external traffic uses TLS 1.2+.
 - Internal platform APIs (`/internal/*`) are reachable only from platform components (e.g., the worker wrapper) and are not directly callable by user/operator code.
@@ -89,6 +99,7 @@ jobs:
 ## Data Access Control
 
 - **Scoped credentials**: each job receives credentials for only the datasets it's configured to read.
+- **Capability-based enforcement**: untrusted tasks receive a short-lived capability token that enumerates allowed datasets/versions and output locations. The token is enforced by Query Service (SQL reads) and the Credential Broker (scoped S3 credentials).
 - **Org isolation**: queries are automatically filtered by `org_id`; jobs cannot access other orgs' data.
 - **Dataset visibility**: dataset read access is enforced via the dataset registry (`datasets.read_roles`) and applies to Query Service reads and DAG-to-dag reads (`inputs: from: { dataset: ... }`).
   - If `read_roles` is empty: the dataset is private to the producing DAG’s deployers/triggerers plus org admins.
@@ -103,15 +114,46 @@ jobs:
 
 ## Credential Handling
 
-- Job receives short-lived, scoped tokens at execution time.
-- Tokens grant:
-  - Read access to declared input datasets.
-  - Write access to declared output locations.
-  - Invoke access to pre-approved webhook URLs.
-- Tokens do not grant:
-  - Access to other datasets.
-  - IAM role assumption.
-  - Secrets Manager access (secrets injected by Worker, not fetched by job).
+
+Each task attempt receives short-lived, scoped credentials at execution time.
+
+### Capability Token
+
+For untrusted tasks (UDFs), the Dispatcher issues a short-lived **capability token** that encodes:
+
+- `task_id`, `attempt`, `org_id`
+- Allowed input dataset versions (resolved to pinned locations)
+- Allowed output prefix (S3)
+- Allowed scratch/export prefix (S3)
+- Expiry
+
+The token is passed to the worker wrapper via task payload and then to the UDF runtime (e.g., `TRACE_TASK_CAPABILITY_TOKEN`).
+
+### Query Service Enforcement
+
+UDFs issue ad-hoc SQL through Query Service using the capability token. Query Service attaches only the dataset views referenced by the token and rejects all other dataset access.
+
+### Credential Broker
+
+UDFs exchange the capability token with a Credential Broker service to receive short-lived STS credentials scoped to:
+
+- Read access to the allowed input prefixes
+- Write access to the allowed output prefix
+- Read access to the task scratch/export prefix
+
+The broker uses STS session policies to enforce prefix scoping. Credentials expire quickly and can be refreshed.
+
+### Guarantees
+
+This model grants:
+- Read access only to declared/pinned input datasets
+- Write access only to declared output locations
+
+It does **not** grant:
+- Access to other datasets
+- Secrets Manager access (secrets are injected at launch)
+- Direct Postgres access (UDFs must use Query Service)
+- Internet egress (only platform egress services)
 
 ## Audit and Monitoring
 

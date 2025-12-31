@@ -54,7 +54,7 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 | Source | Job with `activation: source` — maintains connections, emits events |
 | Asset | Output of a job — Parquet file, table rows |
 | Partition | A subset of an asset (e.g., blocks 0-10000) |
-| Runtime | Execution environment: `lambda`, `ecs_rust`, `ecs_python`, `dispatcher` |
+| Runtime | Execution environment: `lambda`, `ecs_rust`, `ecs_python`, `ecs_udf_ts`, `ecs_udf_python`, `ecs_udf_rust`, `dispatcher` |
 
 ---
 
@@ -149,13 +149,14 @@ flowchart TB
 - Orchestration internals: [dispatcher.md](architecture/containers/dispatcher.md)
 - Execution model: [workers.md](architecture/containers/workers.md)
 - Query federation: [query_service.md](architecture/containers/query_service.md)
+- Scoped data access: [credential_broker.md](architecture/containers/credential_broker.md)
 - API/task/event schemas: [contracts.md](architecture/contracts.md)
 
 ## Documentation Map
 
 | Area | Documents |
 |------|-----------|
-| Containers | [gateway.md](architecture/containers/gateway.md), [dispatcher.md](architecture/containers/dispatcher.md), [workers.md](architecture/containers/workers.md), [query_service.md](architecture/containers/query_service.md) |
+| Containers | [gateway.md](architecture/containers/gateway.md), [dispatcher.md](architecture/containers/dispatcher.md), [workers.md](architecture/containers/workers.md), [query_service.md](architecture/containers/query_service.md), [credential_broker.md](architecture/containers/credential_broker.md) |
 | Data Model | [erd.md](architecture/data_model/erd.md), [orchestration.md](architecture/data_model/orchestration.md), [pii.md](architecture/data_model/pii.md) |
 | Architecture | [contracts.md](architecture/contracts.md), [event_flow.md](architecture/event_flow.md), [data_versioning.md](architecture/data_versioning.md), [dag_deployment.md](architecture/dag_deployment.md), [ADRs](architecture/adr/) |
 | Operators | [catalog](architecture/operators/README.md) |
@@ -167,11 +168,17 @@ flowchart TB
 
 ## Security
 
-**IAM roles:** dispatcher-role (SQS, RDS, CloudWatch), worker-role (SQS, RDS, S3, Secrets Manager)
+**IAM roles (high-level):**
+
+- dispatcher-role (SQS, Postgres (state), CloudWatch)
+- platform-worker-role (SQS, Postgres (data), S3)
+- udf-worker-role (SQS only; data access is via Query Service + Credential Broker)
+- query-service-role (Postgres (data) read-only, S3 read/write for results)
+- credential-broker-role (STS AssumeRole into a constrained base role)
 
 **Secrets:** RPC keys and DB creds in Secrets Manager, injected as env vars.
 
-**Network:** Workers in private subnets. VPC endpoints for S3, SQS, Secrets Manager. ALB HTTPS only.
+**Network:** Services and workers in private subnets. VPC endpoints for S3/SQS (and others as needed). No internet egress from job containers; external calls go only through platform egress gateway services.
 
 See [security_model.md](standards/security_model.md) for job isolation, threat model, and credential handling.
 

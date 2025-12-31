@@ -45,7 +45,9 @@ Workers call Dispatcher for:
 
 Workers never have state DB credentials.
 
-Operator/UDF code must not be able to call `/internal/*`. The worker wrapper is the protection boundary: it authenticates to the Dispatcher, fetches task details/secrets, enforces the contract, and runs untrusted operator code with no internal credentials.
+Operator/UDF code must not be able to call `/internal/*`. The worker wrapper is the protection boundary: it authenticates to the Dispatcher, fetches task details, enforces the contract, and runs untrusted operator code with no internal credentials.
+
+Secrets (when required) are injected at task launch (ECS task definition `secrets`) and are available to operator code as environment variables. Untrusted tasks must not have Secrets Manager permissions.
 
 Event emission is explicit via `/internal/events` (mid-task) and may also be bundled as “final events” on `/internal/task-complete`.
 
@@ -56,6 +58,23 @@ To support retries and late replies (especially for Lambda), workers include an 
 Late replies for the current attempt may still be accepted even if the task was already marked timed out (as long as no newer attempt has started).
 
 Producer identity: upstream events are associated with a producing `task_id` and an `attempt`. The `task_id` is durable across retries and can be treated as a `producer_task_id`/run ID for idempotency and auditing. For long-running sources, the source runtime should preserve a stable producer run ID across restarts whenever feasible (treat restarts like retries of the same run).
+
+### UDF Data Access Token (Capability Token)
+
+For **untrusted UDF tasks**, the Dispatcher issues a short-lived **capability token** (passed to the runtime as an env var such as `TRACE_TASK_CAPABILITY_TOKEN`).
+
+The token is the single source of truth for what the UDF is allowed to read and write during the attempt:
+
+- Allowed input datasets (pinned dataset versions) and their resolved storage locations
+- Allowed output prefix (S3)
+- Allowed scratch/export prefix (S3)
+
+The token is enforced by:
+
+- **Query Service** — for ad-hoc SQL reads across Postgres + S3; only the datasets in the token are attached as views.
+- **Credential Broker** — exchanges the token for short-lived STS credentials scoped to the allowed S3 prefixes.
+
+UDF code never connects to Postgres directly.
 
 ### Task Fetch (`/internal/task-fetch`)
 

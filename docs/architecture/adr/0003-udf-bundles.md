@@ -18,7 +18,10 @@
 ## Context
 - GTM requires a clean path for users to run custom logic (Rust/Polars and Node/ethers) without compiling inside the platform.
 - Reusing existing AWS Lambda bundling tooling improves developer ergonomics and reduces bespoke packaging work.
-- User jobs run with **no internet egress by default** and must only access S3 data they are explicitly granted (see ADR 0002).
+- User jobs run with **no internet egress by default** and must access data only through platform primitives:
+  - **Query Service** for ad-hoc SQL reads (no direct Postgres access for UDFs)
+  - **Credential Broker** for short-lived, prefix-scoped S3 credentials (no broad IAM in UDF tasks)
+  (see ADR 0002 and [security_model.md](../../standards/security_model.md)).
 
 ## Why
 - **Tooling reuse**: users can leverage `cargo-lambda`, SAM, Serverless, and common build pipelines that already output Lambda-compatible zips.
@@ -30,7 +33,9 @@
 - The worker wrapper must implement enough of the Lambda Runtime API to support common runtimes (fetch next invocation, post response/error).
 - v1 requires `linux/amd64` artifacts for any native bundles (e.g., Rust `bootstrap`).
 - Node bundles must be deterministic and run without outbound network access; `ethers` usage is for decoding/formatting over task-provided data.
-- The task payload must fully describe allowed inputs/outputs so the wrapper can scope S3 access to partition prefixes.
+- The task payload must fully describe allowed inputs/outputs so the wrapper can scope data access:
+  - Query Service attaches only dataset views enumerated in the task capability token.
+  - Credential Broker issues S3 credentials scoped to the task’s allowed prefixes.
 
 ## Trade-offs
 - Added wrapper complexity versus a bespoke “stdin/stdout” contract.

@@ -24,7 +24,8 @@ flowchart LR
                 task_sqs["Task Queues"]:::infra
                 buffers["Dataset Buffers"]:::infra
             end
-            ecs_workers["ECS Fargate"]:::container
+            ecs_platform["ECS Platform Workers"]:::container
+            ecs_udf["ECS UDF Workers"]:::container
             lambda["Lambda Functions"]:::container
         end
         subgraph Data["Data"]
@@ -37,6 +38,8 @@ flowchart LR
             platformAuth["Auth/Policy"]:::infra
             postgres_state[("Postgres (state)")]:::database
             duckdb["DuckDB (Query)"]:::container
+            broker["Credential Broker"]:::container
+            rpcgw["RPC Egress Gateway"]:::container
             delivery["Delivery Service"]:::container
         end
         subgraph AWSServices["AWS Services"]
@@ -66,16 +69,27 @@ flowchart LR
     dispatcher -->|create tasks| postgres_state
     dispatcher -->|resolve runtime| registry
     dispatcher -->|enqueue| task_sqs
-    task_sqs -->|deliver task| ecs_workers
+    task_sqs -->|deliver task| ecs_platform
+    task_sqs -->|deliver task| ecs_udf
     
-    ecs_workers -->|fetch task, status, heartbeat| dispatcher
-    ecs_workers -->|write| postgres_data
-    ecs_workers -->|write| s3
-    ecs_workers -->|publish buffered records| buffers
-    ecs_workers -->|fetch secrets| platformSec
-    ecs_workers -->|fetch chain data| rpc
-    ecs_workers -->|emit telemetry| platformObs
-    ecs_workers -->|emit upstream event| dispatcher
+    ecs_platform -->|fetch task, status, heartbeat| dispatcher
+    ecs_udf -->|fetch task, status, heartbeat| dispatcher
+
+    ecs_platform -->|write| postgres_data
+    ecs_platform -->|write| s3
+    ecs_platform -->|publish buffered records| buffers
+    ecs_platform -->|rpc| rpcgw
+    ecs_platform -->|emit telemetry| platformObs
+    ecs_platform -->|emit upstream event| dispatcher
+
+    ecs_udf -->|write| s3
+    ecs_udf -->|publish buffered records| buffers
+    ecs_udf -->|ad-hoc SQL| duckdb
+    ecs_udf -->|scoped S3 creds| broker
+    ecs_udf -->|emit telemetry| platformObs
+    ecs_udf -->|emit upstream event| dispatcher
+
+    rpcgw -->|outbound| rpc
 
     delivery -->|poll pending deliveries| postgres_data
     delivery -->|send notifications| webhooks
@@ -84,7 +98,7 @@ flowchart LR
     lambda -->|write| postgres_data
     lambda -->|write| s3
     lambda -->|publish buffered records| buffers
-    lambda -->|fetch secrets| platformSec
+    %% Secrets are injected at launch; untrusted code does not call Secrets Manager at runtime.
 
     buffers -->|drain| sinks
     sinks -->|write| postgres_data

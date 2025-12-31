@@ -15,11 +15,13 @@ Stateless service for interactive and batch SQL queries across hot and cold stor
 ```mermaid
 flowchart LR
     gateway["Gateway"]:::container
+    workers["Workers"]:::container
     duckdb["DuckDB"]:::component
     postgres["Postgres"]:::database
     s3["S3 (Parquet)"]:::database
 
     gateway -->|SQL query| duckdb
+    workers -->|SQL query (task-scoped)| duckdb
     duckdb -->|query| postgres
     duckdb -->|query| s3
 
@@ -41,6 +43,18 @@ POST /v1/query
 Authorization: Bearer <token>
 Content-Type: application/json
 ```
+
+### Task Query API (UDF)
+
+Untrusted UDF tasks may issue ad-hoc SQL using a **capability token** (not a user Bearer token).
+
+```
+POST /v1/task/query
+X-Trace-Task-Capability: <capability_token>
+Content-Type: application/json
+```
+
+The request/response shape is the same as `/v1/query`, but dataset exposure is strictly limited to the dataset versions enumerated in the capability token.
 
 ### Request
 
@@ -138,16 +152,27 @@ DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at 
 
 ## Org Isolation
 
-- Bearer token resolved to `org_id` via IdP / auth service
-- Query Service attaches **per-org dataset views** and enforces dataset visibility (e.g., via `datasets.read_roles`)
-- For Postgres-backed datasets, views filter underlying tables by `org_id`
-- User cannot query other orgs' data
+Query Service supports two authn/authz modes:
+
+1. **User queries** (`/v1/query`)
+   - Bearer token resolved to `org_id` via IdP / auth service
+   - Query Service attaches **per-org dataset views** and enforces dataset visibility (e.g., via `datasets.read_roles`)
+   - User cannot query other orgs' data
+
+2. **Task-scoped queries** (`/v1/task/query`)
+   - Capability token resolves to `(org_id, task_id, attempt)`
+   - Query Service attaches **only** the dataset views enumerated in the token (and nothing else)
+   - Task queries may include internal/unpublished dataset versions because the token is issued by the Dispatcher after validating DAG wiring and dataset permissions
+
+For Postgres-backed datasets, views filter underlying tables by `org_id` and Query Service uses a read-only Postgres user.
 
 Dataset registry ACLs (`datasets.read_roles`) are the shared visibility enforcement point across the platform (Query Service reads and DAG-to-dag reads that reference a published dataset by name).
 
 ## Data Sources
 
-Query Service exposes **published** datasets from the dataset registry (see [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)). Internal unpublished edges are not directly queryable.
+**User queries** expose only **published** datasets from the dataset registry (see [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)).
+
+**Task queries** expose the dataset versions enumerated in the capability token and can include internal/unpublished datasets referenced by the task’s input edges.
 
 | Source | Attachment | Access |
 |--------|------------|--------|
@@ -158,7 +183,9 @@ Virtual tables (e.g., `transactions`) unify hot and cold transparently.
 
 ## Dataset Resolution
 
-Users query using `dataset_name` (human-readable). Physical storage uses UUIDs and versioned locations; Query Service resolves names to concrete locations “under the hood”.
+**User queries** use `dataset_name` (human-readable). Physical storage uses UUIDs and versioned locations; Query Service resolves names to concrete locations “under the hood”.
+
+**Task queries** are already pinned: the capability token includes resolved dataset versions/locations. Query Service attaches only those locations under stable aliases provided in the token (typically the dataset name or an edge alias).
 
 At query start, Query Service resolves and pins:
 
@@ -188,6 +215,13 @@ For deploy/rematerialize cutover/rollback semantics, see [ADR 0009](../adr/0009-
 2. Service validates token with IdP (Cognito/SSO)
 3. Extracts `org_id`, `user_id`, `role` from claims
 4. Rejects if token invalid or expired
+
+For task-scoped queries:
+
+1. Caller sends `X-Trace-Task-Capability: <token>`
+2. Service validates token signature + expiry
+3. Extracts `org_id`, `task_id`, `attempt` from token
+4. Attaches only the token’s dataset views and executes the query
 
 ## Dependencies
 

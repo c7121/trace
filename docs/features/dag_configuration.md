@@ -184,7 +184,7 @@ publish:
 |-------|----------|-------------|
 | `name` | ✅ | Unique job name within DAG |
 | `activation` | ✅ | `source` or `reactive` |
-| `runtime` | ✅ | `lambda` (TypeScript/JavaScript, Python, or Rust), `ecs_rust`, `ecs_python`, `dispatcher` |
+| `runtime` | ✅ | `lambda` (TypeScript/JavaScript, Python, or Rust), `ecs_rust`, `ecs_python`, `ecs_udf_ts`, `ecs_udf_python`, `ecs_udf_rust`, `dispatcher` |
 | `operator` | ✅ | Operator implementation to run |
 | `outputs` | ✅ | Number of outputs exposed as `output[0..N-1]` for wiring and publishing |
 | `update_strategy` | ✅ | `append` or `replace` — how outputs are written |

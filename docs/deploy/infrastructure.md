@@ -20,12 +20,18 @@ flowchart TB
         subgraph Private["Private Subnets"]
             subgraph ECS["ECS Cluster"]
                 DISPATCHER_SVC[Dispatcher Service]
+                QUERY_SVC[Query Service]
+                BROKER_SVC[Credential Broker]
                 RUST_WORKERS["Rust Workers - ecs_rust"]
                 PYTHON_WORKERS["Python Workers - ecs_python"]
-                INGEST_WORKERS[Ingest Workers]
+                UDF_WORKERS["UDF Workers - ecs_udf_*"]
+                DELIVERY_SVC[Delivery Service]
+                SINKS_SVC[Dataset Sinks]
+                RPC_EGRESS[RPC Egress Gateway]
             end
 
-            RDS[(RDS Postgres)]
+            RDS_STATE[(RDS Postgres - state)]
+            RDS_DATA[(RDS Postgres - data)]
         end
     end
 
@@ -37,6 +43,7 @@ flowchart TB
     subgraph AWS_Services["AWS Services"]
         SQS_QUEUES[SQS Queues]
         S3_BUCKET[S3 Data Bucket]
+        S3_SCRATCH[S3 Scratch Bucket]
         ECR[ECR Repositories]
         CW[CloudWatch]
         SM[Secrets Manager]
@@ -49,26 +56,37 @@ flowchart TB
     
     ALB --> DISPATCHER_SVC
     
-    DISPATCHER_SVC --> RDS
+    DISPATCHER_SVC --> RDS_STATE
     DISPATCHER_SVC --> SQS_QUEUES
     DISPATCHER_SVC --> CW
     
     SQS_QUEUES --> RUST_WORKERS
     SQS_QUEUES --> PYTHON_WORKERS
-    SQS_QUEUES --> INGEST_WORKERS
+    SQS_QUEUES --> UDF_WORKERS
     
     RUST_WORKERS --> DISPATCHER_SVC
     PYTHON_WORKERS --> DISPATCHER_SVC
-    INGEST_WORKERS --> DISPATCHER_SVC
+    UDF_WORKERS --> DISPATCHER_SVC
     
-    RUST_WORKERS -->|hot data| RDS
+    RUST_WORKERS -->|hot data| RDS_DATA
     RUST_WORKERS --> S3_BUCKET
-    PYTHON_WORKERS -->|hot data| RDS
+    PYTHON_WORKERS -->|hot data| RDS_DATA
     PYTHON_WORKERS --> S3_BUCKET
-    INGEST_WORKERS -->|hot data| RDS
+
+    QUERY_SVC -->|read-only| RDS_DATA
+    QUERY_SVC --> S3_BUCKET
+    QUERY_SVC --> S3_SCRATCH
+
+    UDF_WORKERS --> QUERY_SVC
+    UDF_WORKERS --> BROKER_SVC
+    UDF_WORKERS --> S3_BUCKET
+    UDF_WORKERS --> SQS_QUEUES
+
+    RUST_WORKERS --> RPC_EGRESS
+    PYTHON_WORKERS --> RPC_EGRESS
     
-    RUST_WORKERS --> SM
-    INGEST_WORKERS --> SM
+    %% Secrets are injected at task launch via ECS task definition secrets.
+    %% Untrusted UDF tasks do not have Secrets Manager permissions.
     
     ECR --> ECS
 ```
@@ -92,11 +110,16 @@ flowchart TB
 
 ## Key Resources
 
-- **VPC**: Private/public subnets, VPC endpoints for S3/SQS/Secrets Manager (and other AWS APIs as needed)
+- **VPC**: Private/public subnets, VPC endpoints for S3/SQS (and other AWS APIs as needed)
 - **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)
-- **RDS**: Postgres 15, encrypted, multi-AZ in prod. Deployed into **private subnets** with no public accessibility.
+- **RDS**: Two clusters/instances:
+  - **Postgres (state)** for orchestration metadata
+  - **Postgres (data)** for hot tables and platform-managed datasets
+  Both are Postgres 15, encrypted, multi-AZ in prod, deployed into **private subnets**.
 - **SQS**: FIFO with deduplication, 5min visibility, DLQ after 3 failures
-- **S3**: Versioned, lifecycle to Glacier after 1 year
+- **S3**: Data bucket for dataset storage + scratch bucket for query exports and task scratch
+- **Query Service**: DuckDB federation layer (read-only Postgres user) + result export to S3
+- **Credential Broker**: Issues short-lived, prefix-scoped STS credentials for untrusted UDF tasks
 
 ## Deployment Order
 
