@@ -175,10 +175,6 @@ flowchart TB
 
 See [security_model.md](standards/security_model.md) for job isolation, threat model, and credential handling.
 
-## Legacy
-
-The full pre-restructure architecture doc is preserved at: [_legacy/readme_20251231.md](_legacy/readme_20251231.md).
-
 ## References
 
 - [cryo GitHub](https://github.com/paradigmxyz/cryo)

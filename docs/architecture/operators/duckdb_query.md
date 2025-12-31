@@ -49,7 +49,7 @@ queries use the query service endpoint.
 
 ## Query Capabilities
 
-See [Query Capabilities](../query_service.md#query-capabilities) for the supported SQL feature set.
+See [Query Capabilities](../containers/query_service.md#query-capabilities) for the supported SQL feature set.
 
 ## Dependencies
 
@@ -57,7 +57,7 @@ See [Query Capabilities](../query_service.md#query-capabilities) for the support
 - Postgres read access
 - S3 read access to cold storage
 - S3 write access for results
-- Postgres write access to `query_results` (see [query_service.md](../query_service.md#query-results))
+- Postgres write access to `query_results` (see [query_service.md](../containers/query_service.md#query-results))
 
 ## Example DAG Config
 

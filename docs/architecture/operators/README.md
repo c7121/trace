@@ -3,7 +3,7 @@
 Operators are job implementations. One container image per runtime.
 
 Runtimes are registered in the Dispatcher runtime registry (image + queue +
-capabilities). See [readme.md](../../readme.md) for details.
+capabilities). See [dispatcher.md](../containers/dispatcher.md#runtime-registry-extensible) for details.
 
 ## Index
 
