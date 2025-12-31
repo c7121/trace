@@ -499,7 +499,7 @@ Executors. One worker image per runtime.
 
 **Lambda sources:** Invoked by EventBridge/API Gateway, emit upstream events to Dispatcher.
 
-**Lambda reactive jobs:** Invoked by Dispatcher when upstream datasets update (jobs with `runtime: lambda`). Dispatcher invokes the Lambda with `task_id` (no SQS) and does not wait; a task is “done” only when the Lambda reports `/internal/task-complete`. Timeouts/crashes are handled by the reaper + retries (`max_attempts`).
+**Lambda reactive jobs:** Invoked by Dispatcher when upstream datasets update (jobs with `runtime: lambda`). Dispatcher invokes the Lambda with the **full task payload** (same shape as `/internal/task-fetch`) and does not wait; a task is “done” only when the Lambda reports `/internal/task-complete`. Timeouts/crashes are handled by the reaper + retries (`max_attempts`) and Lambda built-in retries should be disabled (Dispatcher owns retries uniformly).
 
 **ECS:** Long-polls SQS, stays warm per `idle_timeout`, heartbeats to Dispatcher.
 
@@ -532,7 +532,7 @@ Source of truth for all state.
 
 ### 5. Asset Storage
 
-**Flexibility:** Jobs can write anywhere (S3, Postgres, external), provided downstream jobs can access the output as input.
+**Flexibility:** Jobs can write to platform-supported backends (S3, Postgres). Outbound side effects and third-party integrations (PagerDuty/Slack/webhooks) are handled via platform services, not operator/UDF code.
 
 **Hot path:** Postgres
 - Immediate writes

@@ -6,7 +6,7 @@ Evaluate alert conditions against data (Python implementation).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_python` |
+| **Runtime** | `lambda` or `ecs_python` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
@@ -75,3 +75,5 @@ Evaluates user-defined alert conditions against incoming or historical data. Pyt
   unique_key: [dedupe_key]
   timeout_seconds: 120
 ```
+
+To run this operator in Lambda (Python runtime), set `runtime: lambda` instead.

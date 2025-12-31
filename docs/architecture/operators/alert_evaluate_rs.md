@@ -6,7 +6,7 @@ Evaluate alert conditions against data (Rust/Polars implementation).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_rust` |
+| **Runtime** | `lambda` or `ecs_rust` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
@@ -74,6 +74,8 @@ Evaluates user-defined alert conditions against incoming or historical data. Rus
   unique_key: [dedupe_key]
   timeout_seconds: 60
 ```
+
+To run this operator in Lambda (Rust runtime), set `runtime: lambda` instead.
 
 ## When to Use
 

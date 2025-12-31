@@ -69,18 +69,18 @@ CREATE TABLE alert_events (
 
 **DAG contract:**
 - Producers publish `alert_events` and write with `update_strategy: append` and `unique_key: [dedupe_key]`.
-- `dedupe_key` must be deterministic from input data and config (examples: `{alert_definition_id}:{block_hash}:{tx_hash}` or `{producer_job_id}:{chain_id}:{block_number}`).
+- `dedupe_key` must be deterministic from input data and config. In a multi-writer sink, include a detector identity (e.g., `alert_definition_id` or `producer_job_id`) so different producers don’t dedupe each other (example: `{producer_job_id}:{block_hash}:{tx_hash}`).
 - `event_time` must be the contextual “when this happened” time (not task/run time).
 
 ## Evaluation (Reference Producers)
 
 Three reference `alert_evaluate` operators evaluate `alert_definitions` and write to `alert_events`:
 
-- `alert_evaluate_ts` (Lambda)
-- `alert_evaluate_py` (ECS Python)
-- `alert_evaluate_rs` (ECS Rust)
+- `alert_evaluate_ts` (Lambda TypeScript/JavaScript)
+- `alert_evaluate_py` (Python: Lambda or `ecs_python`)
+- `alert_evaluate_rs` (Rust: Lambda or `ecs_rust`)
 
-Runtime selection is per-job in the DAG. A single DAG can include multiple evaluation jobs with different runtimes.
+Runtime selection is per-job in the DAG. A single DAG can include many detector jobs (dozens+) across these language implementations and runtimes, all writing to the shared `alert_events` sink.
 
 ## Delivery
 

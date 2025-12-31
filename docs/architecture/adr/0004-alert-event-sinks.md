@@ -9,7 +9,7 @@
 - Delivery work and outcomes are recorded in `alert_deliveries` (one row per alert event + channel), written with **replace/upsert semantics** to support retries without double-sending.
 - Operators/UDFs do **not** perform external calls; delivery is handled by a platform **Delivery Service** that leases pending `alert_deliveries`, performs the external send, and updates delivery status.
 - Delivery uses `alert_deliveries.id` as an **idempotency key** per `(alert_event_id, channel)`; exactly-once delivery is conditional on downstream/provider support for deduplication.
-- Multiple jobs/operators may write to `alert_events` (multi-writer) to support many independent “alert checker” producers.
+- Multiple jobs/operators may write to `alert_events` (multi-writer) to support many independent “alert checker” producers. In v1, this is intended within a single DAG (cross-DAG shared writes remain disallowed unless explicitly enabled later).
 - `alert_events` and `alert_deliveries` are **platform-created tables** on deploy/startup (schema declared in config; producers do not create tables dynamically).
 - v1 standardizes a simple severity taxonomy: `info`, `warning`, `critical`.
 
@@ -25,10 +25,11 @@
 - **Operational clarity**: platform-owned tables keep bootstrap simple and consistent across environments.
 
 ## Contract
-- In DAG YAML, alert-producing jobs publish `alert_events` and write with `update_strategy: append`.
+- In DAG YAML, alert-producing jobs write to `alert_events` with `update_strategy: append` and a deterministic `dedupe_key`.
 - Deduplication uses a deterministic key:
   - `alert_events.dedupe_key` is required.
   - `UNIQUE (org_id, dedupe_key)` enforces idempotency across retries and reprocessing.
+- In a multi-writer sink, `dedupe_key` must include a detector identity (e.g., `alert_definition_id` or `producer_job_id`) so one detector cannot suppress another via deduplication.
 - One or more routing jobs read `alert_events` (optionally filtered) and create `alert_deliveries` work items (one per `(alert_event_id, channel)`), applying policy like staleness gating.
 - The Delivery Service performs the external send and updates `alert_deliveries` status/attempt fields.
 

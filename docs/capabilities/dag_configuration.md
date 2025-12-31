@@ -11,7 +11,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 - **Dataset** — a user-facing, **published** output with:
   - `dataset_name` (human-readable string, unique per org) and
   - `dataset_uuid` (system UUID primary key used internally + in storage paths).
-  The registry is the authoritative mapping from name → UUID → storage backend/location (see [ADR 0008](../architecture/adr/0008-dataset-registry-and-publishing.md)).
+  The registry is the authoritative mapping from name → UUID and dataset metadata (see [ADR 0008](../architecture/adr/0008-dataset-registry-and-publishing.md)); versioned storage locations are resolved via `dataset_versions` + DAG pointer sets (see [ADR 0009](../architecture/adr/0009-atomic-cutover-and-query-pinning.md)). Some datasets (e.g., buffered sink datasets like `alert_events`) are multi-writer within a DAG.
 - **Edge** — an internal connection from an upstream job output **by index** (e.g., `block_follower.output[0]`) to a downstream job input. Internal edges do **not** require dataset naming.
 - **Publish** — a top-level mapping that registers a specific `{job, output_index}` as a user-visible dataset in the registry (metadata-only; does not change execution/backfill).
 - **Filter** — an optional read-time predicate on an input edge (e.g., consume only `severity = 'critical'`). Filters are applied by the consumer, not the Dispatcher (see ADR 0007).
@@ -84,7 +84,7 @@ jobs:
   # Reactive: evaluate alerts on new blocks
   - name: alert_evaluate_rs
     activation: reactive
-    runtime: ecs_rust
+    runtime: lambda
     operator: alert_evaluate_rs
     execution_strategy: PerUpdate # cursor-based event input
     idle_timeout: 5m
@@ -183,7 +183,7 @@ publish:
 |-------|----------|-------------|
 | `name` | ✅ | Unique job name within DAG |
 | `activation` | ✅ | `source` or `reactive` |
-| `runtime` | ✅ | `lambda`, `ecs_rust`, `ecs_python`, `dispatcher` |
+| `runtime` | ✅ | `lambda` (TypeScript/JavaScript, Python, or Rust), `ecs_rust`, `ecs_python`, `dispatcher` |
 | `operator` | ✅ | Operator implementation to run |
 | `outputs` | ✅ | Number of outputs exposed as `output[0..N-1]` for wiring and publishing |
 | `update_strategy` | ✅ | `append` or `replace` — how outputs are written |

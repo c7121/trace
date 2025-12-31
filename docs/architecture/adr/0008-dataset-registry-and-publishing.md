@@ -15,6 +15,7 @@
   - Publishing is **metadata-only** (registry update/aliasing)
   - Publishing does **not** change execution/backfill/rematerialization behavior
 - The dataset registry links published datasets back to their producer (`dag_name`, `job_name`, `output_index`) for navigation and “single producer” enforcement.
+  - Exception: some published datasets are **buffered sink datasets** (e.g., `alert_events`) intended to be **multi-writer** within a DAG; producer provenance is tracked per record (e.g., `producer_job_id`) rather than by a single owning job output.
 - Query Service exposes only **published** datasets (via registry), not every internal edge.
 - Backlog: support **snapshot publishes** (pinned/immutable aliases) for “read as-of”.
 
@@ -35,7 +36,7 @@
 
 - Deploy must validate:
   - `dataset_name` uniqueness per org
-  - producer uniqueness per dataset (single producer DAG/job/output)
+  - producer uniqueness per dataset (single producer DAG/job/output), except for explicitly-declared buffered sink datasets that allow multi-writer
 - Internal platform APIs and event routing use `dataset_uuid`.
 - If a user needs to query/debug an internal edge, they must explicitly publish it (or publish a snapshot in the future).
 
@@ -44,4 +45,3 @@
 - `dataset_name` normalization rules (case, allowed characters) and whether names are mutable/renamable.
 - Whether publish entries can declare full storage schema inline (v1) vs requiring admin registry configuration.
 - Snapshot publishes: UX + retention/GC.
-

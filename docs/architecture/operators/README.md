@@ -19,8 +19,8 @@ capabilities). See [readme.md](../../readme.md) for details.
 | [integrity_check](integrity_check.md) | ecs_rust | reactive | PerUpdate | Verify cold storage integrity |
 | [rpc_integrity_check](rpc_integrity_check.md) | lambda | reactive | PerUpdate | Cross-check RPC providers for divergence |
 | [alert_evaluate_ts](alert_evaluate_ts.md) | lambda | reactive | PerUpdate | Evaluate alerts (TypeScript) |
-| [alert_evaluate_py](alert_evaluate_py.md) | ecs_python | reactive | PerUpdate | Evaluate alerts (Python) |
-| [alert_evaluate_rs](alert_evaluate_rs.md) | ecs_rust | reactive | PerUpdate | Evaluate alerts (Rust) |
+| [alert_evaluate_py](alert_evaluate_py.md) | lambda, ecs_python | reactive | PerUpdate | Evaluate alerts (Python) |
+| [alert_evaluate_rs](alert_evaluate_rs.md) | lambda, ecs_rust | reactive | PerUpdate | Evaluate alerts (Rust) |
 | [alert_route](alert_route.md) | lambda | reactive | PerUpdate | Route alerts into delivery work items |
 | [validator_stats](validator_stats.md) | lambda | source | — | Track validator performance over time |
 | [query](duckdb_query.md) | ecs_rust | reactive | PerUpdate | Batch query execution (DuckDB) |

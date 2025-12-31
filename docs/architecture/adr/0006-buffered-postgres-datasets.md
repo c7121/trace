@@ -12,6 +12,7 @@
 
 ## Context
 - Some datasets are naturally **multi-writer** (many jobs produce the same event stream), e.g., alerts, integrity signals, monitoring events.
+- Some datasets should be written via a platform-managed sink (not direct Postgres writes from user code).
 - We want buffering, backpressure visibility, and decoupling between producers and Postgres writes.
 - We do not want to grant arbitrary jobs direct Postgres write credentials or DDL privileges.
 
@@ -28,6 +29,7 @@
 ## Consequences
 - Dataset update events for buffered datasets are emitted **by the sink** after commit (not directly by producers).
 - Schema changes are deploy-time concerns (DAG update + migration behavior), not runtime “first writer creates table”.
+- Multi-writer datasets are supported: multiple producers can publish to the same buffer and rely on sink-side idempotency keys / unique constraints.
 
 ## Open Questions
 - FIFO vs standard queue per dataset (ordering vs throughput) defaults for v1.
