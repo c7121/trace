@@ -10,8 +10,14 @@ erDiagram
     ORGS ||--o{ ORG_ROLES : defines
     ORG_ROLES ||--o{ ORG_ROLE_MEMBERSHIPS : includes
     USERS ||--o{ ORG_ROLE_MEMBERSHIPS : assigned
+    ORGS ||--o{ DAG_VERSIONS : owns
+    DAG_VERSIONS ||--o{ DAG_CURRENT_VERSIONS : serves
+    DAG_VERSIONS ||--o{ JOBS : defines
     ORGS ||--o{ JOBS : owns
     ORGS ||--o{ DATASETS : owns
+    DATASETS ||--o{ DATASET_VERSIONS : versions
+    DAG_VERSIONS ||--o{ DAG_VERSION_DATASETS : pins
+    DATASET_VERSIONS ||--o{ DAG_VERSION_DATASETS : referenced_by
     JOBS ||--o{ TASKS : creates
     TASKS ||--o{ TASK_INPUTS : records
     JOBS ||--o{ COLUMN_LINEAGE : tracks
@@ -57,12 +63,28 @@ erDiagram
         uuid user_id PK
         timestamptz created_at
     }
+
+    DAG_VERSIONS {
+        uuid id PK
+        uuid org_id FK
+        text dag_name
+        text yaml_hash
+        timestamptz created_at
+    }
+
+    DAG_CURRENT_VERSIONS {
+        uuid org_id PK
+        text dag_name PK
+        uuid dag_version_id FK
+        timestamptz updated_at
+    }
     
     JOBS {
         uuid id PK
         uuid org_id FK
         text name
         text dag_name
+        uuid dag_version_id FK
         text activation
         text runtime
         text operator
@@ -79,7 +101,6 @@ erDiagram
         int timeout_seconds
         int heartbeat_timeout_seconds
         int max_attempts
-        boolean active
         timestamptz created_at
         timestamptz updated_at
     }
@@ -95,6 +116,21 @@ erDiagram
         text[] read_roles
         timestamptz created_at
         timestamptz updated_at
+    }
+
+    DATASET_VERSIONS {
+        uuid id PK
+        uuid dataset_uuid FK
+        timestamptz created_at
+        text storage_location
+        text config_hash
+        text schema_hash
+    }
+
+    DAG_VERSION_DATASETS {
+        uuid dag_version_id PK
+        uuid dataset_uuid PK
+        uuid dataset_version FK
     }
     
     TASKS {
@@ -224,8 +260,9 @@ erDiagram
     
     PARTITION_VERSIONS {
         uuid dataset_uuid PK
+        uuid dataset_version PK
         text partition_key PK
-        timestamptz version
+        timestamptz materialized_at
         text config_hash
         text schema_hash
         text location
@@ -235,6 +272,7 @@ erDiagram
     
     DATASET_CURSORS {
         uuid dataset_uuid PK
+        uuid dataset_version PK
         uuid job_id PK
         text cursor_column
         text cursor_value
@@ -243,7 +281,8 @@ erDiagram
     
     DATA_INVALIDATIONS {
         uuid id PK
-        uuid dataset_uuid
+        uuid dataset_uuid FK
+        uuid dataset_version FK
         text scope
         text partition_key
         jsonb row_filter
@@ -271,7 +310,7 @@ Full DDL with constraints and indexes:
 
 | Domain | Tables | Location |
 |--------|--------|----------|
-| Orchestration | orgs, users, org_roles, org_role_memberships, jobs, tasks, task_inputs, column_lineage, datasets | [orchestration.md](../capabilities/orchestration.md) |
+| Orchestration | orgs, users, org_roles, org_role_memberships, dag_versions, dag_current_versions, jobs, tasks, task_inputs, column_lineage, datasets, dataset_versions, dag_version_datasets | [orchestration.md](../capabilities/orchestration.md) |
 | Alerting | alert_definitions, alert_events, alert_deliveries | [alerting.md](../capabilities/alerting.md) |
 | Data Versioning | partition_versions, dataset_cursors, data_invalidations | [data_versioning.md](data_versioning.md) |
 | Query Service | saved_queries, query_results | [query_service.md](query_service.md) |

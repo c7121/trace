@@ -55,6 +55,30 @@ CREATE TABLE org_role_memberships (
 CREATE INDEX idx_org_role_memberships_user ON org_role_memberships(user_id);
 ```
 
+## DAG Versions
+
+Deploys are versioned. A `dag_version` represents an immutable DAG definition (YAML hash).
+
+```sql
+CREATE TABLE dag_versions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES orgs(id),
+    dag_name TEXT NOT NULL,
+    yaml_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (org_id, dag_name, yaml_hash)
+);
+
+-- Which DAG version is currently serving reads/dispatch (per org + dag_name).
+CREATE TABLE dag_current_versions (
+    org_id UUID NOT NULL REFERENCES orgs(id),
+    dag_name TEXT NOT NULL,
+    dag_version_id UUID NOT NULL REFERENCES dag_versions(id),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (org_id, dag_name)
+);
+```
+
 ## Jobs
 
 Job definitions synced from YAML DAG config.
@@ -65,6 +89,7 @@ CREATE TABLE jobs (
     org_id UUID NOT NULL REFERENCES orgs(id),
     name TEXT NOT NULL,
     dag_name TEXT NOT NULL,
+    dag_version_id UUID NOT NULL REFERENCES dag_versions(id),
     activation TEXT NOT NULL,           -- 'source', 'reactive'
     runtime TEXT NOT NULL,              -- 'lambda', 'ecs_rust', 'ecs_python', 'dispatcher'
     operator TEXT NOT NULL,             -- 'block_follower', 'alert_evaluate', etc.
@@ -81,13 +106,12 @@ CREATE TABLE jobs (
     timeout_seconds INT,
     heartbeat_timeout_seconds INT,
     max_attempts INT DEFAULT 3,
-    active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
-    CONSTRAINT unique_job_name UNIQUE (dag_name, name)
+    UNIQUE (dag_version_id, name)
 );
 
-CREATE INDEX idx_jobs_active ON jobs(dag_name) WHERE active = true;
+CREATE INDEX idx_jobs_dag_version ON jobs(dag_version_id);
 ```
 
 ## Datasets (Registry)
@@ -105,12 +129,36 @@ CREATE TABLE datasets (
     producer_dag_name TEXT NOT NULL,
     producer_job_name TEXT NOT NULL,
     producer_output_index INT NOT NULL,
-    storage JSONB NOT NULL DEFAULT '{}',            -- { "backend": "postgres"|"s3", "location": "...", ... }
+    storage JSONB NOT NULL DEFAULT '{}',            -- backend config (versioned location is in dataset_versions)
     read_roles TEXT[] NOT NULL DEFAULT '{}',        -- admin-managed visibility
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE (org_id, name),
     UNIQUE (org_id, producer_dag_name, producer_job_name, producer_output_index)
+);
+```
+
+## Dataset Versions (Deploy/Rematerialize)
+
+Each published dataset has a stable `dataset_uuid` plus versioned generations (`dataset_version`) so deploy/rematerialize can be non-destructive (build new versions in parallel and swap pointers atomically).
+
+```sql
+CREATE TABLE dataset_versions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- dataset_version
+    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    storage_location TEXT NOT NULL,                -- version-addressed location (S3 prefix or Postgres physical table)
+    config_hash TEXT,
+    schema_hash TEXT,
+    UNIQUE (dataset_uuid, id)
+);
+
+-- The dataset-version pointer set for a given DAG version.
+CREATE TABLE dag_version_datasets (
+    dag_version_id UUID NOT NULL REFERENCES dag_versions(id),
+    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
+    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
+    PRIMARY KEY (dag_version_id, dataset_uuid)
 );
 ```
 

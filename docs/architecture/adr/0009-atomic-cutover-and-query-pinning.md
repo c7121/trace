@@ -17,7 +17,7 @@
 
 - Each published dataset has a stable `dataset_uuid` (see ADR 0008).
 - Materializations write into **version-addressed artifacts** (per-dataset `dataset_version`), so “old” and “new” can coexist:
-  - S3: versioned prefixes (e.g., `.../{dataset_uuid}/{dataset_version}/...`)
+  - S3: versioned prefixes (e.g., `.../org/{org_id}/dataset/{dataset_uuid}/version/{dataset_version}/...`)
   - Postgres: versioned physical tables/views (naming is an implementation detail)
 - “Current” is an indirection, not an overwrite: reads resolve via `dataset_version`.
 
@@ -44,7 +44,7 @@
 
 - We need an explicit notion of dataset versions and “current” pointers.
 - Deploy must track a per-dataset pointer set per `dag_version` so rollback can restore the exact prior mapping.
-- Storage layout must support keeping multiple dataset versions concurrently (retention/GC policy is a follow-up).
+- v1 retention is conservative: keep all prior `dataset_version`s until an admin explicitly purges them (no automatic GC).
 
 ## Schema Sketch (illustrative)
 
@@ -52,17 +52,20 @@
 -- A versioned deploy of a DAG definition (YAML).
 CREATE TABLE dag_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES orgs(id),
     dag_name TEXT NOT NULL,
     yaml_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (dag_name, yaml_hash)
+    UNIQUE (org_id, dag_name, yaml_hash)
 );
 
 -- Which deploy is currently serving reads (per DAG).
 CREATE TABLE dag_current_versions (
-    dag_name TEXT PRIMARY KEY,
+    org_id UUID NOT NULL REFERENCES orgs(id),
+    dag_name TEXT NOT NULL,
     dag_version_id UUID NOT NULL REFERENCES dag_versions(id),
-    updated_at TIMESTAMPTZ DEFAULT now()
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (org_id, dag_name)
 );
 
 -- A per-dataset materialization “generation” (can be updated over time as new data arrives).
@@ -71,6 +74,7 @@ CREATE TABLE dataset_versions (
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     created_at TIMESTAMPTZ DEFAULT now(),
     storage_location TEXT NOT NULL,                -- version-addressed location
+    config_hash TEXT,
     schema_hash TEXT,
     UNIQUE (dataset_uuid, id)
 );
@@ -84,9 +88,12 @@ CREATE TABLE dag_version_datasets (
 );
 ```
 
+This ADR focuses on the *cutover/rollback model*. The concrete schemas live in:
+
+- `docs/capabilities/orchestration.md` (deploy + pointer tables: `dag_versions`, `dag_current_versions`, `dag_version_datasets`, `dataset_versions`)
+- `docs/architecture/data_versioning.md` (incremental processing tables within a `dataset_version`: `partition_versions`, `dataset_cursors`, `data_invalidations`)
+
 ## Open Questions
 
-- Version retention/GC policy (how many prior versions to keep; who triggers cleanup).
 - How we represent “ready for cutover” for large rematerializations (per-dataset and per-DAG).
-- How buffered Postgres datasets interact with versioned tables (naming + migration rules).
-
+- How buffered Postgres datasets interact with versioned physical tables (naming + migration rules for `storage_location`).

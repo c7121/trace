@@ -27,7 +27,7 @@ flowchart LR
 At deploy time, the system:
 
 1. Parses and validates YAML.
-2. Creates (or reuses) a `dag_version` for the YAML (keyed by `dag_name + yaml_hash`).
+2. Creates (or reuses) a `dag_version` for the YAML (keyed by `org_id + dag_name + yaml_hash`).
 3. Upserts the job definitions and the resolved `inputs` edges for that `dag_version`.
 4. Applies `publish:` entries to the dataset registry (see [ADR 0008](adr/0008-dataset-registry-and-publishing.md)).
 

@@ -6,7 +6,11 @@ How the system tracks data changes, handles reorgs, and efficiently reprocesses 
 
 **Delivery semantics:** Tasks may be delivered more than once (at-least-once via SQS). Idempotency is achieved through `update_strategy`: `replace` overwrites the scope; `append` dedupes via `unique_key`. The combination provides exactly-once *effect*.
 
-**Chain identity:** For onchain datasets, `block_hash` is the stable identifier. `block_number` is an ordering/partitioning field and may be reused during reorgs. Hot datasets like `hot_blocks` are therefore mutable: the platform reconciles reorgs by rewriting the affected block-number range and emitting a `data_invalidations` record so downstream jobs can rematerialize impacted outputs.
+**Dataset generations:** Each published dataset has a stable `dataset_uuid`. Deploy/rematerialize creates a new `dataset_version` (a generation) so the platform can build new outputs in parallel and then swap “current” pointers atomically (cutover/rollback). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
+
+Within a single `dataset_version`, the platform still does incremental updates (new partitions/rows) over time. Query pinning ensures reads are not a “moving target” mid-query even while new data arrives.
+
+**Chain identity:** For onchain datasets, `block_hash` is the stable identifier. `block_number` is an ordering/partitioning field and may be reused during reorgs. Hot datasets like `hot_blocks` are therefore mutable: the platform reconciles reorgs by rewriting the affected block-number range and emitting a `data_invalidations` record (scoped to the affected `dataset_version`) so downstream jobs can rematerialize impacted outputs.
 
 The system supports two granularities of change tracking:
 
@@ -21,36 +25,59 @@ Both levels coexist. Jobs declare which mode they use.
 
 ## Data Model
 
+### Dataset Versions (Generations)
+
+`dataset_version` is an opaque UUID that identifies a version-addressed location for a dataset’s outputs (a “generation”).
+
+It changes on deploy/rematerialize cutovers (definition changes), not on every incremental write.
+
+Old `dataset_version`s are retained until an admin explicitly purges them (no automatic GC in v1) to support fast rollback.
+
+```sql
+CREATE TABLE dataset_versions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- dataset_version
+    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    storage_location TEXT NOT NULL,                -- version-addressed location (S3 prefix or Postgres physical table)
+    config_hash TEXT,                              -- producing job/DAG definition hash (materialization-affecting)
+    schema_hash TEXT
+);
+```
+
 ### Partition Versions
 
-Tracks the version (last materialization time) and config hash for each partition.
+Tracks per-partition materialization metadata within a given `dataset_version`.
 
 ```sql
 CREATE TABLE partition_versions (
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
+    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
     partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000" (block ranges are inclusive)
-    version TIMESTAMPTZ NOT NULL DEFAULT now(),
+    materialized_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     config_hash TEXT,                 -- job config at time of materialization
     schema_hash TEXT,                 -- data shape (columns, types)
     location TEXT,                    -- s3://bucket/path or postgres table
     row_count BIGINT,
     bytes BIGINT,
-    PRIMARY KEY (dataset_uuid, partition_key)
+    PRIMARY KEY (dataset_uuid, dataset_version, partition_key)
 );
 ```
 
+For Cryo-style Parquet layouts, the range should remain visible in the object key / filename (e.g., `blocks_{start}_{end}.parquet`), even if the dataset prefix is UUID/version-addressed.
+
 ### Dataset Cursors
 
-Tracks high-water marks for cursor-based incremental jobs.
+Tracks high-water marks for cursor-based incremental jobs (scoped to a `dataset_version`).
 
 ```sql
 CREATE TABLE dataset_cursors (
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    job_id UUID NOT NULL,
+    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
+    job_id UUID NOT NULL REFERENCES jobs(id),
     cursor_column TEXT NOT NULL,      -- e.g., "block_number"
     cursor_value TEXT NOT NULL,       -- e.g., "1005000" (stored as text for flexibility)
     updated_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (dataset_uuid, job_id)
+    PRIMARY KEY (dataset_uuid, dataset_version, job_id)
 );
 ```
 
@@ -62,6 +89,7 @@ Records when data needs reprocessing (reorgs, corrections, manual fixes).
 CREATE TABLE data_invalidations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
+    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
     scope TEXT NOT NULL,              -- 'partition' | 'row_range'
     partition_key TEXT,               -- for scope='partition'
     row_filter JSONB,                 -- for scope='row_range', e.g., {"block_number": {"gte": 995, "lte": 1005}}
@@ -72,7 +100,7 @@ CREATE TABLE data_invalidations (
     processed_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset_uuid) WHERE processed_at IS NULL;
+CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset_uuid, dataset_version) WHERE processed_at IS NULL;
 ```
 
 ---
@@ -103,7 +131,7 @@ For jobs operating on partitioned data (typically cold storage).
 1. Trigger fires with `partition_key` (e.g., `"1000000-1010000"`; block ranges are inclusive)
 2. Job reads entire partition from input dataset
 3. Job writes output partition
-4. System updates `partition_versions` with new version timestamp
+4. System updates `partition_versions.materialized_at` for the current `dataset_version`
 
 **On invalidation:**
 1. Invalidation created with `scope: partition`
@@ -147,6 +175,14 @@ How jobs write their output:
 |----------|----------|----------|
 | `replace` | Overwrite a materialized scope (partition/range) | Compaction, rollups, derived views |
 | `append` | Append immutable facts, dedupe by `unique_key` | Event logs, audit trails |
+
+### Replace and Downstream Invalidations
+
+If a job uses `update_strategy: replace` and rewrites a scope/range, it must emit a downstream invalidation for that same scope/range so dependent jobs recompute (invalidations cascade transitively through the DAG).
+
+### Append Means “Don’t Delete”
+
+If a job uses `update_strategy: append`, it never deletes prior rows. Reprocessing may introduce new rows for the same historical range, but old rows can remain as auditable history/orphans. If you need retractions/corrections, use `replace` (or introduce explicit tombstones as a future extension).
 
 ### Append with Deduplication
 
@@ -208,9 +244,10 @@ sequenceDiagram
 When `block_follower` detects a reorg:
 
 ```sql
-INSERT INTO data_invalidations (dataset_uuid, scope, row_filter, reason, source_event)
+INSERT INTO data_invalidations (dataset_uuid, dataset_version, scope, row_filter, reason, source_event)
 VALUES (
     'uuid', -- dataset_uuid for hot_blocks
+    'uuid', -- dataset_version for hot_blocks (current generation)
     'row_range',
     '{"block_number": {"gte": 995, "lte": 1005}}',
     'reorg',
@@ -228,66 +265,41 @@ VALUES (
 
 ---
 
-## Staleness and Code Changes
+## Staleness, Invalidations, and Definition Changes
 
-### What Makes Data Stale?
+### What Causes Reprocessing?
 
-| Staleness Type | Detection | Auto-Rerun? |
-|----------------|-----------|-------------|
-| **Data stale** | New input partition/rows since last run | Yes (upstream event) |
-| **Invalidation** | `data_invalidations` record | Yes (Dispatcher) |
-| **Config stale** | `config_hash` changed | No (mark stale, manual backfill) |
-| **Schema stale** | `schema_hash` changed (breaking) | No (mark stale, manual backfill) |
+| Trigger | Detection | How It Runs |
+|---------|-----------|------------|
+| **Data stale** | New input partition/rows since last run | Upstream event |
+| **Invalidation** | `data_invalidations` record | Dispatcher schedules scoped reprocessing |
+| **Definition change** | New `dag_version` → new `dataset_version` | Deploy/rematerialize + atomic cutover (see [dag_deployment.md](dag_deployment.md) and [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md)) |
+| **Manual repair/backfill** | User/API initiated | Explicit backfill tasks (typically `replace`) |
 
-### Config Hash Tracking
+### Provenance: `config_hash` and `schema_hash`
 
-Every job run records the `config_hash` (hash of job config at execution time).
+Even though definition changes create new `dataset_version`s, it’s still useful to record what produced a given partition/cursor advancement:
 
 ```sql
--- On job completion, update partition version
+-- On partition materialization, upsert the partition metadata for this dataset_version.
 UPDATE partition_versions
-SET version = now(), config_hash = $new_config_hash
-WHERE dataset_uuid = $dataset_uuid AND partition_key = $partition_key;
+SET materialized_at = now(), config_hash = $config_hash, schema_hash = $schema_hash
+WHERE dataset_uuid = $dataset_uuid AND dataset_version = $dataset_version AND partition_key = $partition_key;
 ```
 
-When config changes:
-1. New jobs run with new `config_hash`
-2. Old partitions have old `config_hash`
-3. System can report: "partition X is stale (config changed)"
-4. User initiates a manual backfill
+### Backfill API (Repair)
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant DEP as DAG Deploy
-    participant J as jobs (state)
-    participant PV as partition_versions
-    participant D as Dispatcher
-    participant Q as SQS
-    participant W as Worker
-
-    U->>DEP: Update job config (YAML)
-    DEP->>J: Upsert job + new config_hash
-    Note over PV: Existing partitions keep old config_hash
-    U->>D: Start backfill (job + partitions)
-    D->>Q: Enqueue tasks (per partition)
-    Q->>W: Deliver task
-    W->>W: Recompute partition (replace)
-    W->>PV: Update partition_versions(config_hash=...)
-```
-
-### Backfill API
+Backfill is an explicit repair mechanism (e.g., recompute specific partitions/ranges). It is not the primary mechanism for deploy/rematerialize cutovers.
 
 ```
 POST /v1/backfill
 {
   "job": "enrich_transfers",
+  "dataset_version": "uuid",                // optional; defaults to current
   "partitions": ["2024-01-01", "2024-01-02"],  // or "all"
-  "reason": "config_change"
+  "reason": "repair"
 }
 ```
-
-Creates tasks for each partition; runs replace entire output.
 
 ---
 
@@ -335,13 +347,15 @@ sequenceDiagram
 
 ### Invalidation Handling
 
-Jobs declare their input edges in the DAG. When an invalidation is created for a dataset, the Dispatcher:
+Jobs declare their input edges in the DAG. When an invalidation is created for a dataset (scoped to a specific `dataset_version`), the Dispatcher:
 
-1. Finds all jobs that depend on the invalidated dataset
+1. Finds all jobs that directly depend on the invalidated dataset
 2. Creates tasks with `invalidation_id` in context
 3. Jobs receive `row_filter` from the invalidation record
 4. Jobs process only affected rows
 5. Jobs mark invalidation as processed (appends job_id to `processed_by`)
+
+Because `replace` rewrites emit downstream invalidations for the rewritten scope/range, invalidations effectively cascade transitively through the DAG: downstream jobs don’t need awareness of “3 levels upstream” causes.
 
 ```mermaid
 sequenceDiagram
@@ -371,9 +385,10 @@ sequenceDiagram
 
 | Concern | Solution |
 |---------|----------|
-| Cold storage (S3) | Partition-level versioning |
-| Hot storage (Postgres) | Cursor-based high-water mark |
+| Deploy/rematerialize | `dataset_versions` + atomic cutover/rollback (ADR 0009) |
+| Cold storage (S3) | Partition-level tracking (`partition_versions`) within a `dataset_version` |
+| Hot storage (Postgres) | Cursor-based high-water mark (`dataset_cursors`) within a `dataset_version` |
 | Reorg handling | Row-range invalidations, scoped reprocessing |
 | Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../capabilities/alerting.md#deduplication)) |
-| Code changes | Config hash tracking, manual backfill |
+| Definition changes | New `dataset_version` generation; optional manual repair backfills |
 | Efficiency | Never full-table scan; use partition or row_filter |
