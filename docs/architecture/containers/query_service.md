@@ -237,21 +237,6 @@ Results are written to S3; clients poll task status or fetch `query_results` by 
 
 Users can save queries for reuse.
 
-```sql
-CREATE TABLE saved_queries (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    user_id UUID NOT NULL REFERENCES users(id),
-    name TEXT NOT NULL,
-    query TEXT NOT NULL,
-    visibility TEXT NOT NULL DEFAULT 'private',  -- see ../data_model/pii.md
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_saved_queries_org ON saved_queries(org_id);
-```
-
 PII column: `saved_queries.query` (user-provided). Mark it as PII in dataset metadata; see [pii.md](../data_model/pii.md) for visibility and audit rules.
 
 ## Query Results
@@ -259,32 +244,6 @@ PII column: `saved_queries.query` (user-provided). Mark it as PII in dataset met
 Query executions (interactive and batch) are recorded in a platform-managed table. See [ADR 0005](../adr/0005-query-results.md).
 
 `query_id` in API responses is `query_results.id`.
-
-```sql
-CREATE TABLE query_results (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    user_id UUID REFERENCES users(id),
-    mode TEXT NOT NULL,                -- 'interactive' | 'batch'
-    status TEXT NOT NULL,              -- 'Queued' | 'Running' | 'Succeeded' | 'Failed'
-    sql_hash TEXT NOT NULL,            -- hash only (avoid storing full SQL by default)
-    saved_query_id UUID REFERENCES saved_queries(id),
-    task_id UUID REFERENCES tasks(id), -- set for batch executions
-    output_format TEXT,                -- 'json' | 'csv' | 'parquet'
-    output_location TEXT,              -- e.g., s3://bucket/results/{org_id}/{query_id}/
-    row_count BIGINT,
-    bytes BIGINT,
-    duration_ms INT,
-    error_code TEXT,
-    error_message TEXT,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_query_results_org_time ON query_results(org_id, created_at DESC);
-CREATE INDEX idx_query_results_user_time ON query_results(user_id, created_at DESC);
-CREATE INDEX idx_query_results_task ON query_results(task_id);
-```
 
 ## Deferred
 

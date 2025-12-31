@@ -46,52 +46,20 @@
 - Deploy must track a per-dataset pointer set per `dag_version` so rollback can restore the exact prior mapping.
 - v1 retention is conservative: keep all prior `dataset_version`s until an admin explicitly purges them (no automatic GC).
 
-## Schema Sketch (illustrative)
+## Schema Sketch (names only)
 
-```sql
--- A versioned deploy of a DAG definition (YAML).
-CREATE TABLE dag_versions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    dag_name TEXT NOT NULL,
-    yaml_hash TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (org_id, dag_name, yaml_hash)
-);
+This ADR focuses on the *cutover/rollback model*, not full schema definitions.
 
--- Which deploy is currently serving reads (per DAG).
-CREATE TABLE dag_current_versions (
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    dag_name TEXT NOT NULL,
-    dag_version_id UUID NOT NULL REFERENCES dag_versions(id),
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (org_id, dag_name)
-);
+**Deploy/versioning pointers:**
+- `dag_versions` — immutable DAG definition versions (YAML hash)
+- `dag_current_versions` — current `dag_version` serving reads per `(org_id, dag_name)`
+- `dataset_versions` — per-dataset materialization generations (version-addressed storage locations)
+- `dag_version_datasets` — per-`dag_version` pointer set mapping `dataset_uuid` → `dataset_version`
 
--- A per-dataset materialization “generation” (can be updated over time as new data arrives).
-CREATE TABLE dataset_versions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- dataset_version
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    created_at TIMESTAMPTZ DEFAULT now(),
-    storage_location TEXT NOT NULL,                -- version-addressed location
-    config_hash TEXT,
-    schema_hash TEXT,
-    UNIQUE (dataset_uuid, id)
-);
-
--- The pointer set for a given deploy.
-CREATE TABLE dag_version_datasets (
-    dag_version_id UUID NOT NULL REFERENCES dag_versions(id),
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
-    PRIMARY KEY (dag_version_id, dataset_uuid)
-);
-```
-
-This ADR focuses on the *cutover/rollback model*. The concrete schemas live in:
-
-- `docs/architecture/data_model/orchestration.md` (deploy + pointer tables: `dag_versions`, `dag_current_versions`, `dag_version_datasets`, `dataset_versions`)
-- `docs/architecture/data_versioning.md` (incremental processing tables within a `dataset_version`: `partition_versions`, `dataset_cursors`, `data_invalidations`)
+**Incremental processing within a `dataset_version`:**
+- `partition_versions`
+- `dataset_cursors`
+- `data_invalidations`
 
 ## Open Questions
 

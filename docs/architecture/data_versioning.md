@@ -25,9 +25,7 @@ Both levels coexist. Jobs declare which mode they use.
 
 ---
 
-## Data Model
-
-### Dataset Versions (Generations)
+## Dataset Versions (Generations)
 
 `dataset_version` is an opaque UUID that identifies a version-addressed location for a dataset’s outputs (a “generation”).
 
@@ -35,35 +33,9 @@ It changes on deploy/rematerialize cutovers (definition changes), not on every i
 
 Old `dataset_version`s are retained until an admin explicitly purges them (no automatic GC in v1) to support fast rollback.
 
-```sql
-CREATE TABLE dataset_versions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- dataset_version
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    created_at TIMESTAMPTZ DEFAULT now(),
-    storage_location TEXT NOT NULL,                -- version-addressed location (S3 prefix or Postgres physical table)
-    config_hash TEXT,                              -- producing job/DAG definition hash (materialization-affecting)
-    schema_hash TEXT
-);
-```
-
 ### Partition Versions
 
 Tracks per-partition materialization metadata within a given `dataset_version`.
-
-```sql
-CREATE TABLE partition_versions (
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
-    partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000" (block ranges are inclusive)
-    materialized_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    config_hash TEXT,                 -- job config at time of materialization
-    schema_hash TEXT,                 -- data shape (columns, types)
-    location TEXT,                    -- s3://bucket/path or postgres table
-    row_count BIGINT,
-    bytes BIGINT,
-    PRIMARY KEY (dataset_uuid, dataset_version, partition_key)
-);
-```
 
 For Cryo-style Parquet layouts, the range should remain visible in the object key / filename (e.g., `blocks_{start}_{end}.parquet`), even if the dataset prefix is UUID/version-addressed.
 
@@ -71,39 +43,9 @@ For Cryo-style Parquet layouts, the range should remain visible in the object ke
 
 Tracks high-water marks for cursor-based incremental jobs (scoped to a `dataset_version`).
 
-```sql
-CREATE TABLE dataset_cursors (
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
-    job_id UUID NOT NULL REFERENCES jobs(id),
-    cursor_column TEXT NOT NULL,      -- e.g., "block_number"
-    cursor_value TEXT NOT NULL,       -- e.g., "1005000" (stored as text for flexibility)
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (dataset_uuid, dataset_version, job_id)
-);
-```
-
 ### Data Invalidations
 
 Records when data needs reprocessing (reorgs, corrections, manual fixes).
-
-```sql
-CREATE TABLE data_invalidations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
-    scope TEXT NOT NULL,              -- 'partition' | 'row_range'
-    partition_key TEXT,               -- for scope='partition'
-    row_filter JSONB,                 -- for scope='row_range', e.g., {"block_number": {"gte": 995, "lte": 1005}}
-    reason TEXT NOT NULL,             -- 'reorg' | 'correction' | 'manual' | 'schema_change'
-    source_event JSONB,               -- details (e.g., reorg info: old_tip, new_tip, fork_block)
-    created_at TIMESTAMPTZ DEFAULT now(),
-    processed_by UUID[],              -- job_ids that have processed this invalidation
-    processed_at TIMESTAMPTZ
-);
-
-CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset_uuid, dataset_version) WHERE processed_at IS NULL;
-```
 
 ---
 

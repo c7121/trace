@@ -13,22 +13,7 @@ Alerting is a four-stage pipeline:
 
 ## Alert Definitions
 
-Stored in `alert_definitions` table:
-
-```sql
-CREATE TABLE alert_definitions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    user_id UUID NOT NULL REFERENCES users(id),
-    name TEXT NOT NULL,
-    condition JSONB NOT NULL,         -- UDF or expression (see below)
-    channels JSONB NOT NULL,          -- email, sms, webhook configs
-    visibility TEXT NOT NULL DEFAULT 'private',  -- see pii.md
-    enabled BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-```
+Alert definitions are stored in Postgres (`alert_definitions`).
 
 PII column: `alert_definitions.channels` (may include email/phone/webhook URLs). Mark it as PII in dataset metadata; see [pii.md](../architecture/data_model/pii.md) for visibility and audit rules.
 
@@ -43,29 +28,6 @@ Triggered alerts are durable facts recorded as append-only rows in `alert_events
 Multiple jobs/operators may write to this dataset (multi-writer sink). See [ADR 0004](../architecture/adr/0004-alert-event-sinks.md).
 
 In v1, `alert_events` is typically configured as a **buffered Postgres dataset** (SQS buffer → sink → Postgres). Producers publish records; the platform sink writes the table and emits the upstream dataset event after commit. See [ADR 0006](../architecture/adr/0006-buffered-postgres-datasets.md).
-
-```sql
-CREATE TABLE alert_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    alert_definition_id UUID REFERENCES alert_definitions(id), -- nullable for non-UDF/system alerts
-    producer_job_id UUID REFERENCES jobs(id),
-    producer_task_id UUID REFERENCES tasks(id),
-    severity TEXT,                      -- e.g., 'info'|'warning'|'critical'
-    chain_id BIGINT,
-    block_number BIGINT,
-    block_hash TEXT,                    -- changes on reorg
-    tx_hash TEXT,                       -- nullable for block-level alerts
-    source_dataset_uuid UUID,           -- upstream dataset (optional)
-    partition_key TEXT,                 -- e.g., '1000000-1010000' (optional)
-    cursor_value TEXT,                  -- e.g., block height cursor (optional)
-    payload JSONB NOT NULL DEFAULT '{}',-- producer-defined details
-    dedupe_key TEXT NOT NULL,           -- deterministic idempotency key
-    event_time TIMESTAMPTZ NOT NULL,    -- domain time (e.g., block_timestamp); used for staleness gating
-    created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (org_id, dedupe_key)
-);
-```
 
 **DAG contract:**
 - Producers publish `alert_events` and write with `update_strategy: append` and `unique_key: [dedupe_key]`.
@@ -92,30 +54,6 @@ Operators/UDFs do **not** communicate with the outside world. Delivery is split 
 If a delivery row exists, it should be sent (deploy/rollback does not cancel pending deliveries).
 
 Delivery outcomes are recorded in `alert_deliveries` with one row per `(alert_event_id, channel)`. Retries overwrite/update the same row (replace/upsert semantics).
-
-```sql
-CREATE TABLE alert_deliveries (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    alert_event_id UUID NOT NULL REFERENCES alert_events(id),
-    channel TEXT NOT NULL,              -- 'email'|'sms'|'webhook'|'slack'|'pagerduty'
-    status TEXT NOT NULL,               -- 'pending'|'sending'|'delivered'|'retrying'|'failed'|...
-    attempt INT NOT NULL DEFAULT 0,
-    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    leased_until TIMESTAMPTZ,           -- lease for crash-safe claiming
-    lease_owner TEXT,                   -- worker identity (optional)
-    last_attempt_at TIMESTAMPTZ,
-    provider_message_id TEXT,
-    error_message TEXT,
-    delivered_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (org_id, alert_event_id, channel)
-);
-
-CREATE INDEX idx_alert_deliveries_event ON alert_deliveries(alert_event_id);
-CREATE INDEX idx_alert_deliveries_ready ON alert_deliveries(status, next_attempt_at);
-```
 
 PII note: delivery destinations (email addresses, phone numbers, webhook URLs) live in `alert_definitions.channels`. `alert_deliveries` should not duplicate destinations; store only channel type and provider response metadata.
 
