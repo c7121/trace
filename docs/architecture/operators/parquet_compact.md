@@ -38,7 +38,9 @@ Compact **finalized** hot data from Postgres into cold Parquet partitions in S3.
 
 ## Hot Postgres considerations
 
-Deleting large ranges from monolithic tables will create bloat. Prefer Postgres **partitioning** by `chain_id` + `block_number` range so retention cleanup can drop partitions or delete bounded ranges efficiently.
+If `delete_after_compact=true`, the baseline cleanup method is a bounded range delete (e.g., `DELETE ... WHERE chain_id=? AND block_number BETWEEN start AND end`) after output commit. This keeps the operator table-agnostic, but large deletes can create bloat—ensure autovacuum is tuned accordingly.
+
+**Future optimization:** if hot tables are range-partitioned on `(chain_id, block_number)` with boundaries aligned to compaction ranges, cleanup can be implemented as partition drops instead of row deletes.
 
 ## Example DAG config
 

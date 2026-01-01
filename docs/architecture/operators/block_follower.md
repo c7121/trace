@@ -40,7 +40,7 @@ Follow chain tip in real-time and maintain canonical blocks/logs in **hot storag
 
 Hot chain tables should be designed for frequent **range rewrites** (reorgs) and optional **range deletes** (post-compaction retention):
 
-- **Partitioning (recommended):** partition by `chain_id` and `block_number` range so reorg deletes and retention cleanup can be bounded to a small number of partitions.
+- **Optional:** range partitioning by `(chain_id, block_number)` can make reorg rewrites and retention cleanup cheaper, but is not required in v1.
 - **Minimum indexes:**
   - `INDEX (chain_id, block_number)` for range scans and bounded deletes.
   - `UNIQUE (chain_id, block_hash)` (or equivalent) to prevent duplicates and to support tip continuity checks.

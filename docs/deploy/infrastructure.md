@@ -118,7 +118,8 @@ flowchart TB
   Both are Postgres 15, encrypted, multi-AZ in prod, deployed into **private subnets**.
   
   For chain datasets, Postgres (data) should be optimized for frequent **block-range rewrites** (reorgs) and bounded deletes (post-compaction retention):
-  - Prefer table **partitioning by `chain_id` + `block_number` range** and keep range indexes minimal.
+  - Baseline: bounded **row-range deletes** are supported. Large deletes can create bloat; tune autovacuum accordingly.
+  - Optional optimization: **partition by `chain_id` + `block_number` range**. If partition boundaries align with compaction ranges, retention cleanup can later be implemented as partition drops.
   - Retention and compaction are **DAG-defined behaviors** (operators decide finality/TTL); the Dispatcher does not enforce a retention policy.
   - In prod, consider a read replica for Query Service to protect ingestion latency.
 - **SQS**: Standard queues (one per runtime) + DLQ. Base visibility is minutes; worker wrappers extend visibility for long tasks. Ordering is enforced by DAG dependencies, not SQS.
