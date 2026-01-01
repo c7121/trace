@@ -6,24 +6,21 @@ AWS architecture and Terraform structure.
 
 ```mermaid
 flowchart TB
-    %% NOTE: API Gateway is an AWS-managed edge service, not deployed into subnets.
-    %% If private integration is desired, use API Gateway VPC Link -> ALB/NLB.
+    %% API Gateway is an AWS-managed edge service.
+    %% In v1, API Gateway uses a private integration (VPC Link) to an internal ALB.
     subgraph Edge["AWS Edge / Managed"]
         APIGW[API Gateway]
     end
 
     subgraph VPC["VPC"]
-        subgraph Public["Public Subnets"]
-            ALB[Application Load Balancer]
-        end
-
         subgraph Private["Private Subnets"]
+            ALB[Internal ALB]
+
             subgraph ECS["ECS Cluster"]
                 DISPATCHER_SVC[Dispatcher Service]
                 QUERY_SVC[Query Service]
-                RUST_WORKERS["Rust Workers - ecs_rust"]
-                PYTHON_WORKERS["Python Workers - ecs_python"]
-                UDF_WORKERS["UDF Workers - ecs_udf_*"]
+                PLATFORM_WORKERS["Platform Workers - ecs_platform"]
+                UDF_WORKERS["UDF Workers - ecs_udf"]
                 DELIVERY_SVC[Delivery Service]
                 RPC_EGRESS[RPC Egress Gateway]
             end
@@ -37,7 +34,7 @@ flowchart TB
         EVENTBRIDGE[EventBridge Rules]
         LAMBDA[Lambda Functions]
     end
-    
+
     subgraph AWS_Services["AWS Services"]
         SQS_QUEUES[SQS Queues]
         S3_BUCKET[S3 Data Bucket]
@@ -46,30 +43,28 @@ flowchart TB
         CW[CloudWatch]
         SM[Secrets Manager]
     end
-    
+
+    APIGW -->|route| ALB
+    ALB --> DISPATCHER_SVC
+    ALB --> QUERY_SVC
+
     EVENTBRIDGE --> LAMBDA
     APIGW --> LAMBDA
     LAMBDA --> DISPATCHER_SVC
     DISPATCHER_SVC -->|invoke runtime=lambda| LAMBDA
-    
-    ALB --> DISPATCHER_SVC
-    
+
     DISPATCHER_SVC --> RDS_STATE
     DISPATCHER_SVC --> SQS_QUEUES
     DISPATCHER_SVC --> CW
-    
-    SQS_QUEUES --> RUST_WORKERS
-    SQS_QUEUES --> PYTHON_WORKERS
+
+    SQS_QUEUES --> PLATFORM_WORKERS
     SQS_QUEUES --> UDF_WORKERS
-    
-    RUST_WORKERS --> DISPATCHER_SVC
-    PYTHON_WORKERS --> DISPATCHER_SVC
+
+    PLATFORM_WORKERS --> DISPATCHER_SVC
     UDF_WORKERS --> DISPATCHER_SVC
-    
-    RUST_WORKERS -->|hot data| RDS_DATA
-    RUST_WORKERS --> S3_BUCKET
-    PYTHON_WORKERS -->|hot data| RDS_DATA
-    PYTHON_WORKERS --> S3_BUCKET
+
+    PLATFORM_WORKERS -->|hot data| RDS_DATA
+    PLATFORM_WORKERS --> S3_BUCKET
 
     QUERY_SVC -->|read-only| RDS_DATA
     QUERY_SVC --> S3_BUCKET
@@ -79,12 +74,11 @@ flowchart TB
     UDF_WORKERS --> S3_BUCKET
     UDF_WORKERS --> SQS_QUEUES
 
-    RUST_WORKERS --> RPC_EGRESS
-    PYTHON_WORKERS --> RPC_EGRESS
-    
+    PLATFORM_WORKERS --> RPC_EGRESS
+
     %% Secrets are injected at task launch via ECS task definition secrets.
     %% Untrusted UDF tasks do not have Secrets Manager permissions.
-    
+
     ECR --> ECS
 ```
 
@@ -107,6 +101,7 @@ flowchart TB
 
 ## Key Resources
 
+- **Ingress**: API Gateway validates JWTs and routes to an **internal** ALB via VPC Link. The ALB must not be internet-facing. Backend services trust identity headers only on this private path.
 - **VPC**: Private/public subnets, VPC endpoints for S3/SQS (and other AWS APIs as needed)
 - **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)
 - **RDS**: Two clusters/instances:

@@ -87,8 +87,20 @@ See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
 - Untrusted UDF tasks must not have a network path to Postgres (RDS) or Secrets Manager endpoints; they access hot storage only via Query Service.
 - No inbound connections to job containers.
 - **TLS required**: all internal and external traffic uses TLS 1.2+.
-- Internal platform APIs (`/internal/*`) are reachable only from platform components (e.g., the worker wrapper) and are not directly callable by user/operator code.
+- Internal platform APIs (`/internal/*`) require **mutual TLS** client auth and are reachable only from platform components with the client certificate (e.g., the worker wrapper). User/UDF code must not have the client credential.
 
+
+## Internal Service Authentication
+
+Internal control-plane endpoints (`/internal/*`) are protected by **mTLS** (mutual TLS).
+
+- **Server side**: Dispatcher (and other platform services exposing internal endpoints) terminate TLS and require a valid client certificate.
+- **Client side**: only trusted platform components receive the client certificate (e.g., the worker wrapper container, Delivery Service).
+- In ECS, implement this by running a **wrapper container** (trusted) alongside the **UDF container** (untrusted), and mounting the client cert only into the wrapper.
+- **Untrusted UDF containers do not receive the client certificate**. Even if they can reach the service IP/port, they cannot authenticate to `/internal/*`.
+- The worker wrapper must not expose a local HTTP proxy that would let untrusted code relay privileged requests. Wrapper-to-UDF communication should be via process invocation (stdin/stdout) or a private file/pipe, not an HTTP port.
+
+Lite profile note: local/dev deployments may relax mTLS for convenience, but production AWS deployments must enforce it.
 ## Resource Limits
 
 - **CPU/memory**: hard caps in ECS task definition; job cannot exceed.

@@ -3,13 +3,15 @@
 Component boundaries: task payloads, results, and upstream events.
 
 > `/internal/*` endpoints are internal-only and are not exposed to end users. They are called only by platform components (worker wrapper, operator runtimes, sinks, Delivery Service).
+>
+> Production AWS deployments require **mTLS** on `/internal/*` so only trusted components with the client certificate can call these endpoints.
 
 
 **Delivery semantics:** tasks and upstream events are **at-least-once**. Duplicates and out-of-order delivery are expected; correctness comes from attempt/lease gating plus idempotent output commits. See [task_lifecycle.md](task_lifecycle.md).
 
-## SQS → Worker
+## Queue → Worker (Task wake-up)
 
-SQS message contains only `task_id` (wake-up). The worker then claims the task from the Dispatcher to obtain a lease and the full task payload. Duplicates are expected.
+Task queue message contains only `task_id` (wake-up). The worker then claims the task from the Dispatcher to obtain a lease and the full task payload. Duplicates are expected.
 
 ```json
 { "task_id": "uuid" }
@@ -17,12 +19,14 @@ SQS message contains only `task_id` (wake-up). The worker then claims the task f
 
 ## Dispatcher → Lambda (runtime=lambda)
 
-For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no SQS). Invocation payload includes the **full task payload** (same shape as `/internal/task-fetch`) so the Lambda does not need to fetch task details before executing:
+For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no task queue). Invocation payload includes the **full task payload** (same shape as `/internal/task-fetch`) so the Lambda does not need to fetch task details before executing:
 
 ```json
 {
   "task_id": "uuid",
   "attempt": 1,
+  "lease_token": "uuid",
+  "lease_expires_at": "2025-12-31T12:00:00Z",
   "job": { "dag_name": "monad", "name": "block_follower" },
   "operator": "block_follower",
   "config": { "...": "..." },
@@ -30,9 +34,11 @@ For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no 
 }
 ```
 
-Exact payload fields are still evolving; the invariant is that Lambda has everything it needs to run the operator without Postgres state credentials.
+Exact payload fields are still evolving; the invariant is that Lambda has everything it needs to run the operator and report fenced completion without Postgres state credentials.
 
-The Lambda follows the same worker contract: report completion/failure and emit events via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is defined in [task_lifecycle.md](task_lifecycle.md).
+Dispatcher acquires a lease before invoking (transitions the task to Running) and includes `(attempt, lease_token)` in the payload.
+
+The Lambda follows the same worker contract: heartbeat (optional) and report completion/failure and events via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is defined in [task_lifecycle.md](task_lifecycle.md).
 
 Lambda built-in retries should be disabled; the Dispatcher owns retries/attempts uniformly across runtimes.
 
@@ -49,7 +55,11 @@ Workers call Dispatcher for:
 
 Workers never have Postgres state credentials.
 
-Operator/UDF code must not be able to call `/internal/*`. The worker wrapper is the protection boundary: it authenticates to the Dispatcher, fetches task details, enforces the contract, and runs untrusted operator code with no internal credentials.
+Operator/UDF code must not be able to call `/internal/*`.
+
+`/internal/*` endpoints require **mTLS** client auth, and only trusted platform components receive the client certificate (e.g., the worker wrapper container). Untrusted UDF code must not receive the client credential.
+
+The wrapper must not expose a proxy interface that would let untrusted code relay privileged requests.
 
 Secrets (when required) are injected at task launch (ECS task definition `secrets`) and are available to operator code as environment variables. Untrusted tasks must not have Secrets Manager permissions.
 
@@ -57,7 +67,7 @@ Event emission is explicit via `/internal/events` (mid-task) and may also be bun
 
 Workers should only call `/internal/task-complete` after all intended events have been accepted (either emitted earlier via `/internal/events` or included as “final events” on `/internal/task-complete`).
 
-Workers include `{task_id, attempt, lease_token}` on `/internal/heartbeat` and `/internal/task-complete`, and include `{task_id, attempt}` on `/internal/events`.
+Workers include `{task_id, attempt, lease_token}` on `/internal/heartbeat`, `/internal/task-complete`, and `/internal/events`.
 The Dispatcher accepts these calls only for the **current** attempt and current lease; stale attempts are rejected and **must not** commit outputs or mutate state. See [task_lifecycle.md](task_lifecycle.md).
 
 Late replies for the current attempt may still be accepted even if the task was already marked timed out (as long as no newer attempt has started).
@@ -125,7 +135,7 @@ Response (not claimed):
 { "status": "NotClaimed", "reason": "AlreadyRunning|Completed|Canceled|NotFound" }
 ```
 
-If not claimed, the worker should **not** execute the task and should ack/delete the SQS message.
+If not claimed, the worker should **not** execute the task and should ack/delete the queue message.
 
 ### Task Fetch (`/internal/task-fetch`)
 
@@ -137,6 +147,30 @@ GET /internal/task-fetch?task_id=<uuid>
 
 If the task is canceled (e.g., during rollback), the Dispatcher may return `status: "Canceled"`.
 In that case the wrapper exits without running operator code and reports the cancellation via `/internal/task-complete` with `status: "Canceled"`.
+
+## Buffered dataset publish (Worker → Dispatcher)
+
+Buffered Postgres datasets are published by calling `POST /internal/buffer-publish`. This is attempt-fenced just like heartbeat/completion.
+
+Request:
+
+```json
+{
+  "task_id": "uuid",
+  "attempt": 1,
+  "lease_token": "uuid",
+  "dataset_uuid": "uuid",
+  "dataset_version": "uuid",
+  "batch_uri": "s3://trace-scratch/buffers/{dataset_uuid}/{task_id}/{attempt}/batch.jsonl",
+  "record_count": 1000
+}
+```
+
+Dispatcher behavior:
+
+- Persist a buffered publish record and enqueue a Buffer Queue message via the outbox (atomic with Postgres state).
+- Reject if `(task_id, attempt, lease_token)` does not match the current lease.
+- Treat duplicate publishes as idempotent (same `(task_id, attempt, dataset_uuid, batch_uri)`).
 
 ### Heartbeat (`/internal/heartbeat`)
 
@@ -199,6 +233,7 @@ Single-event shape:
 {
   "task_id": "uuid",
   "attempt": 1,
+  "lease_token": "uuid",
   "events": [{ "dataset_uuid": "uuid", "dataset_version": "uuid", "cursor": 12345 }]
 }
 ```
@@ -209,6 +244,7 @@ Partitioned shape:
 {
   "task_id": "uuid",
   "attempt": 1,
+  "lease_token": "uuid",
   "events": [{ "dataset_uuid": "uuid", "dataset_version": "uuid", "partition_key": "1000000-1010000", "start": 1000000, "end": 1010000 }]
 }
 ```
@@ -223,6 +259,7 @@ Batch shape:
 {
   "task_id": "uuid",
   "attempt": 1,
+  "lease_token": "uuid",
   "events": [
     { "dataset_uuid": "uuid", "dataset_version": "uuid", "cursor": 12345 },
     { "dataset_uuid": "uuid", "dataset_version": "uuid", "cursor": 12345 }
@@ -234,32 +271,34 @@ Dispatcher routes events to dependent jobs based on the stored input edges (by u
 
 Dispatcher treats events as at-least-once and idempotent. By default, it routes only events that refer to the dataset's **current** `dataset_version` (events for old generations may be accepted for audit but are not routed).
 
-## Buffered Postgres Datasets (SQS Buffer → Sink → Postgres)
+## Buffered Postgres Datasets (Queue → sink → table)
 
-Some Postgres-backed datasets are written via a buffer + sink (NiFi-style “connection queue”):
+Some published datasets are written by multiple jobs (e.g., `alert_events`). In v1, **untrusted tasks must never write to Postgres data directly**.
 
-- Producer jobs publish records to a dataset buffer (SQS).
-- A platform-managed sink drains the buffer, writes the Postgres table, then emits the dataset event to the Dispatcher.
-- This supports multi-writer datasets without granting producers Postgres write/DDL privileges.
+Pattern:
 
-### Producer → Dataset Buffer (SQS)
+1. Producer writes a batch artifact to object storage (S3/MinIO) under a buffer prefix.
+2. Producer calls `POST /internal/buffer-publish` (attempt-fenced) with a pointer to that artifact.
+3. Dispatcher persists the publish request (outbox) and enqueues a small message to the **Buffer Queue** (Queue in AWS, pgqueue in Lite).
+4. A trusted sink worker (`ecs_platform`) dequeues the message, validates schema, performs an idempotent upsert into Postgres data, and emits the dataset event via Dispatcher.
+5. The batch artifact can be GC’d by policy after the sink commits.
 
-Message body (example):
+Queue message (example):
 
 ```json
 {
+  "kind": "buffer_batch",
   "dataset_uuid": "uuid",
-  "schema_hash": "sha256:...",
-  "records": [
-    {"org_id": "uuid", "dedupe_key": "job:10143:123", "severity": "warning", "payload": {"msg": "..."}, "created_at": "2025-12-27T12:00:00Z"}
-  ]
+  "dataset_version": "uuid",
+  "batch_uri": "s3://trace-scratch/buffers/{dataset_uuid}/{task_id}/{attempt}/batch.jsonl",
+  "record_count": 1000,
+  "producer": { "task_id": "uuid", "attempt": 1 }
 }
 ```
 
-The sink is responsible for idempotent writes (e.g., `UNIQUE (org_id, dedupe_key)`) and emitting the upstream event after commit.
+Notes:
 
-## Related
+- Queue messages must remain small (<256KB). **Do not embed full records** in queue messages.
+- Idempotency is enforced by the sink using table unique keys and/or dedupe keys (see `write_mode: buffered` schema).
+- Producers do not need direct access to the queue backend; the Dispatcher owns queue publishing via the outbox.
 
-- [readme.md](../readme.md) — system diagrams
-- [orchestration.md](data_model/orchestration.md) — task/job schemas
-- [data_versioning.md](data_versioning.md) — cursor and partition semantics

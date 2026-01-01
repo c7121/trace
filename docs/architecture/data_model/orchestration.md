@@ -91,7 +91,7 @@ CREATE TABLE jobs (
     dag_name TEXT NOT NULL,
     dag_version_id UUID NOT NULL REFERENCES dag_versions(id),
     activation TEXT NOT NULL,           -- 'source', 'reactive'
-    runtime TEXT NOT NULL,              -- 'lambda', 'ecs_rust', 'ecs_python', 'dispatcher'
+    runtime TEXT NOT NULL,              -- 'lambda', 'ecs_platform', 'ecs_udf', 'dispatcher'
     operator TEXT NOT NULL,             -- 'block_follower', 'alert_evaluate', etc.
     source JSONB,                       -- { "kind": "cron", "schedule": "0 0 * * *" }
     bootstrap JSONB,                   -- source only: { "reset_outputs": true }
@@ -103,7 +103,7 @@ CREATE TABLE jobs (
     output_datasets TEXT[],             -- output dataset UUIDs by output index (string form)
     update_strategy TEXT NOT NULL,      -- 'append' | 'replace'
     unique_key TEXT[],                  -- required if update_strategy = 'append'
-    scaling JSONB,                      -- { "worker_pool": "monad_rpc_keys", "max_concurrency": 20 }
+    scaling JSONB,                      -- { "max_concurrency": 20 }
     timeout_seconds INT,
     heartbeat_timeout_seconds INT,
     max_attempts INT DEFAULT 3,

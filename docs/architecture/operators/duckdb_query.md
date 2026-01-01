@@ -6,7 +6,7 @@ Execute federated queries across hot and cold storage.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_rust` |
+| **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Image** | `duckdb_query:latest` |
@@ -64,7 +64,7 @@ See [Query Capabilities](../containers/query_service.md#query-capabilities) for 
 ```yaml
 - name: daily_summary
   activation: reactive
-  runtime: ecs_rust
+  runtime: ecs_platform
   operator: query
   execution_strategy: PerUpdate
   inputs:

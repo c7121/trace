@@ -6,7 +6,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 
 ## Concepts
 
-- **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_rust`, etc).
+- **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_platform`, `ecs_udf`).
 - **Job** — a configured instance of an operator inside a DAG (`runtime` + `operator` + `config`).
 - **Dataset** — a user-facing, **published** output with:
   - `dataset_name` (human-readable string, unique per org) and
@@ -21,7 +21,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 - **Bootstrap** — optional one-time initialization for `activation: source` jobs at activation/deploy (v1: `reset_outputs`).
 - **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by explicit `inputs` edges.
 - **Multi-source** — model multiple input streams as multiple source jobs. Each source stream has its own ordered cursor; aggregate per source as needed (e.g., `range_aggregator`), then join downstream.
-- **Worker pool** — optional named pool of per-worker “slots” (env + secrets) used when concurrent tasks must run with distinct credentials (e.g., Cryo backfills where each task needs a unique RPC key). Jobs reference a pool and set `scaling.max_concurrency`; effective concurrency is limited by pool size.
+- **Concurrency** — optional scaling hint (`scaling.max_concurrency`). Provider key pooling and rate limiting are handled by the RPC Egress Gateway (not by per-worker secret slots in YAML).
 
 ## YAML Schema
 
@@ -35,17 +35,6 @@ defaults:
   max_queue_depth: 1000
   max_queue_age: 5m
   backpressure_mode: pause
-
-worker_pools:
-  # Each worker pool is an explicit list of “slots”. The Dispatcher leases a slot per running task.
-  # `secret_env` maps env var name -> secret name (so all slots can expose the same env var names,
-  # but resolve to different underlying secrets).
-  monad_rpc_keys:
-    slots:
-      - secret_env:
-          MONAD_RPC_KEY: monad_rpc_key_1
-      - secret_env:
-          MONAD_RPC_KEY: monad_rpc_key_2
 
 jobs:
   # Source: Lambda cron emits daily event
@@ -62,7 +51,7 @@ jobs:
   # Source: always-running block follower
   - name: block_follower
     activation: source
-    runtime: ecs_rust
+    runtime: ecs_platform
     operator: block_follower
     source:
       kind: always_on
@@ -104,7 +93,7 @@ jobs:
   # Record-count batching: aggregate ordered updates into deterministic ranges (EIP Aggregator)
   - name: block_range_aggregate
     activation: reactive
-    runtime: ecs_rust
+    runtime: ecs_platform
     operator: range_aggregator
     execution_strategy: PerUpdate
     inputs:
@@ -120,7 +109,7 @@ jobs:
   # Compaction: consume range manifests and write cold Parquet partitions
   - name: compact_blocks
     activation: reactive
-    runtime: ecs_rust
+    runtime: ecs_platform
     operator: parquet_compact
     execution_strategy: PerPartition
     inputs:
@@ -132,7 +121,7 @@ jobs:
   # Backfill: manual source emits partitioned backfill requests
   - name: cryo_backfill
     activation: reactive
-    runtime: ecs_rust
+    runtime: ecs_platform
     operator: cryo_ingest
     execution_strategy: PerPartition
     idle_timeout: 0
@@ -143,7 +132,6 @@ jobs:
       datasets: [blocks, transactions, logs]
       rpc_pool: monad
     scaling:
-      worker_pool: monad_rpc_keys
       max_concurrency: 20
     outputs: 3
     update_strategy: replace
@@ -174,8 +162,6 @@ publish:
       unique: [org_id, dedupe_key]
       indexes:
         - [org_id, event_time]
-    buffer:
-      kind: sqs
 
   cold_blocks:
     from: { job: compact_blocks, output: 0 }
@@ -188,7 +174,7 @@ publish:
 |-------|----------|-------------|
 | `name` | ✅ | Unique job name within DAG |
 | `activation` | ✅ | `source` or `reactive` |
-| `runtime` | ✅ | `lambda` (TypeScript/JavaScript, Python, or Rust), `ecs_rust`, `ecs_python`, `ecs_udf_ts`, `ecs_udf_python`, `ecs_udf_rust`, `dispatcher` |
+| `runtime` | ✅ | `lambda`, `ecs_platform`, `ecs_udf`, `dispatcher` |
 | `operator` | ✅ | Operator implementation to run |
 | `outputs` | ✅ | Number of outputs exposed as `output[0..N-1]` for wiring and publishing |
 | `update_strategy` | ✅ | `append` or `replace` — how outputs are written |
@@ -199,7 +185,7 @@ publish:
 | `bootstrap` | source | Optional one-time bootstrap actions for sources (v1: `reset_outputs`) |
 | `config` | | Operator-specific config |
 | `secrets` | | Secret names to inject as env vars |
-| `scaling` | | Optional scaling hints (v1: `worker_pool`, `max_concurrency`) |
+| `scaling` | | Optional scaling hints (v1: `max_concurrency`) |
 | `timeout_seconds` | | Max execution time |
 
 ### Input Filters
@@ -222,9 +208,8 @@ Published datasets can optionally include storage configuration (and for buffere
 |-------|----------|-------------|
 | `from` | ✅ | `{job, output}` reference to publish |
 | `storage` | | `postgres` or `s3` (optional if preconfigured/implicit) |
-| `write_mode` | postgres | `buffered` (SQS → sink → table) or `direct` (platform jobs only) |
+| `write_mode` | postgres | `buffered` (queue → sink → table) or `direct` (platform jobs only) |
 | `schema` | buffered | Table schema: `columns`, `unique`, `indexes` |
-| `buffer` | buffered | Buffer config (v1: `kind: sqs`) |
 
 ### Secrets
 
@@ -241,18 +226,9 @@ jobs:
 
 See [security_model.md](../standards/security_model.md#secrets-injection) for how secrets are injected.
 
-### Worker Pools (Per-Worker Secrets)
+### Concurrency and RPC credentials
 
-Some jobs need **distinct credentials per concurrent task** (e.g., Cryo backfills where each task must use a different RPC key). In that case:
-
-1. Define a `worker_pools` entry with explicit `slots`.
-2. Configure the job’s `scaling.worker_pool` and `scaling.max_concurrency`.
-
-Each slot can provide:
-- `env`: plain env vars injected into the worker container.
-- `secret_env`: mapping of env var name → secret name. This keeps the env var **stable** (e.g., always `MONAD_RPC_KEY`) while allowing each slot to resolve a different secret.
-
-`scaling.mode` is ignored/unsupported in v1.
+For jobs that need high-concurrency RPC access (e.g., Cryo backfills), use `config.rpc_pool` and set `scaling.max_concurrency`. The RPC Egress Gateway owns key pooling, rotation, and rate limiting. Avoid modeling per-task unique credentials as DAG YAML primitives in v1.
 
 ### Update Strategy & Unique Key
 

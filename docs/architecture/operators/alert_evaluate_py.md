@@ -6,7 +6,7 @@ Evaluate alert conditions against data (Python implementation).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `lambda` or `ecs_python` |
+| **Runtime** | `lambda` or `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
@@ -63,7 +63,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Pyt
 ```yaml
 - name: alert_evaluate_py
   activation: reactive
-  runtime: ecs_python
+  runtime: ecs_platform
   operator: alert_evaluate_py
   execution_strategy: PerUpdate
   idle_timeout: 5m

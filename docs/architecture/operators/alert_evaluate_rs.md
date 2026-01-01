@@ -6,7 +6,7 @@ Evaluate alert conditions against data (Rust/Polars implementation).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `lambda` or `ecs_rust` |
+| **Runtime** | `lambda` or `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
@@ -62,7 +62,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Rus
 ```yaml
 - name: alert_evaluate_rs
   activation: reactive
-  runtime: ecs_rust
+  runtime: ecs_platform
   operator: alert_evaluate_rs
   execution_strategy: PerUpdate
   idle_timeout: 5m

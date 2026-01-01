@@ -54,7 +54,7 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 | Source | Job with `activation: source` — maintains connections, emits events |
 | Asset | Output of a job — Parquet file, table rows |
 | Partition | A subset of an asset (e.g., blocks 0-10000) |
-| Runtime | Execution environment: `lambda`, `ecs_rust`, `ecs_python`, `ecs_udf_ts`, `ecs_udf_python`, `ecs_udf_rust`, `dispatcher` |
+| Runtime | Execution environment: `lambda`, `ecs_platform`, `ecs_udf`, `dispatcher` |
 
 ---
 

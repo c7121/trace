@@ -6,7 +6,7 @@ Compact **finalized** hot data from Postgres into cold Parquet partitions in S3.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_rust` |
+| **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerPartition |
 | **Image** | `parquet_compact:latest` |
@@ -47,7 +47,7 @@ If `delete_after_compact=true`, the baseline cleanup method is a bounded range d
 ```yaml
 - name: parquet_compact
   activation: reactive
-  runtime: ecs_rust
+  runtime: ecs_platform
   operator: parquet_compact
   execution_strategy: PerPartition
   inputs:

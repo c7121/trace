@@ -6,7 +6,7 @@ Archive historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_rust` |
+| **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerPartition |
 | **Idle Timeout** | `0` (batch) |
@@ -46,11 +46,16 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 
 ## Scaling
 
-Each cryo worker is configured with its own RPC API key. To run concurrent backfills:
-- Define a `worker_pools` entry with N slots (each slot maps `MONAD_RPC_KEY` → a distinct secret name)
-- Each slot can include multiple `secret_env` entries if the operator needs more than one secret.
-- Configure the job with `scaling.worker_pool` and `scaling.max_concurrency: N`
-- Dispatcher leases one slot per running task; effective concurrency is `min(max_concurrency, pool size)`
+Concurrency is controlled via `scaling.max_concurrency`.
+
+RPC credentials are **not** modeled as per-task or per-slot secrets in DAG YAML. Instead:
+
+- The job selects `config.rpc_pool`.
+- The **RPC Egress Gateway** owns key pooling, rotation, and rate limiting for that pool.
+- Workers authenticate only to the RPC Egress Gateway, not directly to external RPC providers.
+
+This removes the need for `worker_pools` and avoids per-slot task definition sprawl.
+
 
 ## Dependencies
 
@@ -62,7 +67,7 @@ Each cryo worker is configured with its own RPC API key. To run concurrent backf
 ```yaml
 - name: cryo_backfill
   activation: reactive
-  runtime: ecs_rust
+  runtime: ecs_platform
   operator: cryo_ingest
   execution_strategy: PerPartition
   idle_timeout: 0
@@ -73,7 +78,6 @@ Each cryo worker is configured with its own RPC API key. To run concurrent backf
     datasets: [blocks, transactions, logs]
     rpc_pool: monad
   scaling:
-    worker_pool: monad_rpc_keys
     max_concurrency: 20   # dispatcher limits parallel jobs
   outputs: 3
   update_strategy: replace

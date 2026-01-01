@@ -87,7 +87,7 @@ For jobs operating on unpartitioned data (typically hot storage).
 2. Dispatcher creates task with invalidation context
 3. Job queries using `row_filter` (not full table scan)
 4. Job processes affected rows
-5. Invalidation marked processed for this job
+5. Dispatcher records the invalidation as processed for this job when it accepts fenced task completion
 
 ### Mode: `full`
 
@@ -151,19 +151,19 @@ Guidance:
 sequenceDiagram
     participant BF as block_follower
     participant PG as Postgres data
-    participant INV as data_invalidations
     participant DISP as Dispatcher
+    participant INV as data_invalidations
     participant DS as Downstream Jobs
 
-    BF->>BF: Detect reorg: parent hash mismatch
-    BF->>PG: DELETE orphaned blocks 995-1005
-    BF->>PG: INSERT canonical blocks 995-1005
-    BF->>INV: INSERT invalidation row_range blocks 995-1005
-    DISP->>INV: Poll for unprocessed invalidations
-    DISP->>DS: Create tasks for downstream jobs with row_filter
-    DS->>PG: Query with row_filter: not full scan
-    DS->>DS: Process, write output append/replace
-    DS->>INV: Mark invalidation processed
+    BF->>BF: Detect reorg
+    BF->>PG: Rewrite blocks 995-1005
+    BF->>DISP: Emit invalidation row_range 995-1005
+    DISP->>INV: INSERT invalidation row_range 995-1005
+    DISP->>DS: Create tasks with row_filter
+    DS->>PG: Query with row_filter
+    DS->>DS: Process + write output
+    DS->>DISP: Task complete
+    DISP->>INV: Record processed_by for DS job
 ```
 
 
@@ -233,30 +233,34 @@ Jobs declare their input edges in the DAG. When an invalidation is created for a
 2. Creates tasks with `invalidation_id` in context
 3. Jobs receive `row_filter` from the invalidation record
 4. Jobs process only affected rows
-5. Jobs mark invalidation as processed (appends job_id to `processed_by`)
+5. Dispatcher marks the invalidation as processed for this job when it accepts fenced task completion (workers do not write to `data_invalidations`)
 
 Because `replace` rewrites emit downstream invalidations for the rewritten scope/range, invalidations effectively cascade transitively through the DAG: downstream jobs don’t need awareness of “3 levels upstream” causes.
 
 ```mermaid
 sequenceDiagram
     participant S as Invalidation Source
-    participant INV as data_invalidations
     participant D as Dispatcher
+    participant INV as data_invalidations
     participant PG as Postgres state
     participant Q as SQS
     participant W as Worker
 
-    S->>INV: INSERT invalidation partition_key or row_filter
+    S->>D: Emit invalidation scope
+    D->>INV: INSERT invalidation
     loop poll
         D->>INV: SELECT unprocessed invalidations
     end
     D->>PG: Find dependent jobs
     D->>PG: Create tasks invalidation_id
     D->>Q: Enqueue tasks
-    Q->>W: Deliver task
-    W->>INV: Load invalidation context
+    Q->>W: Deliver task wake-up
+    W->>D: Claim task
+    D->>W: Return task payload with invalidation context
     W->>W: Reprocess affected scope
-    W->>INV: Mark processed_by/job_id
+    W->>D: Task complete
+    D->>INV: Record processed_by for job
+
 ```
 
 ---

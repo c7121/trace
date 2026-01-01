@@ -39,8 +39,8 @@ In v1, `alert_events` is typically configured as a **buffered Postgres dataset**
 Three reference `alert_evaluate` operators evaluate `alert_definitions` and write to `alert_events`:
 
 - `alert_evaluate_ts` (Lambda TypeScript/JavaScript)
-- `alert_evaluate_py` (Python: Lambda or `ecs_python`)
-- `alert_evaluate_rs` (Rust: Lambda or `ecs_rust`)
+- `alert_evaluate_py` (Python: Lambda or `ecs_platform`)
+- `alert_evaluate_rs` (Rust: Lambda or `ecs_platform`)
 
 Runtime selection is per-job in the DAG. A single DAG can include many detector jobs (dozens+) across these language implementations and runtimes, all writing to the shared `alert_events` sink.
 

@@ -6,8 +6,8 @@ Entry point for all external API traffic. Routes requests to backend services.
 
 | Property | Value |
 |----------|-------|
-| **Type** | API Gateway / ALB |
-| **Deployment** | AWS API Gateway + ALB |
+| **Type** | API Gateway + internal ALB |
+| **Deployment** | API Gateway (JWT) with VPC Link to internal ALB |
 | **Auth** | Bearer token (JWT from IdP) |
 
 ## Architecture
@@ -57,7 +57,9 @@ All requests require `Authorization: Bearer <token>`.
    - `X-Org-Id`: org UUID
    - `X-User-Id`: user UUID (resolved from `sub`)
    - `X-User-Role`: platform role (reader/writer/admin)
-4. Backend services trust these headers (internal network only)
+4. Backend services trust these headers **only** because the ALB is internal and reachable only via API Gateway VPC Link (security groups deny all other ingress).
+
+> **Hard requirement:** do not expose the ALB to the public internet. If the ALB must be internet-facing, backend services must validate JWTs themselves and treat forwarded identity headers as untrusted hints.
 
 ## Rate Limiting
 

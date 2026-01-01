@@ -48,8 +48,8 @@ CREATE TABLE data_invalidations (
     reason TEXT NOT NULL,             -- 'reorg' | 'correction' | 'manual' | 'schema_change'
     source_event JSONB,               -- details (e.g., reorg info: old_tip, new_tip, fork_block)
     created_at TIMESTAMPTZ DEFAULT now(),
-    processed_by UUID[],              -- job_ids that have processed this invalidation
-    processed_at TIMESTAMPTZ
+    processed_by UUID[],              -- job_ids recorded by the Dispatcher as having processed this invalidation
+    processed_at TIMESTAMPTZ          -- set by Dispatcher when all dependent jobs have processed
 );
 
 CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset_uuid, dataset_version) WHERE processed_at IS NULL;

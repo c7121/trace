@@ -1,32 +1,42 @@
-# ADR 0006: Buffered Postgres Datasets (SQS Buffer + Sink)
+# ADR 0006: Buffered Postgres Datasets (Queue Buffer + Sink)
 
 ## Status
 - Accepted (December 2025)
 
 ## Decision
-- The platform supports a general “buffer → sink” pattern for Postgres-backed datasets:
-  - Producers **publish records** to a dataset buffer (SQS).
-  - A platform-managed sink consumer drains the buffer and writes to a Postgres data table.
-- v1 uses **one SQS queue per buffered dataset** and a sink consumer per dataset queue (shared code, per-dataset config) for isolation and backpressure visibility.
-- Dataset schema is declared at deploy time (as part of publishing the dataset in DAG config / registry) and the platform creates the table (and indexes/constraints) during deploy/startup.
-- v1 uses **SQS** for dataset buffers (Kinesis is deferred until real throughput/ordering problems are observed).
 
+The platform supports a general **buffer → sink** pattern for Postgres-backed datasets:
+
+- Producers **write a batch artifact** to object storage (S3/MinIO) and call `POST /internal/buffer-publish` with a pointer to that artifact.
+- The Dispatcher persists the publish request (outbox) and enqueues a **small** message to the Buffer Queue.
+- A platform-managed **sink worker** drains the Buffer Queue and performs idempotent upsert into a Postgres data table.
+
+Queue backend is selected by deployment profile:
+
+- **AWS**: SQS
+- **Trace Lite**: pgqueue (Postgres-backed)
+
+v1 defaults:
+
+- One buffer queue per buffered dataset (v1 expects only a small number of buffered datasets; start with alerts and expand when needed).
+- Dataset schema is declared at deploy time (as part of publishing the dataset) and the platform creates the table (indexes/constraints) during deploy/startup.
 
 ## Implementation sketch
 
-In v1, sink consumers run as a **platform worker profile** (not a separate conceptual service).
-They consume from an SQS dataset buffer queue and apply dedupe/upsert into Postgres data.
+In v1, sink consumers run as a **platform worker** (`ecs_platform`) rather than as a separate conceptual service.
 
 ```mermaid
 flowchart LR
-    buffer[[SQS dataset buffers]]:::infra
+    buffer[[Buffer queue]]:::infra
+    obj[(Object storage batch artifact)]:::database
     sink{{Sink worker}}:::component
     writer["Dedupe and upsert"]:::component
     pg[(Postgres data)]:::database
     obs[Observability]:::ext
 
-    buffer -->|messages| sink
-    sink -->|apply dedupe_key| writer
+    obj -->|read batch| sink
+    buffer -->|message| sink
+    sink -->|apply dedupe key| writer
     writer -->|insert or upsert| pg
     sink -->|metrics| obs
 
@@ -37,24 +47,27 @@ flowchart LR
 ```
 
 ## Context
+
 - Some datasets are naturally **multi-writer** (many jobs produce the same event stream), e.g., alerts, integrity signals, monitoring events.
-- Some datasets should be written via a platform-managed sink (not direct Postgres data writes from user code).
+- Some datasets should be written via a platform-managed sink (not direct Postgres data writes from user/UDF code).
 - We want buffering, backpressure visibility, and decoupling between producers and Postgres data writes.
 - We do not want to grant arbitrary jobs direct Postgres data write credentials or DDL privileges.
 
 ## Why
-- **NiFi-like wiring**: multiple DAG nodes can feed a shared buffer which fans into sinks.
-- **Security**: producers get only `SendMessage` permissions; the sink holds Postgres data write credentials.
-- **Backpressure**: queue depth/age becomes the explicit buffer health metric.
-- **Operational simplicity (v1)**: SQS is already part of the stack and works with VPC endpoints.
+
+- **Security**: producers do not need direct Postgres write credentials. They also do not need direct queue permissions; the Dispatcher owns queue publishing.
+- **Backpressure**: queue depth/age becomes the explicit health metric.
+- **Operational simplicity (v1)**: a small number of buffered datasets (start with alerts) keeps infra manageable.
 
 ## Notes (EIP mapping)
+
 - Buffer: **Message Channel** (Queue Channel).
 - Sink: **Service Activator** that persists to a **Message Store** (Postgres data).
 
 ## Consequences
+
 - Dataset update events for buffered datasets are emitted **by the sink** after commit (not directly by producers).
+- Queue messages must remain small (<256KB). **Do not embed full records**; use a pointer to an object-store batch artifact.
 - Buffered Postgres dataset schema is managed by the platform and updated via deploy-time migrations (DAG update + controlled migration), not runtime “first writer creates table”.
-- Schema evolution for derived datasets is a first-class ETL concern and is handled via dataset versions and output commits (see [data_versioning.md](../data_versioning.md)).
 - Multi-writer datasets are supported: multiple producers can publish to the same buffer and rely on sink-side idempotency keys / unique constraints.
-- Buffers use an SQS DLQ (redrive policy). Messages that exceed the max receive count require manual inspection and replay.
+- Buffers use a DLQ / dead-letter mechanism (SQS DLQ in AWS). Messages that exceed the max receive count require manual inspection and replay.
