@@ -88,7 +88,7 @@ Because execution is **at-least-once**, a long outage may cause some duplicate w
 
 SQS carries only `{task_id}` wake-ups. Workers must **claim** tasks (leases) from the Dispatcher before executing; duplicates are expected and harmless.
 
-- Standard queue (FIFO is not required for correctness).
+- Standard queue.
 - Workers extend message visibility for long tasks.
 
 See [task_lifecycle.md](../task_lifecycle.md) for leasing, retries, and rehydration.

@@ -32,8 +32,4 @@
 - Buffered Postgres dataset schema is managed by the platform and updated via deploy-time migrations (DAG update + controlled migration), not runtime “first writer creates table”.
 - Schema evolution for derived datasets is a first-class ETL concern and is handled via dataset versions and output commits (see [data_versioning.md](../data_versioning.md)).
 - Multi-writer datasets are supported: multiple producers can publish to the same buffer and rely on sink-side idempotency keys / unique constraints.
-
-## Open Questions
-- FIFO vs standard queue per dataset (ordering vs throughput) defaults for v1.
-- Exactly-once semantics (idempotency keys and poison message policy).
-- Schema evolution rules (additive-only vs full migration support).
+- Buffers use an SQS DLQ (redrive policy). Messages that exceed the max receive count require manual inspection and replay.

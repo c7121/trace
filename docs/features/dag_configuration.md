@@ -224,7 +224,7 @@ Published datasets can optionally include storage configuration (and for buffere
 | `storage` | | `postgres` or `s3` (optional if preconfigured/implicit) |
 | `write_mode` | postgres | `buffered` (SQS → sink → table) or `direct` (platform jobs only) |
 | `schema` | buffered | Table schema: `columns`, `unique`, `indexes` |
-| `buffer` | buffered | Buffer config (v1: `kind: sqs`, optional `fifo`) |
+| `buffer` | buffered | Buffer config (v1: `kind: sqs`) |
 
 ### Secrets
 
