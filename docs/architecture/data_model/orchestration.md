@@ -316,7 +316,7 @@ Task execution is at-least-once and lease-based. Only the worker holding the cur
 ```mermaid
 stateDiagram-v2
     [*] --> Queued: Task created
-    Queued --> Running: Claim (lease acquired)
+    Queued --> Running: Claim - lease acquired
     Running --> Completed: Success
     Running --> Failed: Error
     Running --> Failed: Lease expired / timeout
@@ -356,7 +356,7 @@ stateDiagram-v2
     Idle --> Running: Event received
     Running --> Running: More events
     Running --> Idle: idle_timeout exceeded
-    Idle --> [*]: Scale to zero (optional)
+    Idle --> [*]: Scale to zero optional
 ```
 
 ## Related

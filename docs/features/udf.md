@@ -60,8 +60,8 @@ flowchart LR
 
     qs[Query Service]:::component
     broker[Credential Broker]:::component
-    pg[(Postgres hot)]:::database
-    s3[(S3 Parquet)]:::database
+    pg["Postgres hot"]:::database
+    s3["S3 Parquet"]:::database
 
     wrapper -->|capability token| udf
 

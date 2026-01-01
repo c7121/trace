@@ -6,7 +6,7 @@ AWS architecture and Terraform structure.
 
 ```mermaid
 flowchart TB
-    %% NOTE: API Gateway is an AWS-managed edge service (not deployed into subnets).
+    %% NOTE: API Gateway is an AWS-managed edge service, not deployed into subnets.
     %% If private integration is desired, use API Gateway VPC Link -> ALB/NLB.
     subgraph Edge["AWS Edge / Managed"]
         APIGW[API Gateway]
@@ -30,8 +30,8 @@ flowchart TB
                 RPC_EGRESS[RPC Egress Gateway]
             end
 
-            RDS_STATE[(RDS Postgres - state)]
-            RDS_DATA[(RDS Postgres - data)]
+            RDS_STATE["RDS Postgres - state"]
+            RDS_DATA["RDS Postgres - data"]
         end
     end
 

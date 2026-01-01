@@ -181,22 +181,22 @@ Users authenticate via external IdP (Cognito with OIDC/SAML). On first login:
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant IDP as IdP (Cognito)
+    participant IDP as IdP Cognito
     participant GW as Gateway
     participant D as Dispatcher
     participant PG as Postgres
 
-    U->>IDP: Login (SSO/OIDC)
+    U->>IDP: Login SSO/OIDC
     IDP->>U: JWT with claims
     U->>GW: Request with Bearer token
     GW->>IDP: Validate token
-    IDP->>GW: Claims (sub, email, org_id)
+    IDP->>GW: Claims sub, email, org_id
     GW->>D: Forward with X-User-Id, X-Org-Id
     D->>PG: Check users table
     alt User exists
         PG->>D: Return user
     else First login
-        D->>PG: INSERT INTO users (external_id, org_id, email, role)
+        D->>PG: INSERT INTO users external_id, org_id, email, role
         PG->>D: Return new user
     end
     D->>GW: Response

@@ -19,7 +19,7 @@ flowchart LR
     disp[Dispatcher]:::component
     broker[Credential Broker]:::component
     sts[AWS STS]:::infra
-    s3[(S3)]:::database
+    s3["S3"]:::database
 
     disp -->|issue capability token| udf
     udf -->|exchange token| broker

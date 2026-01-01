@@ -16,26 +16,26 @@ sequenceDiagram
 
     Src->>D: POST /internal/events {dataset_uuid, dataset_version, cursor|partition_key}
     D->>PG: Persist event + enqueue routing work
-    D->>PG: Create downstream tasks (dedupe)
+    D->>PG: Create downstream tasks dedupe
     alt runtime == lambda
         D->>L: Invoke with full task payload
         L->>S: Execute, write output to staging
         L->>D: POST /internal/task-complete {task_id, attempt, lease_token, status, outputs}
-        D->>PG: Commit outputs (advance cursor or record partition)
+        D->>PG: Commit outputs advance cursor or record partition
         D->>D: Emit and route dataset events after commit
     else runtime == ecs_*
         D->>TaskQ: Enqueue wake-up {task_id}
         TaskQ->>W: Deliver {task_id}
         W->>D: POST /internal/task-claim {task_id, worker_id}
-        D->>PG: Acquire lease (Queued -> Running)
+        D->>PG: Acquire lease Queued -> Running
         D->>W: {attempt, lease_token, task payload}
         W->>S: Execute, write output to staging
         W->>D: POST /internal/task-complete {task_id, attempt, lease_token, status, outputs}
-        D->>PG: Commit outputs (advance cursor or record partition)
+        D->>PG: Commit outputs advance cursor or record partition
         D->>D: Emit and route dataset events after commit
     end
 
-    opt buffered Postgres dataset output (ADR 0006)
+    opt buffered Postgres dataset output ADR 0006
         Note over BufQ,Sink: Producers publish records to an SQS dataset buffer.\nThe sink drains, writes Postgres data, then emits a dataset event after commit.
         W->>BufQ: Publish records
         L->>BufQ: Publish records

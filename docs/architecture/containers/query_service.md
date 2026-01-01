@@ -17,11 +17,11 @@ flowchart LR
     gateway["Gateway"]:::container
     workers["Workers"]:::container
     duckdb["DuckDB"]:::component
-    postgres[("Postgres data")]:::database
-    s3[("S3 parquet")]:::database
+    postgres["Postgres data"]:::database
+    s3["S3 Parquet"]:::database
 
     gateway -->|SQL query| duckdb
-    workers -->|SQL query (task-scoped)| duckdb
+    workers -->|SQL query task scoped| duckdb
     duckdb -->|query| postgres
     duckdb -->|query| s3
 

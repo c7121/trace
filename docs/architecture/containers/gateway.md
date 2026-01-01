@@ -23,7 +23,7 @@ flowchart LR
         query["Query Service"]
     end
     
-    idp["IdP (Cognito)"]
+    idp["IdP Cognito"]
     
     users -->|/v1/query| apigw
     users -->|/v1/jobs, /v1/alerts, etc.| apigw

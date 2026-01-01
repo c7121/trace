@@ -21,8 +21,8 @@ flowchart LR
     sqs["SQS"]:::infra
     buffers["Dataset Buffers"]:::infra
     dispatcher["Dispatcher"]:::component
-    postgres[("Postgres data")]:::database
-    s3[("S3 Parquet")]:::database
+    postgres["Postgres data"]:::database
+    s3["S3 Parquet"]:::database
     rpcgw["RPC Egress Gateway"]:::component
 
     sqs -->|task_id| wrapper
@@ -59,17 +59,17 @@ flowchart LR
     dispatcher["Dispatcher"]:::component
     qs["Query Service"]:::component
     broker["Credential Broker"]:::component
-    s3[("S3 Parquet")]:::database
+    s3["S3 Parquet"]:::database
 
     sqs -->|task_id| wrapper
     wrapper -->|claim task + lease| dispatcher
     wrapper -->|inject config + capability token| udf
     wrapper -->|heartbeat| dispatcher
 
-    udf -->|SELECT SQL (scoped)| qs
+    udf -->|SELECT SQL scoped| qs
     udf -->|exchange token| broker
     broker -->|scoped STS creds| udf
-    udf -->|read/write (scoped)| s3
+    udf -->|read/write scoped| s3
     udf -->|publish buffered records| buffers
 
     wrapper -->|report status| dispatcher

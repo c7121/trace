@@ -172,19 +172,19 @@ Avoid: `created_at`, `processed_at`, `now()`, `random()`, and other per-executio
 ```mermaid
 sequenceDiagram
     participant BF as block_follower
-    participant PG as Postgres (hot)
+    participant PG as Postgres hot
     participant INV as data_invalidations
     participant DISP as Dispatcher
     participant DS as Downstream Jobs
 
-    BF->>BF: Detect reorg (parent hash mismatch)
-    BF->>PG: DELETE orphaned blocks (995-1005)
-    BF->>PG: INSERT canonical blocks (995-1005)
-    BF->>INV: INSERT invalidation (row_range, blocks 995-1005)
+    BF->>BF: Detect reorg: parent hash mismatch
+    BF->>PG: DELETE orphaned blocks 995-1005
+    BF->>PG: INSERT canonical blocks 995-1005
+    BF->>INV: INSERT invalidation row_range blocks 995-1005
     DISP->>INV: Poll for unprocessed invalidations
     DISP->>DS: Create tasks for downstream jobs with row_filter
-    DS->>PG: Query with row_filter (not full scan)
-    DS->>DS: Process, write output (append/replace)
+    DS->>PG: Query with row_filter: not full scan
+    DS->>DS: Process, write output append/replace
     DS->>INV: Mark invalidation processed
 ```
 
@@ -299,16 +299,16 @@ sequenceDiagram
     participant S as Invalidation Source
     participant INV as data_invalidations
     participant D as Dispatcher
-    participant PG as Postgres (state)
+    participant PG as Postgres state
     participant Q as SQS
     participant W as Worker
 
-    S->>INV: INSERT invalidation (partition_key or row_filter)
+    S->>INV: INSERT invalidation partition_key or row_filter
     loop poll
         D->>INV: SELECT unprocessed invalidations
     end
     D->>PG: Find dependent jobs
-    D->>PG: Create tasks (invalidation_id)
+    D->>PG: Create tasks invalidation_id
     D->>Q: Enqueue tasks
     Q->>W: Deliver task
     W->>INV: Load invalidation context
