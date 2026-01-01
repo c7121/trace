@@ -11,6 +11,7 @@
 - Delivery uses `alert_deliveries.id` as an **idempotency key** per `(alert_event_id, channel)`; exactly-once delivery is conditional on downstream/provider support for deduplication.
 - Multiple jobs/operators may write to `alert_events` (multi-writer) to support many independent “alert checker” producers. In v1, this is intended within a single DAG (cross-DAG shared writes remain disallowed unless explicitly enabled later).
 - `alert_events` and `alert_deliveries` are **platform-created tables** on deploy/startup (schema declared in config; producers do not create tables dynamically).
+- Webhook/email/phone destinations live in `alert_definitions.channels` (PII). `alert_deliveries` stores only channel type and provider response metadata (no destination duplication).
 - v1 standardizes a simple severity taxonomy: `info`, `warning`, `critical`.
 
 ## Context
@@ -38,6 +39,3 @@
 - `alert_deliveries` is the canonical source for “actions taken” (PagerDuty/Slack/Email/Webhook).
 - Per-alert delivery status is computed via query (join), not stored as mutable columns on `alert_events`.
 - “Evaluation logs” are treated as operator logs/metrics in v1 (not a separate dataset/table unless added explicitly later).
-
-## Open Questions
-- Delivery destination storage (store full destination vs. store hashes/pointers; impacts PII tagging).

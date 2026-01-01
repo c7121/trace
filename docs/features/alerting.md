@@ -85,6 +85,16 @@ Without downstream idempotency (provider- or receiver-side), no system can guara
 
 Outbound destinations are not restricted by a global destination list at the network layer. Delivery Service is the only component with internet egress and must validate destinations (e.g., block private IP ranges) and audit outbound requests.
 
+#### Webhook safety (SSRF protection)
+
+Webhook URLs are user-supplied input. Delivery Service must treat them as untrusted and enforce:
+
+- `https://` URLs only; reject redirects.
+- Server-side DNS resolution; reject destinations that resolve to private/link-local/loopback/multicast ranges, cloud metadata IPs (e.g., `169.254.169.254`), or the VPC CIDR.
+- Strip/deny unsafe headers (e.g., `Host`, `Connection`, `Proxy-*`) and cap total header size.
+- Tight timeouts and response size limits; never log webhook headers/bodies that may contain secrets.
+- Always include a stable idempotency key (`Idempotency-Key: <delivery_id>` and `delivery_id` in the payload).
+
 
 ### Routing (Filters)
 
