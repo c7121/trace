@@ -32,7 +32,7 @@ flowchart LR
 
 ## Description
 
-Accepts SQL queries via REST API and executes against federated hot (Postgres) and cold
+Accepts SQL queries via REST API and executes against federated hot (Postgres data) and cold
 (S3 Parquet) storage using embedded DuckDB. Designed for interactive, ad-hoc exploration,
 with a batch mode that enqueues a `query` job when limits are exceeded.
 
@@ -198,7 +198,7 @@ For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../adr/0
 
 
 - **IdP** — token validation
-- **Postgres** — hot storage (read-only user)
+- **Postgres data** — hot storage (read-only user)
 - **S3** — cold storage reads, result writes
 - **DuckDB extensions** — `postgres_scanner`, `httpfs`
 

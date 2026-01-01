@@ -18,8 +18,8 @@ flowchart LR
         operator["Platform Operator"]:::component
     end
 
-    sqs["SQS"]:::infra
-    buffers["Dataset Buffers"]:::infra
+    sqs["SQS task queues"]:::infra
+    buffers["SQS dataset buffers"]:::infra
     dispatcher["Dispatcher"]:::component
     postgres["Postgres data"]:::database
     s3["S3 Parquet"]:::database
@@ -54,8 +54,8 @@ flowchart LR
         udf["User Code"]:::component
     end
 
-    sqs["SQS"]:::infra
-    buffers["Dataset Buffers"]:::infra
+    sqs["SQS task queues"]:::infra
+    buffers["SQS dataset buffers"]:::infra
     dispatcher["Dispatcher"]:::component
     qs["Query Service"]:::component
     broker["Credential Broker"]:::component

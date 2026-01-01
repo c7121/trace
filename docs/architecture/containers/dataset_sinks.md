@@ -21,7 +21,7 @@ See ADR 0006 for the full design.
 
 ```mermaid
 flowchart LR
-    buffer[[Dataset buffer queue]]:::infra
+    buffer[[SQS dataset buffers]]:::infra
     sink{{Sink worker}}:::component
     writer["Dedupe and upsert"]:::component
     pg[(Postgres data)]:::database

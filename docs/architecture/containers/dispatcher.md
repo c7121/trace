@@ -115,7 +115,7 @@ flowchart LR
     eventbridge["EventBridge"]:::infra
     gateway["Gateway"]:::infra
     task_sqs["SQS task queues"]:::infra
-    buffers["Dataset Buffers SQS"]:::infra
+    buffers["SQS dataset buffers"]:::infra
     postgres_state["Postgres state"]:::database
     workers["ECS Workers"]:::component
     lambdaOps["Lambda Operators"]:::component

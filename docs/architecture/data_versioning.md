@@ -172,7 +172,7 @@ Avoid: `created_at`, `processed_at`, `now()`, `random()`, and other per-executio
 ```mermaid
 sequenceDiagram
     participant BF as block_follower
-    participant PG as Postgres hot
+    participant PG as Postgres data
     participant INV as data_invalidations
     participant DISP as Dispatcher
     participant DS as Downstream Jobs
