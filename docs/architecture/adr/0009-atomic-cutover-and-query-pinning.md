@@ -62,7 +62,8 @@ This ADR focuses on the *cutover/rollback model*, not full schema definitions.
 - `dataset_cursors`
 - `data_invalidations`
 
-## Open Questions
+## v1 Clarifications
 
-- How we represent “ready for cutover” for large rematerializations (per-dataset and per-DAG).
-- Whether we ever need versioned Postgres physical tables for derived datasets (deferred; v1 uses live tables).
+- **Ready for cutover** is an explicit control-plane state: the deploy/rematerialization workflow marks a staged `dag_version` as ready only after it has completed and validated the required work for that deploy. The Dispatcher does not infer readiness from partial progress.
+- **Postgres datasets** are live in v1; historical physical tables per `dataset_version` are not supported.
+

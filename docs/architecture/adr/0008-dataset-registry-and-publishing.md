@@ -45,7 +45,8 @@
 - Internal platform APIs and event routing use `dataset_uuid`.
 - If a user needs to query/debug an internal edge, they must explicitly publish it (or publish a snapshot in the future).
 
-## Open Questions
+## v1 Policy
 
-- Whether publish entries can declare full storage schema inline (v1) vs requiring admin registry configuration.
-- Snapshot publishes: UX (lifecycle/GC follows ADR 0009).
+- Publish entries name datasets and attach access policy/metadata, but **do not** declare full storage schema/backends inline. Storage schema is determined by the producing job/output and recorded by the platform.
+- Snapshot publishing is deferred (future work). v1 publishes **live** dataset pointers; retention of committed versions follows ADR 0009 (manual GC).
+

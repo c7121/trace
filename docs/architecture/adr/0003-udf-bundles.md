@@ -41,7 +41,10 @@
 - Added wrapper complexity versus a bespoke “stdin/stdout” contract.
 - Lambda compatibility constrains the invocation model; multi-invocation “warm loops” are possible but deferred (v1 uses one invocation per task).
 
-## Open Questions
-- Bundle signing format and verification policy (cosign vs. detached signatures vs. hash pinning in DB).
-- Node dependency model for GTM (deps baked into runtime image vs vendored per-bundle).
-- Future support for `linux/arm64` as an additional runtime (e.g., `ecs_rust_arm64`, `ecs_node_arm64`).
+## v1 Policy
+
+- **Integrity**: bundles are immutable artifacts addressed by S3 location + **SHA-256 hash** pinned in the control-plane. The wrapper must verify the hash before execution.
+- **Signing**: signature verification is deferred (future work).
+- **Node dependencies**: Node bundles must vendor dependencies inside the zip (no `npm install` at runtime; no outbound network required).
+- **Architectures**: v1 supports `linux/amd64` only. `linux/arm64` runtimes are deferred.
+

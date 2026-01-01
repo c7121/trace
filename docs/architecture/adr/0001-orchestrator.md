@@ -37,5 +37,3 @@
 - No off-the-shelf UI (can build or use Postgres-backed dashboards).
 - Full ownership of failure modes and edge cases.
 
-## Open Questions
-- None currently.
