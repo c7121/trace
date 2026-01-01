@@ -7,6 +7,8 @@ Non-phase-specific items deferred from v1.
 This document is a recommended build order for Trace that minimizes risk and keeps each milestone independently testable.
 It is intentionally high level; the canonical behavior is defined in the architecture docs (C4, contracts, task lifecycle).
 
+> Trace Lite has a dedicated build plan intended for desktop/dev installs: [trace_lite.md](trace_lite.md).
+
 ### Milestone 0: Foundations
 
 - Networking and IAM skeleton (VPC, private subnets, VPC endpoints as needed)
@@ -145,4 +147,4 @@ Patterns for advanced orchestration. See [EIP](https://www.enterpriseintegration
 - Wire Tap operator — virtual operator (runtime: dispatcher) that copies events to a secondary destination for debugging/auditing/replay
 - Aggregator operator — fan-in for composite triggers (A AND B, N-of-M, timeout); requires correlation state
 - Correlation ID — `correlation_id` on tasks for end-to-end tracing across job chains
-- Message History — track event path through DAG (`job_path[]` or `event_history` table)
+- Message History — track event path through DAG (`job_path[]` or `event_history` table)diff --git a/docs/readme.md b/docs/readme.md

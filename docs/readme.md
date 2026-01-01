@@ -91,15 +91,15 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 
 | Area | Documents |
 |------|-----------|
-| Containers | [gateway.md](architecture/containers/gateway.md), [dispatcher.md](architecture/containers/dispatcher.md), [workers.md](architecture/containers/workers.md), [query_service.md](architecture/containers/query_service.md), [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md) |
-| Data Model | [erd.md](architecture/data_model/erd.md), [orchestration.md](architecture/data_model/orchestration.md), [pii.md](architecture/data_model/pii.md) |
-| Architecture | [c4.md](architecture/c4.md), [contracts.md](architecture/contracts.md), [event_flow.md](architecture/event_flow.md), [data_versioning.md](architecture/data_versioning.md), [dag_deployment.md](architecture/dag_deployment.md), [ADRs](architecture/adr/) |
-| Operators | [catalog](architecture/operators/README.md) |
-| Features | [alerting.md](features/alerting.md), [dag_configuration.md](features/dag_configuration.md), [ingestion.md](features/ingestion.md), [metadata.md](features/metadata.md), [udf.md](features/udf.md) |
-| Deploy | [deployment_profiles.md](deploy/deployment_profiles.md), [infrastructure.md](deploy/infrastructure.md), [monitoring.md](deploy/monitoring.md) |
-| Standards | [security_model.md](standards/security_model.md), [operations.md](standards/operations.md), [docs_hygiene.md](standards/docs_hygiene.md) |
-| Use Cases | [use_cases](use_cases/README.md) |
-| Planning | [backlog.md](plan/backlog.md), [prd.md](prd/prd.md) |
+| Architecture | [C4 model](architecture/c4.md), [contracts](architecture/contracts.md), [task lifecycle](architecture/task_lifecycle.md), [event flow](architecture/event_flow.md), [data versioning](architecture/data_versioning.md), [ADRs](architecture/adr/) |
+| Containers | [dispatcher](architecture/containers/dispatcher.md), [workers](architecture/containers/workers.md), [query service](architecture/containers/query_service.md), [delivery service](architecture/containers/delivery_service.md), [rpc egress gateway](architecture/containers/rpc_egress_gateway.md) |
+| Data model | [ERD](architecture/data_model/erd.md), [orchestration](architecture/data_model/orchestration.md), [alerting](architecture/data_model/alerting.md) |
+| Operators | [operator catalog](architecture/operators/README.md) |
+| Features | [DAG config](features/dag_configuration.md), [ingestion](features/ingestion.md), [alerting](features/alerting.md), [UDFs](features/udf.md) |
+| Deploy | [deployment profiles](deploy/deployment_profiles.md), [infrastructure](deploy/infrastructure.md), [monitoring](deploy/monitoring.md) |
+| Standards | [security model](standards/security_model.md), [operations](standards/operations.md), [docs hygiene](standards/docs_hygiene.md) |
+| Use cases | [use case index](use_cases/README.md) |
+| Planning | [backlog](plan/backlog.md), [Trace Lite plan](plan/trace_lite.md), [PRD](prd/prd.md) |
 
 When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
 
