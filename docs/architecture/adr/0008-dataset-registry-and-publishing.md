@@ -48,4 +48,4 @@
 ## Open Questions
 
 - Whether publish entries can declare full storage schema inline (v1) vs requiring admin registry configuration.
-- Snapshot publishes: UX + retention/GC.
+- Snapshot publishes: UX (lifecycle/GC follows ADR 0009).

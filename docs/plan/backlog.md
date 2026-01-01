@@ -9,6 +9,7 @@ Non-phase-specific items deferred from v1.
 - Multiple chains — Monad only initially
 - Aggregator (fan-in) virtual operator — requires correlation state per partition
 - Additional worker runtimes in the registry (e.g., `ecs_r`, `ecs_scala`) are deferred
+- Automatic garbage collection policies for committed `dataset_version`s (time-based / count-based) are deferred; v1 uses manual purge (ADR 0009)
 
 ## Data Lineage
 
