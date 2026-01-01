@@ -47,6 +47,8 @@ sequenceDiagram
 
 **Notes:**
 
+- Dispatcher side effects (enqueue tasks, route events) are executed via the Postgres outbox worker; the diagram shows the logical effects.
+
 - SQS is treated as unordered at-least-once. Workers must claim tasks (leases) before running.
 - Workers extend SQS visibility for long tasks and heartbeat leases to Dispatcher.
 - For `replace` outputs to S3, workers write to a staging prefix and the Dispatcher commits the output (metadata) before routing events (see [data_versioning.md](data_versioning.md)).

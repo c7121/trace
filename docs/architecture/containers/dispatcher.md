@@ -118,7 +118,7 @@ flowchart LR
 
 **Responsibilities:**
 - Route all upstream events to dependent jobs
-- Create tasks and enqueue to operator queues (SQS)
+- Create tasks and enqueue to operator queues (outbox → SQS)
 - Handle `runtime: dispatcher` jobs in-process (platform-only)
 - Monitor source job health (ECS workers with `activation: source`, `source.kind: always_on`)
 - Track in-flight jobs per operator (scaling control)
@@ -180,29 +180,20 @@ Dispatcher is stateless — durable state lives in Postgres. On failure/restart:
 - ECS restarts the service.
 - In-flight workers may continue executing their current attempt.
 - If a worker cannot heartbeat/report completion during the outage, it retries until the Dispatcher is reachable again.
-- Queued tasks are not lost: the enqueue reconciler will republish SQS wake-ups after restart.
+- Queued tasks are not lost: enqueue intents are persisted via the Postgres outbox and published after restart.
 
 Because execution is **at-least-once**, a long outage may cause some duplicate work (e.g., leases expire and tasks are retried). Output commits and routing are designed to be idempotent.
 
 ## SQS Queues
 
-Task dispatch mechanism for ECS workers.
+SQS carries only `{task_id}` wake-ups. Workers must **claim** tasks (leases) from the Dispatcher before executing; duplicates are expected and harmless.
 
-**Model:**
-- SQS carries a pointer (`task_id`) as a wake-up.
-- Workers must **claim** the task from the Dispatcher to acquire a lease before executing.
-- Duplicates are expected; leasing prevents concurrent execution.
-
-**Why SQS (wake-up) + Postgres (source of truth):**
-- Efficient long-polling and ECS autoscaling integration.
-- Durable task state and retries live in Postgres, so lost/duplicated messages do not lose work.
-
-**Configuration:**
 - Standard queue (FIFO is not required for correctness).
-- Visibility timeout: minutes (base), with worker-side visibility extension for long tasks.
-- DLQ for poison messages / repeated receive failures.
+- Workers extend message visibility for long tasks.
 
-See [task_lifecycle.md](../task_lifecycle.md) for leasing, visibility extension, and rehydration loops.
+See [task_lifecycle.md](../task_lifecycle.md) for leasing, retries, and rehydration.
+
+
 
 ## Component View
 

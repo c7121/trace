@@ -237,13 +237,15 @@ Workers claim tasks via the Dispatcher. A claim is an atomic update:
 
 This prevents concurrent execution even if SQS delivers duplicates.
 
-### Outbox (Recommended)
+### Outbox (Required)
 
-To make SQS publishing and event routing **rehydratable**, the Dispatcher can use an outbox table.
+To make enqueueing and event routing **crash-safe** and **rehydratable**, the Dispatcher uses an outbox table.
 
-- Mutations (task completion, task creation, event acceptance) happen in Postgres transactions.
-- Side effects (send SQS messages, route events) are represented as outbox rows created in those same transactions.
-- A background worker drains the outbox and performs the side effects.
+**Rule:** any durable mutation in Postgres (state) that requires a side effect (enqueue to SQS, route an upstream event) must create an outbox row **in the same transaction**.
+
+- Task creation / retry → outbox `enqueue_task`
+- Event acceptance / task completion → outbox `route_event`
+- A background outbox worker drains `Pending` rows and performs the side effects.
 
 ```sql
 CREATE TABLE outbox (
@@ -263,7 +265,6 @@ CREATE INDEX idx_outbox_pending
     WHERE status = 'Pending';
 ```
 
-In v1, a simpler alternative is to scan `tasks` directly (enqueue reconciler) and skip an explicit outbox. The outbox is the more robust, testable pattern.
 
 ## Task Inputs
 

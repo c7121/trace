@@ -2,7 +2,7 @@
 
 This document defines the durable execution model for tasks: how tasks are created, claimed, retried, and recovered after failures.
 
-**Summary:** **Postgres (state)** is the source of truth. **SQS** is a wake-up mechanism.
+**Summary:** **Postgres (state)** is the source of truth. Side effects are recorded in an **outbox**. **SQS** is a wake-up mechanism.
 
 ## Guarantees
 
@@ -107,26 +107,28 @@ Retries are owned by the Dispatcher.
 - On failure or timeout, Dispatcher marks the task `Failed` and sets `next_retry_at` with backoff.
 - When the retry becomes eligible, Dispatcher transitions `Failed -> Queued`, increments `attempt`, and republishes a wake-up message.
 
-A retry does **not** create a new task row. It is a new attempt of the same `task_id`.
+A retry does **not** create a new task row.
 
-## Reconciliation Loops
+## Background Loops
 
-Two background loops make the system rehydratable:
+Three loops make the system rehydratable:
 
-1) **Enqueue reconciler**
-   - finds tasks in `Failed` with `next_retry_at <= now()` and makes them eligible for retry
-   - transitions `Failed -> Queued`, increments `attempt`, and publishes a new SQS wake-up
-   - also republish wake-ups for `Queued` tasks if the original SQS message was lost
+1) **Outbox worker**
+   - drains `outbox` rows created by Dispatcher transactions
+   - performs side effects: enqueue SQS wake-ups (`enqueue_task`) and route upstream events (`route_event`)
+   - on restart, resumes from `Pending` rows (no lost work)
 
-2) **Lease reaper**
-   - finds tasks in `Running` with `lease_expires_at < now()`
-   - marks them as timed out and schedules a retry (or marks terminal failure)
+2) **Retry scheduler**
+   - finds tasks eligible to retry (`status='Failed'` and `next_retry_at <= now()`)
+   - transitions them back to `Queued`, increments `attempt`, and writes an `enqueue_task` outbox row
 
-These loops ensure:
+3) **Lease reaper**
+   - finds tasks with expired leases (`status='Running'` and `lease_expires_at < now()`)
+   - marks them timed out and schedules a retry (or terminal failure)
 
-- a crashed Dispatcher can restart and resume routing/enqueueing,
-- a lost SQS message does not lose the task,
-- a dead worker does not permanently block a task.
+If SQS drops a wake-up, the task is still durable in Postgres; it can be safely re-enqueued by writing another `enqueue_task` outbox row (leasing prevents concurrent execution).
+
+
 
 ## Ordering
 
