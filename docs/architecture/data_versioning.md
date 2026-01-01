@@ -31,6 +31,8 @@ Both levels coexist. Jobs declare which mode they use.
 
 It changes on deploy/rematerialize cutovers (definition changes), not on every incremental write.
 
+Postgres-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/backfill or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
+
 Old `dataset_version`s are retained until an admin explicitly purges them (no automatic GC in v1) to support fast rollback.
 
 ### Partition Versions

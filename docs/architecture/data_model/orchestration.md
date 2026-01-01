@@ -148,7 +148,7 @@ CREATE TABLE dataset_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- dataset_version
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     created_at TIMESTAMPTZ DEFAULT now(),
-    storage_location TEXT NOT NULL,                -- version-addressed location (S3 prefix or Postgres physical table)
+    storage_location TEXT NOT NULL,                -- S3: version-addressed prefix/manifest; Postgres (v1): stable table/view name
     config_hash TEXT,
     schema_hash TEXT,
     UNIQUE (dataset_uuid, id)

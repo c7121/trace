@@ -201,7 +201,7 @@ Concretely (v1 model):
 - Lookup `storage_location` in `dataset_versions` by `(dataset_uuid, dataset_version)`.
 - Attach a DuckDB view named `dataset_name` that points at that pinned `storage_location` (Postgres table/view or S3 prefix/manifest).
 
-For Postgres-backed datasets, `storage_location` points at a UUID-based physical table/view (implementation detail). Query Service keeps user SQL ergonomic by always exposing a stable view named `dataset_name` that resolves to the pinned physical location at query start.
+For Postgres-backed datasets (live in v1), `storage_location` typically points at a stable table/view name. Query Service keeps SQL ergonomic by exposing a stable view named `dataset_name`, and pins consistency via a single Postgres transaction snapshot (e.g., `REPEATABLE READ`) rather than retaining historical physical tables per `dataset_version`.
 
 Pinning means no “moving target” mid-query:
 - Postgres reads run inside a single transaction snapshot (e.g., `REPEATABLE READ`).
