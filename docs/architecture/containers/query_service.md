@@ -71,24 +71,37 @@ The request/response shape is the same as `/v1/query`, but dataset exposure is s
 |-------|------|---------|-------------|
 | `sql` | string | required | SQL query (SELECT only) |
 | `mode` | string | `interactive` | `interactive` or `batch` |
-| `format` | string | `json` | Response format: `json`, `csv`, `parquet` |
+| `format` | string | `json` | Response format: `json`, `csv` (inline when small), `parquet` (exported) |
 | `timeout_seconds` | int | 30 | Max execution time (capped at 30s) |
 
-### Response (interactive, inline result)
+### Responses
 
-For results ≤ 10,000 rows:
+Interactive queries return results in one of two ways:
+
+- **Inline** for small results (bounded by `inline_row_limit` and `inline_byte_limit`).
+- **Exported** to S3 for larger results (and always when `format: parquet`).
+
+User queries (`/v1/query`) may include a presigned `result_url`. Task-scoped queries (`/v1/task/query`)
+return `output_location` and should fetch results using scoped STS credentials from the Credential Broker.
+
+Exported results are written to caller-scoped prefixes:
+
+- `/v1/query`: org results prefix (e.g., `s3://.../results/{org_id}/{query_id}/`).
+- `/v1/task/query`: task scratch/export prefix from the capability token (so the task can read it via the Credential Broker).
+
+#### Response (interactive, inline)
 
 ```json
 {
+  "mode": "interactive",
   "query_id": "uuid",
   "columns": [
     {"name": "hash", "type": "varchar"},
-    {"name": "block_number", "type": "bigint"},
-    {"name": "value", "type": "hugeint"}
+    {"name": "block_number", "type": "bigint"}
   ],
   "rows": [
-    ["0xabc...", 1000001, "1000000000000000000"],
-    ["0xdef...", 1000002, "2500000000000000000"]
+    ["0xabc...", 1000001],
+    ["0xdef...", 1000002]
   ],
   "row_count": 2,
   "truncated": false,
@@ -96,24 +109,24 @@ For results ≤ 10,000 rows:
 }
 ```
 
-### Response (interactive, large result)
-
-For results > 10,000 rows, written to S3 and returned as presigned URL:
+#### Response (interactive, exported)
 
 ```json
 {
+  "mode": "interactive",
   "query_id": "uuid",
-  "output_path": "s3://bucket/results/{org_id}/{query_id}/",
-  "result_url": "https://s3.../results/{org_id}/{query_id}/result.parquet?X-Amz-...",
+  "output_location": "s3://bucket/results/{org_id}/{query_id}/",
   "format": "parquet",
   "row_count": 150000,
   "bytes": 12345678,
   "expires_at": "2025-12-27T12:00:00Z",
-  "duration_ms": 8420
+  "result_url": "https://s3.../results/{org_id}/{query_id}/result.parquet?X-Amz-..." 
 }
 ```
 
-### Response (batch)
+> `result_url` is optional and intended for user queries. Task-scoped callers should use `output_location`.
+
+#### Response (batch)
 
 Returned when `mode: batch` is requested or when interactive limits are exceeded:
 
@@ -123,7 +136,7 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
   "query_id": "uuid",
   "task_id": "uuid",
   "reason": "query exceeds interactive limits",
-  "output_path": "s3://bucket/results/{org_id}/{query_id}/"
+  "output_location": "s3://bucket/results/{org_id}/{query_id}/"
 }
 ```
 
@@ -144,7 +157,8 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 | Statement type | SELECT only | Read-only access enforced |
 | Timeout | 30 seconds max | Prevent resource hogging |
 | Inline result limit | 10,000 rows | Larger results → S3 |
-| Result expiry | 1 hour | Presigned URLs for large results |
+| Inline byte limit | 10 MB | Prevent oversized responses; larger results → S3 |
+| Presigned URL expiry | 1 hour | User queries only; task callers use `output_location` + STS |
 
 ## Read-Only Enforcement
 
