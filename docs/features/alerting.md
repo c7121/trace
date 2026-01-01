@@ -79,9 +79,11 @@ Without downstream idempotency (provider- or receiver-side), no system can guara
 |---------|----------|--------|
 | Email | SES (VPC endpoint) | `to`, `subject_template` |
 | SMS | SNS (VPC endpoint) | `phone_number` |
-| Webhook | HTTP (via Delivery Service) | `url`, `headers`, `method` |
+| Webhook | HTTP (via Delivery Service) | `url`, `headers` |
 | Slack | Slack (via Delivery Service) | `webhook_url`, `channel` |
 | PagerDuty | PagerDuty Events API (via Delivery Service) | `routing_key`, `dedup_key` |
+
+Webhook deliveries are **POST-only** in v1.
 
 Outbound destinations are not restricted by a global destination list at the network layer. Delivery Service is the only component with internet egress and must validate destinations (e.g., block private IP ranges) and audit outbound requests.
 
