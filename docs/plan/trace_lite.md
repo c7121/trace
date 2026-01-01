@@ -1,209 +1,175 @@
 # Trace Lite plan
 
-This document is the actionable implementation plan for **Trace Lite** (desktop/dev profile).
-It is written for an engineer/agent to execute without needing AWS.
+This is the **agent-ready** build plan for **Trace Lite** (desktop/dev profile).
 
-## Goals
+Lite is designed to be a *permanent* harness for correctness and demos:
+- the **Dispatcher core and task lifecycle are identical** to AWS
+- only infrastructure adapters differ (pgqueue vs SQS, MinIO vs S3)
 
-- Run the core Trace architecture locally with **docker compose** in minutes.
-- Keep the **Dispatcher core identical** between Lite and AWS:
-  - Postgres state is truth (tasks, leases, outbox)
-  - outbox publishes via `QueueDriver`
-  - workers claim leases; queue is wake-up, not correctness
-- Demonstrate a real end-to-end pipeline:
-  - ingest via Cryo operators
-  - write hot tables (Postgres data) and cold Parquet (MinIO)
-  - query across hot+cold via Query Service
-  - produce demonstrable analytics outputs for Monad-like chains
+## Lite profile definition
 
-## Non-goals
+A minimal Lite stack is:
 
-- Security isolation: Lite is permissive and intended for local use.
-- Production performance: pgqueue is not a high-throughput production queue.
-- Full chain history by default: Lite should be runnable quickly; full-history runs are supported but not the default.
+- Postgres (single instance)
+  - **Postgres state**: orchestration truth (tasks, leases, outbox)
+  - **Postgres data**: hot datasets (tables)
+- MinIO (S3-compatible object store): cold Parquet + manifests
+- Dispatcher (includes outbox publisher loop)
+- Platform Worker (runs operators, including sinks)
+- Query Service (DuckDB federation over Postgres data + Parquet)
+- Optional:
+  - RPC Egress Gateway (recommended if you use public RPC)
+  - Delivery Service (optional for demo)
 
-## No-rewrite rule (most important)
+Lite uses the same **QueueDriver** abstraction as AWS:
+- AWS: `QueueDriver = SQS`
+- Lite: `QueueDriver = pgqueue`
 
-Lite must not introduce semantics that do not exist in AWS.
+## MVP checklist
 
-**Required:**
-- Dispatcher writes durable intent + outbox row, then outbox publisher calls `QueueDriver.publish(...)`.
-- Queue payloads remain small wake-up pointers (task_id, delivery_id, buffer record id).
-- Task correctness remains enforced by Postgres state leases + strict attempt fencing.
+MVP means: “a new developer can run one command and see an end-to-end pipeline succeed locally.”
 
-**Avoid:**
-- Special-casing Lite to enqueue directly inside the Dispatcher transaction.
-- Depending on queue ordering or exactly-once semantics.
+### MVP-0: Compose boots
 
----
+**Deliverable**
+- `docker compose up` starts: Postgres, MinIO, Dispatcher, Platform Worker, Query Service
 
-## Golden path demo: Cryo sync + query + analytics (Monad)
+**Exit criteria**
+- all services healthy
+- migrations applied successfully (or an explicit bootstrap step exists)
 
-The demo is intentionally layered: it can run fast on a laptop using a bounded range, but supports extending to full history.
+### MVP-1: pgqueue driver works
 
-### Layer 1: Raw Cryo sync (datasets)
+**Deliverable**
+- `QueueDriver` interface is implemented for:
+  - publish
+  - receive with visibility timeout
+  - ack
+  - dead-lettering after max attempts
 
-**Objective:** produce canonical raw datasets (hot + cold) that downstream queries can rely on.
+**Exit criteria**
+- publish → receive → ack works
+- poison message reaches dead table after `max_attempts`
 
-Minimum datasets:
-- blocks
-- transactions
-- logs
-- traces (e.g., geth traces or transaction traces; pick one canonical trace format for v1 Lite)
+### MVP-2: Outbox → QueueDriver is the only enqueue path
 
-Implementation notes:
-- Use existing operators:
-  - `cryo_ingest` for backfill ranges
-  - `block_follower` for tip-follow (optional for v1 Lite; can be a looped range ingest)
+**Deliverable**
+- Dispatcher writes durable intent + outbox row in one transaction
+- outbox publisher publishes via `QueueDriver`
 
-Default demo parameters (fast):
-- chain: configured RPC endpoint
-- range: last N blocks (e.g., 50k) rather than genesis-to-tip
-- concurrency: low defaults
+**Exit criteria**
+- you can stop the Dispatcher after creating tasks; on restart it resumes publishing outbox rows
+- no code path exists that directly enqueues without an outbox row
 
-### Layer 2: Query Service at tip and backfill
+### MVP-3: Worker lease lifecycle works
 
-**Objective:** prove Query Service can answer:
-- “tip” questions against hot tables
-- “history” questions against cold parquet (or hot+cold federated)
+**Deliverable**
+- worker consumes wake-up message(s), then claims task leases from Postgres state
+- worker heartbeats and completes with strict attempt fencing
 
-Demonstrations:
-- tip query: recent blocks/txs/logs
-- backfill query: aggregate across a bounded history window
+**Exit criteria**
+- duplicate queue messages do not cause concurrent execution
+- stale attempt completion cannot commit outputs
 
-### Layer 3: Analytics demos (Monad-like)
+### MVP-4: Cold output commit protocol works
 
-These are the primary “wow” queries.
+**Deliverable**
+- worker writes Parquet to a staging prefix, then completes
+- Dispatcher commits the pointer/manifest and emits downstream wake-ups
 
-1) **Total supply by block across history**
-- Input: transfers/mints/burns (depends on chain token model)
-- Output: `{block_number, total_supply}` time series
-- Demo mode: bounded history window; full-history mode optional
+**Exit criteria**
+- partial or abandoned staging outputs never become visible to reads
+- retries do not produce multiple committed outputs for the same partition scope
 
-2) **Top N accounts**
-- “Top N at tip” and their historic balances:
-  - compute current top N holders
-  - backfill balances for that fixed set across history window
-- Output:
-  - current leaderboard
-  - timeseries balances for top N accounts
+### MVP-5: Demo DAG runs in bounded mode
 
-3) **Staking and delegation concentration**
-- Input: staking/delegation events and/or validator stats datasets
-- Output:
-  - stake distribution by validator
-  - delegation concentration metrics (e.g., Gini, top K share)
+**Deliverable**
+- a demo DAG runs a bounded range (default) and produces:
+  - at least one hot table (Postgres data)
+  - at least one cold Parquet dataset (MinIO)
+  - at least one Query Service result
 
----
+**Exit criteria**
+- “one command demo” prints a small result table or writes a result artifact
+- default run completes in minutes (not hours)
 
-## Implementation plan (phased)
+Recommended default bounds:
+- last **N blocks** (e.g., 10k–50k), configurable
 
-Each phase has an exit criterion. Phases are ordered to maximize reuse between Lite and AWS.
+### MVP-6: CI harness (recommended)
 
-### Phase 0: Minimal Lite runtime and configuration
+**Deliverable**
+- CI runs the MVP demo under compose and asserts invariants
 
-Deliverables:
-- `docker-compose.lite.yml` (or compose profile) including:
-  - Postgres (state + data)
-  - MinIO
-  - Dispatcher (with outbox publisher enabled)
-  - Platform Worker
-  - Query Service
-  - Gateway (optional for demo UX)
+**Exit criteria**
+- deterministic CI run
+- asserts: no stuck tasks, no dead-letter messages, committed outputs exist
 
-Exit criteria:
-- `docker compose up` brings all services to a healthy state
-- migrations/bootstraps can run non-interactively
+## Golden path demos
 
-### Phase 1: QueueDriver interface and pgqueue implementation
+Lite should ship one demo that is fast by default, and optionally supports “full history.”
 
-Deliverables:
-- `QueueDriver` interface used by:
-  - outbox publisher
-  - worker wake-ups
-  - delivery work
-  - buffered dataset sinks
-- `PgQueueDriver` implementation + DDL/migrations
+### Demo 1: Cryo sync + query across hot and cold
 
-Exit criteria:
-- can publish/receive/ack messages locally
-- poison messages transition to a dead table after `max_attempts`
+**Goal**
+- show Cryo ingestion, hot + cold storage, and Query Service federation
 
-### Phase 2: Outbox publisher uses QueueDriver only
+**Default (bounded)**
+- sync a bounded range for:
+  - blocks
+  - transactions
+  - logs
+  - (optional) traces if available and not too slow
 
-Deliverables:
-- Dispatcher writes outbox rows for all queue side effects
-- outbox publisher reads outbox and calls `QueueDriver.publish`
+**Query examples**
+- “tip” query: recent blocks / tx count
+- “backfill” query: aggregate across the bounded history range
 
-Exit criteria:
-- creating a task produces an outbox row
-- outbox publisher emits a wake-up message
-- messages are idempotently published (no duplicates on retry beyond at-least-once)
+**Output**
+- hot tables in Postgres data
+- cold Parquet dataset in MinIO
+- query results returned inline or exported to MinIO depending on size
 
-### Phase 3: Worker consumption parity (Lite and AWS)
+## Extended demos (Monad analytics)
 
-Deliverables:
-- worker consumes wake-ups, claims task lease, runs, heartbeats, completes
-- strict attempt fencing enforced at completion/commit boundary
+These demos are intended to prove “real analytics value.” They may take longer and should be opt-in.
 
-Exit criteria:
-- duplicate wake-ups do not cause concurrent execution
-- stale attempts cannot commit outputs
+### Demo 2: Total supply by block (full history)
 
-### Phase 4: Object store parity (MinIO)
+**Goal**
+- compute total MONAD supply by block across the full chain history
 
-Deliverables:
-- S3 client configured via endpoint for Lite
-- bucket bootstrap (datasets/results/scratch)
-- staging output + commit protocol works end-to-end
+**Notes**
+- default Lite run should support “windowed history”
+- full-history mode is opt-in
 
-Exit criteria:
-- tasks can stage Parquet outputs to MinIO and commit successfully
-- uncommitted staging artifacts do not affect reads (they remain uncommitted)
+### Demo 3: Top N accounts and historic balances
 
-### Phase 5: Demo DAG (Cryo sync + query service)
+**Goal**
+- compute current top N accounts, then show their historic balances across time
 
-Deliverables:
-- a demo DAG that:
-  - backfills a bounded range into raw datasets
-  - compacts into Parquet (cold)
-  - runs a DuckDB query via Query Service and returns results
+### Demo 4: Staking and delegation concentration
 
-Exit criteria:
-- demo completes on a laptop in a reasonable time window
-- outputs are committed and query returns expected rows
+**Goal**
+- compute concentration metrics over staking + delegation relationships
 
-### Phase 6: Analytics demos (Monad)
+## Performance knobs (Lite defaults)
 
-Deliverables:
-- three demo queries packaged as:
-  - stored SQL templates executed via Query Service, or
-  - a small set of `duckdb_query` jobs
+Lite should prefer “fast and understandable” over maximum throughput.
 
-Exit criteria:
-- produces tables for:
-  - total supply by block
-  - top N accounts at tip + historic balances
-  - staking/delegation concentration
+Recommended knobs to expose:
+- block range bounds (default bounded; full history opt-in)
+- worker concurrency
+- query result mode thresholds (inline size cap vs export)
+- backpressure visibility (queue depth, oldest message age)
 
-### Phase 7: Lite as regression harness
+## Non-blocking nice-to-haves
 
-Deliverables:
-- CI job runs compose, executes the demo DAG, asserts invariants
-
-Exit criteria:
-- Lite becomes the integration test for:
-  - outbox correctness
-  - lease/attempt correctness
-  - commit protocol correctness
-  - query service correctness
-
----
-
-## Demo scope guidance (fast vs full)
-
-To keep Lite usable:
-- default demo should run a bounded window (e.g., last 50k blocks)
-- full-history mode is opt-in via config
-
-This lets you demonstrate correctness and value quickly without requiring hours of ingest.
+- a `make demo` / `trace demo` wrapper that:
+  - boots compose
+  - bootstraps MinIO buckets
+  - runs migrations
+  - activates demo DAG
+  - prints query results
+- a small “echo webhook” container to demo Delivery Service
+- docs page with “common gotchas” (MinIO creds, ports, disk space)
