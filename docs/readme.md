@@ -90,47 +90,68 @@ flowchart TB
 flowchart TB
     users["Users"]:::person
     ops["Platform Ops"]:::person
+    rpc["RPC Providers"]:::ext
+    webhooks["External Webhooks"]:::ext
 
     subgraph Trace["Trace Platform"]
         gateway["Gateway"]:::container
         dispatcher["Dispatcher"]:::container
-        workers["Workers (ECS/Lambda)"]:::container
-        sinks["Dataset Sinks"]:::container
+        query["Query Service"]:::container
+        broker["Credential Broker"]:::container
+        rpcgw["RPC Egress Gateway"]:::container
         delivery["Delivery Service"]:::container
-        query["Query Service (DuckDB)"]:::container
-        postgres[("Postgres")]:::database
+        sinks["Dataset Sinks"]:::container
+
+        platform_workers["Platform Workers"]:::container
+        udf_workers["UDF Workers"]:::container
+
+        pg_state[("Postgres state")]:::database
+        pg_data[("Postgres data")]:::database
+        s3[("S3 Parquet")]:::database
     end
 
     subgraph AWS["AWS Managed Services"]
-        sqs["SQS"]:::infra
-        s3[("S3")]:::database
+        task_sqs["SQS task queues"]:::infra
+        buffer_sqs["SQS dataset buffers"]:::infra
         cognito["Cognito"]:::infra
-        secrets["Secrets Manager"]:::infra
-        eventbridge["EventBridge"]:::infra
-        cloudwatch["CloudWatch"]:::infra
+        cloudwatch["CloudWatch/CloudTrail"]:::infra
     end
-
-    rpc["RPC Providers"]:::ext
-    webhooks["External Webhooks"]:::ext
 
     users -->|API/CLI| gateway
     ops -->|observe| cloudwatch
-    gateway --> cognito
+
+    gateway -->|authn| cognito
     gateway --> dispatcher
     gateway --> query
-    dispatcher --> postgres
-    dispatcher --> sqs
-    sqs --> workers
-    workers --> postgres
-    workers --> s3
-    workers --> sqs
-    workers --> rpc
-    sinks --> postgres
-    query --> postgres
+
+    dispatcher --> pg_state
+    dispatcher -->|enqueue| task_sqs
+
+    task_sqs --> platform_workers
+    task_sqs --> udf_workers
+
+    platform_workers -->|claim/heartbeat/complete| dispatcher
+    udf_workers -->|claim/heartbeat/complete| dispatcher
+
+    platform_workers --> pg_data
+    platform_workers --> s3
+    platform_workers -->|publish records| buffer_sqs
+    platform_workers --> rpcgw
+
+    udf_workers --> query
+    udf_workers --> broker
+    udf_workers --> s3
+    udf_workers -->|publish records| buffer_sqs
+
+    buffer_sqs --> sinks
+    sinks --> pg_data
+
+    query --> pg_data
     query --> s3
-    delivery --> postgres
-    delivery --> webhooks
-    eventbridge --> workers
+
+    rpcgw -->|outbound| rpc
+    delivery --> pg_data
+    delivery -->|outbound| webhooks
 
     classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
     classDef container fill:#d6ffe7,stroke:#1f9a6f,color:#000;
@@ -141,24 +162,31 @@ flowchart TB
 
 ### Storage
 
-**Storage:** Postgres (state) holds orchestration metadata (multi-AZ, PITR). Postgres and S3 are available for job data — the "hot" (recent/mutable) vs "cold" (historical/immutable) split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not an architectural distinction. DuckDB federates across both.
+**Storage:** Postgres (state) holds orchestration metadata (multi-AZ, PITR). Postgres (data) and S3 are used for job data: Postgres (data) is typically used for hot/mutable datasets (e.g., recent chain ranges, alert tables), while S3 Parquet is used for cold/immutable datasets and exported results. The "hot" vs "cold" split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not a separate storage engine. DuckDB federates across both.
+
+For the complete C4 diagrams (including AWS dependencies and lower-level components), see [c4.md](architecture/c4.md).
+
 
 ### Deep Dives
 
+- C4 diagrams: [c4.md](architecture/c4.md)
 - End-to-end flow: [event_flow.md](architecture/event_flow.md)
+- Task lifecycle: [task_lifecycle.md](architecture/task_lifecycle.md)
 - Orchestration internals: [dispatcher.md](architecture/containers/dispatcher.md)
 - Execution model: [workers.md](architecture/containers/workers.md)
 - Query federation: [query_service.md](architecture/containers/query_service.md)
 - Scoped data access: [credential_broker.md](architecture/containers/credential_broker.md)
+- Outbound egress: [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md)
 - API/task/event schemas: [contracts.md](architecture/contracts.md)
+
 
 ## Documentation Map
 
 | Area | Documents |
 |------|-----------|
-| Containers | [gateway.md](architecture/containers/gateway.md), [dispatcher.md](architecture/containers/dispatcher.md), [workers.md](architecture/containers/workers.md), [query_service.md](architecture/containers/query_service.md), [credential_broker.md](architecture/containers/credential_broker.md) |
+| Containers | [gateway.md](architecture/containers/gateway.md), [dispatcher.md](architecture/containers/dispatcher.md), [workers.md](architecture/containers/workers.md), [query_service.md](architecture/containers/query_service.md), [credential_broker.md](architecture/containers/credential_broker.md), [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md), [dataset_sinks.md](architecture/containers/dataset_sinks.md) |
 | Data Model | [erd.md](architecture/data_model/erd.md), [orchestration.md](architecture/data_model/orchestration.md), [pii.md](architecture/data_model/pii.md) |
-| Architecture | [contracts.md](architecture/contracts.md), [event_flow.md](architecture/event_flow.md), [data_versioning.md](architecture/data_versioning.md), [dag_deployment.md](architecture/dag_deployment.md), [ADRs](architecture/adr/) |
+| Architecture | [c4.md](architecture/c4.md), [contracts.md](architecture/contracts.md), [event_flow.md](architecture/event_flow.md), [data_versioning.md](architecture/data_versioning.md), [dag_deployment.md](architecture/dag_deployment.md), [ADRs](architecture/adr/) |
 | Operators | [catalog](architecture/operators/README.md) |
 | Features | [alerting.md](features/alerting.md), [dag_configuration.md](features/dag_configuration.md), [ingestion.md](features/ingestion.md), [metadata.md](features/metadata.md), [udf.md](features/udf.md) |
 | Deploy | [infrastructure.md](deploy/infrastructure.md), [monitoring.md](deploy/monitoring.md) |
@@ -175,6 +203,9 @@ flowchart TB
 - udf-worker-role (SQS only; data access is via Query Service + Credential Broker)
 - query-service-role (Postgres (data) read-only, S3 read/write for results)
 - credential-broker-role (STS AssumeRole into a constrained base role)
+- delivery-service-role (Postgres (data) + controlled internet egress)
+- rpc-egress-gateway-role (controlled internet egress; provider creds injected at launch)
+- dataset-sink-role (SQS buffers, Postgres (data))
 
 **Secrets:** RPC keys and DB creds in Secrets Manager, injected as env vars.
 
