@@ -30,9 +30,9 @@ For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no 
 }
 ```
 
-Exact payload fields are still evolving; the invariant is that Lambda has everything it needs to run the operator without database credentials.
+Exact payload fields are still evolving; the invariant is that Lambda has everything it needs to run the operator without Postgres state credentials.
 
-The Lambda follows the same worker contract: report completion/failure and emit events via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is described in [orchestration.md](data_model/orchestration.md).
+The Lambda follows the same worker contract: report completion/failure and emit events via the Dispatcher endpoints below. Task lifecycle (timeouts, retries) is defined in [task_lifecycle.md](task_lifecycle.md).
 
 Lambda built-in retries should be disabled; the Dispatcher owns retries/attempts uniformly across runtimes.
 
@@ -47,7 +47,7 @@ Workers call Dispatcher for:
 - Heartbeat (`/internal/heartbeat`)
 - Emit upstream events (`/internal/events`)
 
-Workers never have state DB credentials.
+Workers never have Postgres state credentials.
 
 Operator/UDF code must not be able to call `/internal/*`. The worker wrapper is the protection boundary: it authenticates to the Dispatcher, fetches task details, enforces the contract, and runs untrusted operator code with no internal credentials.
 

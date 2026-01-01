@@ -6,11 +6,11 @@
 ## Decision
 
 - Deploy/rematerialize is **non-destructive** for versioned datasets (S3/Parquet): build new data in parallel and keep old versions for rollback.
-- Cutover is **atomic**: once the new version is ready, swap the “current” pointer(s) in a **single Postgres transaction**.
-- Rollback is also **atomic**: restore the prior pointer set in a single transaction (fast rollback).
+- Cutover is **atomic**: once the new version is ready, swap the “current” pointer(s) in a **single Postgres state transaction**.
+- Rollback is also **atomic**: restore the prior pointer set in a single Postgres state transaction (fast rollback).
 - Query execution is **pinned**:
   - At query start, Query Service resolves `dataset_name -> dataset_uuid -> current dataset_version` and pins that mapping for the duration of the query.
-  - For Postgres reads, Query Service runs inside a single transaction snapshot (e.g., `REPEATABLE READ`) so the query is not a moving target.
+  - For Postgres data reads, Query Service runs inside a single transaction snapshot (e.g., `REPEATABLE READ`) so the query is not a moving target.
   - For S3/Parquet reads, Query Service uses a fixed manifest/file list resolved at query start.
 
 ### Versioned datasets

@@ -23,5 +23,5 @@
 
 ## Consequences
 - DAG validation must lint `where` and reject unsupported constructs.
-- Task details include the per-input `where` so operators can apply SQL pushdown (Postgres) or query-engine filtering (DuckDB).
+- Task details include the per-input `where` so operators can apply SQL pushdown (Postgres data) or query-engine filtering (DuckDB).
 - When filters need reuse/audit/backpressure as a first-class signal, introduce a real intermediate dataset instead of an edge filter.

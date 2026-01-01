@@ -13,7 +13,7 @@ Alerting is a four-stage pipeline:
 
 ## Alert Definitions
 
-Alert definitions are stored in Postgres (`alert_definitions`).
+Alert definitions are stored in Postgres data (`alert_definitions`).
 
 PII column: `alert_definitions.channels` (may include email/phone/webhook URLs). Mark it as PII in dataset metadata; see [pii.md](../architecture/data_model/pii.md) for visibility and audit rules.
 
@@ -27,7 +27,7 @@ Triggered alerts are durable facts recorded as append-only rows in `alert_events
 
 Multiple jobs/operators may write to this dataset (multi-writer sink). See [ADR 0004](../architecture/adr/0004-alert-event-sinks.md).
 
-In v1, `alert_events` is typically configured as a **buffered Postgres dataset** (SQS buffer → sink → Postgres). Producers publish records; the platform sink writes the table and emits the upstream dataset event after commit. See [ADR 0006](../architecture/adr/0006-buffered-postgres-datasets.md).
+In v1, `alert_events` is typically configured as a **buffered Postgres dataset** (SQS buffer → sink → Postgres data). Producers publish records; the platform sink writes the table and emits the upstream dataset event after commit. See [ADR 0006](../architecture/adr/0006-buffered-postgres-datasets.md).
 
 **DAG contract:**
 - Producers publish `alert_events` and write with `update_strategy: append` and `unique_key: [dedupe_key]`.

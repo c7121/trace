@@ -19,7 +19,7 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 1. **Everything is a job** — Streaming services, batch transforms, checks
 2. **Everything produces assets** — Postgres tables, S3 Parquet, any URI
 3. **Workers are dumb** — Receive task, execute, report result
-4. **YAML is source of truth** — Definitions in git, state in Postgres
+4. **YAML is source of truth** — Definitions in git, state in Postgres state
 5. **Single dispatcher service** — Simple, stateless, restartable
 
 ### Tenancy Model
@@ -97,10 +97,10 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 | Features | [alerting.md](features/alerting.md), [dag_configuration.md](features/dag_configuration.md), [ingestion.md](features/ingestion.md), [metadata.md](features/metadata.md), [udf.md](features/udf.md) |
 | Deploy | [infrastructure.md](deploy/infrastructure.md), [monitoring.md](deploy/monitoring.md) |
 | Standards | [security_model.md](standards/security_model.md), [nfr.md](standards/nfr.md) |
-
-When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
 | Use Cases | [use_cases](use_cases/README.md) |
 | Planning | [backlog.md](plan/backlog.md), [prd.md](prd/prd.md) |
+
+When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
 
 ## Security
 

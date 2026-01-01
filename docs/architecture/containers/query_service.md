@@ -177,7 +177,7 @@ Query Service supports two authn/authz modes:
    - Authenticated with a **task capability token** issued by Dispatcher.
    - Exposes only the dataset versions enumerated in the token (may include internal/unpublished versions referenced by the task’s input edges).
 
-For Postgres-backed datasets, Query Service uses a read-only Postgres user and views filter by `org_id`.
+For Postgres data-backed datasets, Query Service uses a read-only Postgres user and views filter by `org_id`.
 
 See:
 - [security_model.md](../../standards/security_model.md) — isolation model
@@ -189,7 +189,7 @@ See:
 - **Task-scoped queries** are already pinned by the capability token (it contains resolved dataset versions/locations).
 
 Pinning is per-query:
-- Postgres reads run inside a single transaction snapshot (e.g., `REPEATABLE READ`).
+- Postgres data reads run inside a single transaction snapshot (e.g., `REPEATABLE READ`).
 - S3/Parquet reads use a fixed manifest/file list resolved at query start.
 
 For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).

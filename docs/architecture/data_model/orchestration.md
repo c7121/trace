@@ -148,7 +148,7 @@ CREATE TABLE dataset_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- dataset_version
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     created_at TIMESTAMPTZ DEFAULT now(),
-    storage_location TEXT NOT NULL,                -- S3: version-addressed prefix/manifest; Postgres (v1): stable table/view name
+    storage_location TEXT NOT NULL,                -- S3: version-addressed prefix/manifest; Postgres data (v1): stable table/view name
     config_hash TEXT,
     schema_hash TEXT,
     UNIQUE (dataset_uuid, id)
@@ -168,7 +168,7 @@ CREATE TABLE dag_version_datasets (
 The `runtime` field determines how the Dispatcher executes a task:
 
 - `ecs_*`: Dispatcher enqueues `task_id` to an SQS task queue; ECS workers long-poll, execute, then report completion.
-- `lambda`: Dispatcher invokes a Lambda directly (no SQS) with the **full task payload** (same shape as `/internal/task-fetch`); the Lambda runs without database credentials and reports completion via the same Dispatcher endpoints.
+- `lambda`: Dispatcher invokes a Lambda directly (no SQS) with the **full task payload** (same shape as `/internal/task-fetch`); the Lambda runs without Postgres state credentials and reports completion via the same Dispatcher endpoints.
 - `dispatcher`: Dispatcher runs the operator in-process (no SQS, no Lambda).
 
 See [readme.md](../../readme.md) for diagrams and [contracts.md](../contracts.md) for the invocation payload shape.
@@ -296,7 +296,7 @@ CREATE TABLE column_lineage (
 
 ## Operator State
 
-Some operators maintain durable per-job state (e.g., `range_aggregator` cursor/range bookkeeping). This state lives in Postgres and is keyed by `(org_id, job_id)` plus an optional `state_key` when a single job needs multiple independent state slots.
+Some operators maintain durable per-job state (e.g., `range_aggregator` cursor/range bookkeeping). This state lives in Postgres state and is keyed by `(org_id, job_id)` plus an optional `state_key` when a single job needs multiple independent state slots.
 
 ```sql
 CREATE TABLE operator_state (

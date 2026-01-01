@@ -4,7 +4,7 @@ How `dag.yaml` is parsed and synced into orchestration state (jobs/tasks) and ho
 
 ## Overview
 
-- DAG YAML is the source of truth; Postgres stores the runtime state.
+- DAG YAML is the source of truth; Postgres state stores the runtime state.
 - Deployment is idempotent: the same `dag.yaml` produces the same deploy record (`dag_version`) and job definitions.
 - Deploy/rematerialize is **non-destructive** and uses **atomic cutover/rollback** (see [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md)).
 - Reactive triggers are per-update: **1 upstream event → 1 task** for each dependent reactive job (no dispatcher-side coalescing/bulk).
@@ -49,7 +49,7 @@ Source jobs may declare one-time bootstrap actions in YAML (v1: `bootstrap.reset
 
 While the downstream subgraph is rebuilding:
 
-- The Dispatcher continues accepting `/internal/events` from unchanged upstream jobs and persists the resulting work in Postgres.
+- The Dispatcher continues accepting `/internal/events` from unchanged upstream jobs and persists the resulting work in Postgres state.
 - The Dispatcher **pauses dispatch** for the rebuilding downstream subgraph (it does not push those tasks to SQS / workers).
 - This creates backpressure at the Dispatcher (the “valve”), not at sources.
 
@@ -59,7 +59,7 @@ After the rebuild completes, the Dispatcher drains the buffered work using the n
 
 When the rebuild is ready:
 
-- The system performs an **atomic cutover** in a single Postgres transaction:
+- The system performs an **atomic cutover** in a single Postgres state transaction:
   - update the affected datasets’ `current` pointer(s) to the new `dataset_version`s, and
   - update the DAG’s active `dag_version`.
 
@@ -70,7 +70,7 @@ Rollback is the inverse: a single transaction restores the prior pointer set and
 During rollback/rollover, the system pauses DAG processing:
 
 - Dispatcher stops leasing/dispatching tasks for the rolled-back `dag_version`.
-- Any queued-but-not-started tasks for that `dag_version` are canceled in Postgres.
+- Any queued-but-not-started tasks for that `dag_version` are canceled in Postgres state.
 - In-flight tasks are canceled cooperatively (workers see `status: "Canceled"` on `/internal/task-fetch` and exit without running operator code).
 - Because outputs are written as versioned artifacts (`dataset_version`), results from the rolled-back version cannot become “current” after rollback.
 

@@ -4,8 +4,8 @@
 - Accepted (December 2025)
 
 ## Decision
-- Alerts are represented as **append-only events** in a shared Postgres sink table: `alert_events`.
-- Producers publish alert records via the **buffered Postgres dataset** mechanism (SQS buffer → sink → Postgres); see [ADR 0006](0006-buffered-postgres-datasets.md).
+- Alerts are represented as **append-only events** in a shared Postgres data sink table: `alert_events`.
+- Producers publish alert records via the **buffered Postgres dataset** mechanism (SQS buffer → sink → Postgres data); see [ADR 0006](0006-buffered-postgres-datasets.md).
 - Delivery work and outcomes are recorded in `alert_deliveries` (one row per alert event + channel), written with **replace/upsert semantics** to support retries without double-sending.
 - Operators/UDFs do **not** perform external calls; delivery is handled by a platform **Delivery Service** that leases pending `alert_deliveries`, performs the external send, and updates delivery status.
 - Delivery uses `alert_deliveries.id` as an **idempotency key** per `(alert_event_id, channel)`; exactly-once delivery is conditional on downstream/provider support for deduplication.

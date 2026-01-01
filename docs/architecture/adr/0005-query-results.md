@@ -4,7 +4,7 @@
 - Accepted (December 2025)
 
 ## Decision
-- Record interactive and batch query executions in a platform-managed Postgres table: `query_results`.
+- Record interactive and batch query executions in a platform-managed Postgres data table: `query_results`.
 - Store **hashes/metadata** (not full SQL) by default to reduce accidental PII retention; full SQL lives in `saved_queries` when explicitly saved.
 - The Query Service and the `query` (DuckDB) operator both write/update `query_results`.
 

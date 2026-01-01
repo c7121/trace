@@ -47,7 +47,7 @@ sequenceDiagram
 
 **Notes:**
 
-- Dispatcher side effects (enqueue tasks, route events) are executed via the Postgres outbox worker; the diagram shows the logical effects.
+- Dispatcher side effects (enqueue tasks, route events) are executed via the Postgres state outbox worker; the diagram shows the logical effects.
 
 - SQS is treated as unordered at-least-once. Workers must claim tasks (leases) before running.
 - Workers extend SQS visibility for long tasks and heartbeat leases to Dispatcher.

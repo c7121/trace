@@ -11,7 +11,7 @@ This document defines the durable execution model for tasks: how tasks are creat
 - **No concurrent execution**: a task is executed only by the worker that holds the current lease.
 - **Rehydratable**: after Dispatcher restarts, queued work resumes without losing tasks.
 
-These guarantees are achieved by **leasing** (in Postgres) plus **idempotent output commit** (replace/append + unique keys).
+These guarantees are achieved by **leasing** (in Postgres state) plus **idempotent output commit** (replace/append + unique keys).
 
 ## Mental Model
 
@@ -24,7 +24,7 @@ These guarantees are achieved by **leasing** (in Postgres) plus **idempotent out
   4) heartbeat,
   5) complete.
 
-If SQS loses a message or redelivers duplicates, the system still works because the task row remains in Postgres.
+If SQS loses a message or redelivers duplicates, the system still works because the task row remains in Postgres state.
 
 ## Task States
 
@@ -36,7 +36,7 @@ Tasks move through these states:
 - `Failed`: finished unsuccessfully and may be retried.
 - `Canceled`: explicitly canceled (e.g., during rollback).
 
-> **Note:** SQS delivery is not a task state. A task can be `Queued` in Postgres even if no SQS message exists.
+> **Note:** SQS delivery is not a task state. A task can be `Queued` in Postgres state even if no SQS message exists.
 
 ## Leasing
 
@@ -126,7 +126,7 @@ Three loops make the system rehydratable:
    - finds tasks with expired leases (`status='Running'` and `lease_expires_at < now()`)
    - marks them timed out and schedules a retry (or terminal failure)
 
-If SQS drops a wake-up, the task is still durable in Postgres; it can be safely re-enqueued by writing another `enqueue_task` outbox row (leasing prevents concurrent execution).
+If SQS drops a wake-up, the task is still durable in Postgres state; it can be safely re-enqueued by writing another `enqueue_task` outbox row (leasing prevents concurrent execution).
 
 
 

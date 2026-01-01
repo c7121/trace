@@ -14,7 +14,7 @@ CREATE TABLE partition_versions (
     materialized_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     config_hash TEXT,                 -- job config at time of materialization
     schema_hash TEXT,                 -- data shape (columns, types)
-    location TEXT,                    -- s3://bucket/path or postgres table
+    location TEXT,                    -- s3://bucket/path or Postgres data table/view
     row_count BIGINT,
     bytes BIGINT,
     PRIMARY KEY (dataset_uuid, dataset_version, partition_key)

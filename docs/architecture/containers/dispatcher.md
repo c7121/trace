@@ -75,25 +75,16 @@ Propagates upstream through DAG edges. When a queue trips its threshold (depth o
 
 ## Failure Mode
 
-Dispatcher is stateless — durable state lives in Postgres. On failure/restart:
+Dispatcher is stateless — durable state lives in Postgres state. On failure/restart:
 
 - ECS restarts the service.
 - In-flight workers may continue executing their current attempt.
 - If a worker cannot heartbeat/report completion during the outage, it retries until the Dispatcher is reachable again.
-- Queued tasks are not lost: enqueue intents are persisted via the Postgres outbox and published after restart.
+- Queued tasks are not lost: enqueue intents are persisted via the Postgres state outbox and published after restart.
 
 Because execution is **at-least-once**, a long outage may cause some duplicate work (e.g., leases expire and tasks are retried). Output commits and routing are designed to be idempotent.
 
-## SQS Queues
-
-SQS carries only `{task_id}` wake-ups. Workers must **claim** tasks (leases) from the Dispatcher before executing; duplicates are expected and harmless.
-
-- Standard queue.
-- Workers extend message visibility for long tasks.
-
-See [task_lifecycle.md](../task_lifecycle.md) for leasing, retries, and rehydration.
-
-
+Task wake-ups are delivered via SQS task queues. Correctness comes from leasing in Postgres state; see [task_lifecycle.md](../task_lifecycle.md).
 
 ## Component View
 
@@ -123,16 +114,16 @@ flowchart LR
 
     eventbridge -->|invoke| cronSrc
     gateway -->|invoke| webhookSrc
-    
+
     cronSrc -->|emit event| eventRouter
     webhookSrc -->|emit event| eventRouter
     manualApi -->|create task| taskCreate
-    
+
     workers -.->|upstream event| eventRouter
     lambdaOps -.->|upstream event| eventRouter
     eventRouter -->|find dependents| postgres_state
     eventRouter -->|create tasks| taskCreate
-    
+
     taskCreate -->|create task| postgres_state
     taskCreate -->|enqueue runtime=ecs_*| task_sqs
     taskCreate -->|invoke runtime=lambda| lambdaOps
@@ -171,4 +162,3 @@ They are modeled as strings (not a fixed enum) to allow future additions.
 - [orchestration.md](../data_model/orchestration.md) — job/task schemas
 - [event_flow.md](../event_flow.md) — end-to-end sequence diagram
 - [security_model.md](../../standards/security_model.md) — isolation model
-

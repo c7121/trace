@@ -19,7 +19,7 @@ The system supports two granularities of change tracking:
 | Level | Use Case | Storage Type |
 |-------|----------|--------------|
 | **Partition** | Cold storage (S3 Parquet), batch jobs | Partitioned by block range |
-| **Row/Cursor** | Hot storage (Postgres), incremental jobs | Unpartitioned tables |
+| **Row/Cursor** | Hot storage (Postgres data), incremental jobs | Unpartitioned tables |
 
 Both levels coexist. Jobs declare which mode they use.
 
@@ -31,7 +31,7 @@ Both levels coexist. Jobs declare which mode they use.
 
 It changes on deploy/rematerialize cutovers (definition changes), not on every incremental write.
 
-Postgres-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/backfill or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
+Postgres data-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/backfill or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
 
 Committed dataset versions are retained until an admin explicitly purges them (v1: manual GC). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
 
@@ -324,7 +324,7 @@ sequenceDiagram
 |---------|----------|
 | Deploy/rematerialize | `dataset_versions` + atomic cutover/rollback (ADR 0009) |
 | Cold storage (S3) | Partition-level tracking (`partition_versions`) within a `dataset_version` |
-| Hot storage (Postgres) | Cursor-based high-water mark (`dataset_cursors`) within a `dataset_version` |
+| Hot storage (Postgres data) | Cursor-based high-water mark (`dataset_cursors`) within a `dataset_version` |
 | Reorg handling | Row-range invalidations, scoped reprocessing |
 | Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../features/alerting.md#deduplication)) |
 | Definition changes | New `dataset_version` generation; optional manual repair backfills |

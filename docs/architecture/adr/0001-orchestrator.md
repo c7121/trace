@@ -9,7 +9,7 @@
   - **Lambda Sources** — cron/webhook/manual sources implemented as Lambda runtime
   - **Workers** — polyglot containers (Rust, Python, etc.) that execute jobs
   - **SQS** — task queue for push-based dispatch to workers
-  - **Postgres** — source of truth for jobs, tasks, assets, lineage
+  - **Postgres state** — source of truth for jobs, tasks, assets, lineage
 
 ## Context
 - Initially considered Dagster for its asset model and UI.
@@ -30,10 +30,10 @@
 - Must build and maintain dispatcher, event routing, worker contract.
 - Need to implement: task lifecycle, retries, dead-letter, heartbeats, memoization.
 - UI/observability is our responsibility (or build on top of standard tooling).
-- DAG definitions via YAML, synced to Postgres.
+- DAG definitions via YAML, synced to Postgres state.
 
 ## Trade-offs
 - More upfront work vs. Dagster's batteries-included.
-- No off-the-shelf UI (can build or use Postgres-backed dashboards).
+- No off-the-shelf UI (can build or use Postgres state-backed dashboards).
 - Full ownership of failure modes and edge cases.
 
