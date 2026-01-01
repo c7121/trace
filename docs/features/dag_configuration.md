@@ -18,6 +18,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 - **Trigger** — what causes a job to run:
   - For `activation: source` jobs, the trigger is `source.kind` (`cron`, `webhook`, `manual`, or `always_on`).
   - For `activation: reactive` jobs, the trigger is an upstream **output event** on any `inputs` edge (1 upstream event → 1 task; no dispatcher-side bulk/coalescing).
+- **Bootstrap** — optional one-time initialization for `activation: source` jobs at activation/deploy (v1: `reset_outputs`).
 - **Ordering** — the `jobs:` list order is not significant; dependencies are resolved by explicit `inputs` edges.
 - **Multi-source** — model multiple input streams as multiple source jobs. Each source stream has its own ordered cursor; aggregate per source as needed (e.g., `range_aggregator`), then join downstream.
 - **Worker pool** — optional named pool of per-worker “slots” (env + secrets) used when concurrent tasks must run with distinct credentials (e.g., Cryo backfills where each task needs a unique RPC key). Jobs reference a pool and set `scaling.max_concurrency`; effective concurrency is limited by pool size.
@@ -65,9 +66,13 @@ jobs:
     operator: block_follower
     source:
       kind: always_on
+    # Optional: wipe job-owned outputs and restart from start_block (executed once at activation/deploy)
+    # bootstrap:
+    #   reset_outputs: true
     config:
       chain_id: 10143
       rpc_pool: monad
+      start_block: 1000000
     outputs: 2
     update_strategy: replace
     heartbeat_timeout_seconds: 60
@@ -133,13 +138,13 @@ jobs:
     idle_timeout: 0
     inputs:
       - from: { job: backfill_request, output: 0 }
-  config:
-    chain_id: 10143
-    datasets: [blocks, transactions, logs]
-    rpc_pool: monad
-  scaling:
-    worker_pool: monad_rpc_keys
-    max_concurrency: 20
+    config:
+      chain_id: 10143
+      datasets: [blocks, transactions, logs]
+      rpc_pool: monad
+    scaling:
+      worker_pool: monad_rpc_keys
+      max_concurrency: 20
     outputs: 3
     update_strategy: replace
     timeout_seconds: 3600
@@ -171,7 +176,6 @@ publish:
         - [org_id, event_time]
     buffer:
       kind: sqs
-      fifo: true
 
   cold_blocks:
     from: { job: compact_blocks, output: 0 }
@@ -192,6 +196,7 @@ publish:
 | `inputs` | reactive | Upstream edges (`from: {job, output}` or `from: {dataset: dataset_name}`), optionally with `where` |
 | `execution_strategy` | reactive | `PerUpdate` or `PerPartition` (Bulk is not supported; use explicit Aggregator/Splitter patterns) |
 | `source` | source | Source config: `kind`, `schedule`, etc. |
+| `bootstrap` | source | Optional one-time bootstrap actions for sources (v1: `reset_outputs`) |
 | `config` | | Operator-specific config |
 | `secrets` | | Secret names to inject as env vars |
 | `scaling` | | Optional scaling hints (v1: `worker_pool`, `max_concurrency`) |

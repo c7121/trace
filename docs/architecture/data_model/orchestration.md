@@ -94,6 +94,7 @@ CREATE TABLE jobs (
     runtime TEXT NOT NULL,              -- 'lambda', 'ecs_rust', 'ecs_python', 'dispatcher'
     operator TEXT NOT NULL,             -- 'block_follower', 'alert_evaluate', etc.
     source JSONB,                       -- { "kind": "cron", "schedule": "0 0 * * *" }
+    bootstrap JSONB,                   -- source only: { "reset_outputs": true }
     execution_strategy TEXT,            -- NULL for sources, else 'PerUpdate' | 'PerPartition' (Bulk is not supported)
     idle_timeout TEXT,                  -- reactive only: 'never', '5m', '0', etc.
     config JSONB NOT NULL DEFAULT '{}', -- operator config

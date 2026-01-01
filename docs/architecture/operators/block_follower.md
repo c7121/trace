@@ -20,6 +20,7 @@ Follow chain tip in real-time and maintain canonical blocks/logs in **hot storag
 | `start_block` | config | Required: starting block for cold start |
 | `emit_strategy` | config | `per_update` (default) or `threshold` |
 | `threshold_blocks` | config | If `emit_strategy=threshold`, emit after N new blocks |
+| `bootstrap.reset_outputs` | bootstrap | Optional: if true, truncate owned hot tables and restart from `start_block` on explicit bootstrap (not on crash restarts) |
 
 ## Outputs
 
@@ -33,6 +34,8 @@ Follow chain tip in real-time and maintain canonical blocks/logs in **hot storag
 
 - Tracks the canonical chain tip and backfills gaps when the head jumps forward.
 - On reorg, rewrites the affected `block_number` range in hot Postgres and records a `data_invalidations` row-range invalidation so downstream jobs can rematerialize only what changed. See [data_versioning.md](../data_versioning.md#reorg-handling).
+
+- **Reset (optional):** if deployed with `bootstrap.reset_outputs: true`, the job performs a one-time bootstrap reset: truncate owned hot tables and restart from `start_block`. This is an explicit rebuild mechanism and is not triggered by normal restarts.
 
 **Retention note:** `block_follower` does **not** decide how long data stays in Postgres. Hot retention/compaction is defined by downstream jobs in the DAG (e.g., compaction/purge operators). The Dispatcher treats these as normal jobs and does not interpret chain finality or retention policies.
 
@@ -54,6 +57,9 @@ Hot chain tables should be designed for frequent **range rewrites** (reorgs) and
   operator: block_follower
   source:
     kind: always_on
+  # Optional: wipe job-owned outputs and restart from start_block (executed once at activation/deploy)
+  # bootstrap:
+  #   reset_outputs: true
   config:
     chain_id: 10143
     rpc_pool: monad

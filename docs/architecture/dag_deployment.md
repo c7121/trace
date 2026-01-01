@@ -41,6 +41,10 @@ If the deploy changes any **materialization-affecting** job fields (v1: at minim
 
 That downstream subgraph is the rematerialization scope (“from the edit onward”). Unchanged upstream jobs (especially source jobs) remain running.
 
+### Source bootstrap (optional)
+
+Source jobs may declare one-time bootstrap actions in YAML (v1: `bootstrap.reset_outputs`). Bootstrap actions run **once** when a `dag_version` becomes active and are not re-run on ordinary restarts.
+
 ### Buffering during rematerialization
 
 While the downstream subgraph is rebuilding:

@@ -51,23 +51,15 @@ Records when data needs reprocessing (reorgs, corrections, manual fixes).
 
 ## Incremental Modes
 
-Jobs declare their incremental mode in YAML config:
+Reactive jobs declare their incremental mode via `execution_strategy` in the DAG YAML:
 
-```yaml
-- name: alert_evaluate
-  incremental:
-    mode: cursor
-    cursor_column: block_number
-    unique_key: [alert_def_id, block_hash, tx_hash]
-  update_strategy: append
+- `PerPartition` — partition-key events (cold/batch)
+- `PerUpdate` — cursor or row-range events (hot/incremental)
 
-- name: parquet_compact
-  incremental:
-    mode: partition
-  update_strategy: replace
-```
+Operator-specific details (e.g., cursor column, range size) live in the operator `config`.
 
-### Mode: `partition`
+
+### Mode: `partition` (`execution_strategy: PerPartition`)
 
 For jobs operating on partitioned data (typically cold storage).
 
@@ -83,7 +75,7 @@ For jobs operating on partitioned data (typically cold storage).
 3. Job re-runs for that partition
 4. Output partition is replaced entirely
 
-### Mode: `cursor`
+### Mode: `cursor` (`execution_strategy: PerUpdate`)
 
 For jobs operating on unpartitioned data (typically hot storage).
 
