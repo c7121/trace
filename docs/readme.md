@@ -78,6 +78,8 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 - C4 diagrams: [c4.md](architecture/c4.md)
 - End-to-end flow: [event_flow.md](architecture/event_flow.md)
 - Task lifecycle: [task_lifecycle.md](architecture/task_lifecycle.md)
+- Idempotency checklist: [idempotency.md](standards/idempotency.md)
+- Failure drills: [game_day.md](standards/game_day.md)
 - Orchestration internals: [dispatcher.md](architecture/containers/dispatcher.md)
 - Execution model: [workers.md](architecture/containers/workers.md)
 - Query federation: [query_service.md](architecture/containers/query_service.md)
@@ -96,9 +98,9 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 | Operators | [catalog](architecture/operators/README.md) |
 | Features | [alerting.md](features/alerting.md), [dag_configuration.md](features/dag_configuration.md), [ingestion.md](features/ingestion.md), [metadata.md](features/metadata.md), [udf.md](features/udf.md) |
 | Deploy | [infrastructure.md](deploy/infrastructure.md), [monitoring.md](deploy/monitoring.md) |
-| Standards | [security_model.md](standards/security_model.md), [nfr.md](standards/nfr.md) |
+| Standards | [security_model.md](standards/security_model.md), [nfr.md](standards/nfr.md), [idempotency.md](standards/idempotency.md), [game_day.md](standards/game_day.md) |
 | Use Cases | [use_cases](use_cases/README.md) |
-| Planning | [backlog.md](plan/backlog.md), [prd.md](prd/prd.md) |
+| Planning | [backlog.md](plan/backlog.md), [implementation_sequence.md](plan/implementation_sequence.md), [prd.md](prd/prd.md) |
 
 When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
 

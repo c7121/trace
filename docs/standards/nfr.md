@@ -15,6 +15,8 @@ Measurable targets and global constraints for the platform.
 
 ## Reliability
 
+See [idempotency.md](idempotency.md) and [game_day.md](game_day.md) for concrete invariants and failure drills.
+
 - System recovers gracefully from failures; no unrecoverable states.
 - Failed jobs are retried or dead-lettered for investigation.
 - Audit trail for all operations and access.

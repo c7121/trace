@@ -2,6 +2,8 @@
 
 Non-phase-specific items deferred from v1.
 
+For the recommended build order, see [implementation_sequence.md](implementation_sequence.md).
+
 ## Platform
 
 - User-defined jobs / arbitrary code execution — platform operators first
