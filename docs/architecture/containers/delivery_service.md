@@ -16,6 +16,32 @@ See also: `docs/features/alerting.md` and ADR 0004.
 - Update `alert_deliveries` with status, timestamps, and error details.
 - Retry with backoff, using stable idempotency keys.
 
+## Component View
+
+```mermaid
+flowchart LR
+    subgraph Delivery["Delivery service"]
+        poller["Lease and schedule"]:::component
+        adapters["Channel adapters"]:::component
+        ledger["Record outcomes"]:::component
+    end
+
+    pg[(Postgres data)]:::database
+    dest["External endpoints"]:::ext
+    obs["Observability"]:::ext
+
+    poller -->|lease pending rows| pg
+    poller -->|dispatch work| adapters
+    adapters -->|POST notification| dest
+    adapters -->|outcome| ledger
+    ledger -->|update alert_deliveries| pg
+    poller -->|metrics| obs
+
+    classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+    classDef ext fill:#eee,stroke:#666,color:#000;
+```
+
 ## Data model
 
 - `alert_deliveries` is the durable queue: one row per `(alert_event_id, channel)`.
