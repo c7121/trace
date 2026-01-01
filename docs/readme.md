@@ -60,111 +60,17 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 
 ## Architecture
 
-### System Context (C4 L1)
+Canonical C4 diagrams live in [c4.md](architecture/c4.md):
 
-```mermaid
-flowchart TB
-    users["Users (Analysts / Researchers / Ops)"]:::person
-    ops["Platform Ops"]:::person
-    idp["IdP (Cognito/SSO)"]:::ext
-    trace["Trace Platform"]:::system
-    rpc["RPC Providers"]:::ext
-    obs["Observability - CloudWatch/CloudTrail"]:::ext
-    webhooks["External Webhooks"]:::ext
+- **C4 L1 (System Context)**
+- **C4 L2 (Container View)** — includes Platform Workers vs UDF Workers, Credential Broker, Delivery Service, and egress gateways
 
-    users -->|query, configure jobs, alerts| trace
-    trace -->|authn/authz| idp
-    trace -->|logs/metrics/audit| obs
-    ops -->|observe/manage| obs
-    trace -->|read chain data| rpc
-    trace -->|deliver alerts| webhooks
+This `docs/readme.md` keeps the architecture overview concise; use the C4 page for diagrams and component boundaries.
 
-    classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
-    classDef system fill:#d6f6ff,stroke:#1f6fa3,color:#000;
-    classDef ext fill:#eee,stroke:#666,color:#000;
-```
-
-### Container View (C4 L2)
-
-```mermaid
-flowchart TB
-    users["Users"]:::person
-    ops["Platform Ops"]:::person
-    rpc["RPC Providers"]:::ext
-    webhooks["External Webhooks"]:::ext
-
-    subgraph Trace["Trace Platform"]
-        gateway["Gateway"]:::container
-        dispatcher["Dispatcher"]:::container
-        query["Query Service"]:::container
-        broker["Credential Broker"]:::container
-        rpcgw["RPC Egress Gateway"]:::container
-        delivery["Delivery Service"]:::container
-        sinks["Dataset Sinks"]:::container
-
-        platform_workers["Platform Workers"]:::container
-        udf_workers["UDF Workers"]:::container
-
-        pg_state[("Postgres state")]:::database
-        pg_data[("Postgres data")]:::database
-        s3[("S3 Parquet")]:::database
-    end
-
-    subgraph AWS["AWS Managed Services"]
-        task_sqs["SQS task queues"]:::infra
-        buffer_sqs["SQS dataset buffers"]:::infra
-        cognito["Cognito"]:::infra
-        cloudwatch["CloudWatch/CloudTrail"]:::infra
-    end
-
-    users -->|API/CLI| gateway
-    ops -->|observe| cloudwatch
-
-    gateway -->|authn| cognito
-    gateway --> dispatcher
-    gateway --> query
-
-    dispatcher --> pg_state
-    dispatcher -->|enqueue| task_sqs
-
-    task_sqs --> platform_workers
-    task_sqs --> udf_workers
-
-    platform_workers -->|claim/heartbeat/complete| dispatcher
-    udf_workers -->|claim/heartbeat/complete| dispatcher
-
-    platform_workers --> pg_data
-    platform_workers --> s3
-    platform_workers -->|publish records| buffer_sqs
-    platform_workers --> rpcgw
-
-    udf_workers --> query
-    udf_workers --> broker
-    udf_workers --> s3
-    udf_workers -->|publish records| buffer_sqs
-
-    buffer_sqs --> sinks
-    sinks --> pg_data
-
-    query --> pg_data
-    query --> s3
-
-    rpcgw -->|outbound| rpc
-    delivery --> pg_data
-    delivery -->|outbound| webhooks
-
-    classDef person fill:#f6d6ff,stroke:#6f3fb3,color:#000;
-    classDef container fill:#d6ffe7,stroke:#1f9a6f,color:#000;
-    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
-    classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
-    classDef ext fill:#eee,stroke:#666,color:#000;
-```
 
 ### Storage
 
 **Storage:** Postgres (state) holds orchestration metadata (multi-AZ, PITR). Postgres (data) and S3 are used for job data: Postgres (data) is typically used for hot/mutable datasets (e.g., recent chain ranges, alert tables), while S3 Parquet is used for cold/immutable datasets and exported results. The "hot" vs "cold" split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not a separate storage engine. DuckDB federates across both.
-
-For the complete C4 diagrams (including AWS dependencies and lower-level components), see [c4.md](architecture/c4.md).
 
 
 ### Deep Dives
