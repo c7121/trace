@@ -73,16 +73,17 @@ The secret **value** never appears in the task payload and untrusted code never 
 
 ## Network Isolation
 
-- Jobs run in a VPC with **no internet egress by default**.
-- Permit outbound traffic only to:
-  - **AWS VPC endpoints / PrivateLink** for required AWS APIs (e.g., S3, SQS, ECR, CloudWatch Logs, Secrets Manager, KMS).
-  - **In-VPC services** (Dispatcher, sinks, Query Service) via private DNS / security groups.
-  - **Designated egress services** that enforce an allowlist for external destinations (Delivery/webhooks, RPC).
-- External egress (internet) is allowed only from dedicated, platform-managed egress services:
-  - **Delivery Service / Webhook Egress Gateway** for outbound webhooks.
-  - **RPC Egress Gateway** (or in-VPC nodes) for blockchain RPC access.
-- User jobs cannot make arbitrary outbound HTTP calls.
-- Platform jobs (e.g., `block_follower`, `cryo_ingest`) may access allowlisted RPC endpoints **only via the RPC egress gateway** (or an in-VPC node).
+See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
+
+- Job containers run in private subnets with **no direct internet egress**.
+- Jobs may reach only:
+  - required AWS APIs via VPC endpoints / PrivateLink (e.g., S3, SQS, ECR, CloudWatch Logs, Secrets Manager, KMS),
+  - in-VPC platform services (Dispatcher, Query Service, sinks),
+  - designated **egress gateway services** for external communication.
+- Only the egress gateway services have a route to the public internet:
+  - Delivery Service for outbound notifications/webhooks
+  - RPC Egress Gateway (or in-VPC nodes) for blockchain RPC access
+- Egress gateway services must prevent SSRF to internal networks (deny VPC CIDR/RFC1918/metadata IPs) and must audit outbound requests.
 - Untrusted UDF tasks must not have a network path to Postgres (RDS) or Secrets Manager endpoints; they access hot storage only via Query Service.
 - No inbound connections to job containers.
 - **TLS required**: all internal and external traffic uses TLS 1.2+.
@@ -108,7 +109,7 @@ The secret **value** never appears in the task payload and untrusted code never 
   - v1 does not implement “anti re-sharing” controls: if you grant someone dataset read access, they can use it in their own DAG (subject to their own DAG permissions).
 - **DAG deploy/trigger permission**: permission to deploy/trigger a DAG implies permission to read and overwrite/create datasets produced by that DAG.
 - **RPC access**:
-  - **Platform jobs** (e.g., `block_follower`, `cryo_ingest`): may access allowlisted RPC endpoints.
+  - **Platform jobs** (e.g., `block_follower`, `cryo_ingest`): access RPC providers only via the RPC egress gateway (or in-VPC nodes).
   - **User jobs** (alerts, enrichments, custom transforms): query platform storage only, no raw RPC access.
 - **PII gating**: jobs must be explicitly granted access to PII datasets; access is logged.
 
@@ -223,5 +224,5 @@ Future multi-tenant: org provisioning via admin API or self-service signup.
 
 - **Signing & provenance**: Container images and DAG bundles are signed (e.g., cosign) with SBOMs published; deployments verify signatures before pull/apply. (Refs: [SLSA](https://slsa.dev), [CNCF Supply Chain Best Practices](https://github.com/cncf/tag-security/blob/main/community/working-groups/supply-chain-security/supply-chain-security-paper/sscsp.md), [PDF](https://raw.githubusercontent.com/cncf/tag-security/main/community/working-groups/supply-chain-security/supply-chain-security-paper/CNCF_SSCP_v1.pdf))
 - **Secrets & rotation**: Short-lived, scoped credentials per job/org; stored secrets rotate on a fixed cadence (e.g., ≤90d) and on key events; no Secrets Manager access from user code. (Refs: [NIST SP 800-57](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final), [NIST SP 800-63](https://pages.nist.gov/800-63-3/))
-- **Egress allowlist workflow**: Changes require review/approval; allowlist is IaC-managed; no ad-hoc outbound endpoints. (Refs: [AWS egress restriction guidance](https://docs.aws.amazon.com/whitepapers/latest/aws-vpc-connectivity-options/egress-only.html), [AWS SCPs](https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html))
+- **Centralized egress**: only platform egress gateway services have an internet route; outbound configuration changes are reviewed and deployed via IaC.
 - **PII handling**: Datasets classified; PII access requires explicit grant + logging; jobs touching PII must be tagged and are subject to heightened audit/retention. (Refs: [GDPR Art. 5(1)(c) data minimization](https://gdpr.eu/article-5-how-to-process-personal-data/), [ISO 27001 Annex A.8](https://www.iso.org/standard/27001))
