@@ -105,22 +105,15 @@ When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.
 
 ## Security
 
-**IAM roles (high-level):**
+- **Trust split**: Platform Workers run trusted operators; UDF Workers run untrusted user code.
+- **Secrets**: stored in AWS Secrets Manager and injected into ECS/Lambda at launch; untrusted code does not call Secrets Manager.
+- **Egress**: job containers have no direct internet egress. External calls go only through platform egress services (Delivery Service, RPC Egress Gateway).
+- **Roles**: dispatcher, platform workers, udf workers, query service, delivery service, rpc egress gateway.
 
-- dispatcher-role (SQS, Postgres state, CloudWatch, STS AssumeRole for credential minting)
-- platform-worker-role (trusted operators; SQS task queues; Postgres data; S3 as needed; may also drain SQS dataset buffers when acting as a sink consumer)
-- udf-worker-role (SQS task queues only; reads via Query Service; S3 access via Dispatcher credential minting)
-- query-service-role (read-only Postgres data + S3 export)
-- delivery-service-role (Postgres data + controlled internet egress)
-- rpc-egress-gateway-role (controlled internet egress; provider creds injected at launch)
-
-**Secrets:** RPC keys and DB creds in Secrets Manager, injected as env vars.
-
-**Network:** Services and workers in private subnets. VPC endpoints for S3/SQS (and others as needed). No internet egress from job containers; external calls go only through platform egress gateway services.
-
-See [security_model.md](standards/security_model.md) for job isolation, threat model, and credential handling.
+The full isolation model and threat assumptions live in [security_model.md](standards/security_model.md).
 
 ## References
+
 
 - [cryo GitHub](https://github.com/paradigmxyz/cryo)
 - [DuckDB Documentation](https://duckdb.org/docs/)

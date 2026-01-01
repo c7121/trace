@@ -44,7 +44,7 @@ Partition event (block-range example):
 
 **Routing rule:** by default, the Dispatcher routes only events for the dataset's **current** `dataset_version` (older generations may be accepted for audit but are not routed).
 
-Events are treated as **at-least-once** and may be duplicated or arrive out of order. Correctness comes from task leasing + idempotent outputs. See [task_lifecycle.md](../task_lifecycle.md).
+Events are treated as **at-least-once** and may be duplicated or arrive out of order. Correctness comes from task leasing + idempotent outputs.
 
 ## Event Routing
 
@@ -104,7 +104,6 @@ Dispatcher is stateless — durable state lives in Postgres state. On failure/re
 
 Because execution is **at-least-once**, a long outage may cause some duplicate work (e.g., leases expire and tasks are retried). Output commits and routing are designed to be idempotent.
 
-Task wake-ups are delivered via SQS task queues. Correctness comes from leasing in Postgres state; see [task_lifecycle.md](../task_lifecycle.md).
 
 ## Component View
 
@@ -116,21 +115,21 @@ flowchart LR
     end
 
     subgraph Dispatch["Dispatcher"]
-        taskCreate["Task Creator"]:::component
         eventRouter["Upstream Event Router"]:::component
-        reaper["Dead Task Reaper"]:::component
+        taskCreate["Task Creator"]:::component
+        reaper["Lease Reaper"]:::component
         sourceMon["Source Monitor"]:::component
         manualApi["Manual Trigger API"]:::component
+        credMint["Credential Minting"]:::component
     end
 
     eventbridge["EventBridge"]:::infra
     gateway["Gateway"]:::infra
-    task_sqs["SQS task queues"]:::infra
-    buffers["SQS dataset buffers"]:::infra
-    postgres_state["Postgres state"]:::database
-    workers["ECS Workers"]:::component
+    taskQ["SQS task queues"]:::infra
+    pg[(Postgres state)]:::database
+    ecsWorkers["ECS Workers"]:::component
     lambdaOps["Lambda Operators"]:::component
-    sinks["Dataset Sink"]:::component
+    sts["AWS STS"]:::infra
 
     eventbridge -->|invoke| cronSrc
     gateway -->|invoke| webhookSrc
@@ -139,46 +138,29 @@ flowchart LR
     webhookSrc -->|emit event| eventRouter
     manualApi -->|create task| taskCreate
 
-    workers -.->|upstream event| eventRouter
-    lambdaOps -.->|upstream event| eventRouter
-    eventRouter -->|find dependents| postgres_state
+    ecsWorkers -.->|emit event| eventRouter
+    lambdaOps -.->|emit event| eventRouter
+
+    eventRouter -->|lookup dependents| pg
     eventRouter -->|create tasks| taskCreate
 
-    taskCreate -->|create task| postgres_state
-    taskCreate -->|enqueue runtime=ecs_*| task_sqs
-    taskCreate -->|invoke runtime=lambda| lambdaOps
-    reaper -->|check heartbeats| postgres_state
-    reaper -->|mark failed| postgres_state
-    sourceMon -->|check health| postgres_state
+    taskCreate -->|write tasks and outbox| pg
+    taskCreate -->|enqueue wake up| taskQ
+    taskCreate -->|invoke| lambdaOps
 
-    workers -->|publish records| buffers
-    lambdaOps -->|publish records| buffers
-    buffers -->|drain| sinks
-    sinks -.->|upstream event| eventRouter
+    reaper -->|scan leases| pg
+    sourceMon -->|scan sources| pg
+    credMint -->|assume role| sts
 
     classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
     classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
     classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
 ```
 
-## Runtime Registry (Extensible)
 
-Runtimes are identifiers used by the Dispatcher to select a worker image and queue.
-They are modeled as strings (not a fixed enum) to allow future additions.
+## Runtime Registry
 
-**Registry responsibilities:**
-- Map `runtime` → worker image and SQS queue.
-- Declare capabilities (e.g., supports long-running tasks, source jobs, GPU, etc.).
-- Define default resource limits and heartbeat expectations.
+`runtime` is a string used by the Dispatcher to decide how to execute a job (in-process, Lambda, or ECS queue).
+The mapping from `runtime` to worker image, queue, and resource defaults is configured in the Dispatcher.
 
-**Adding a new runtime:**
-1. Build a worker image (e.g., `ecs_r` for R).
-2. Register it in the Dispatcher config with queue + capabilities.
-3. Use `runtime: ecs_r` in job YAML.
 
-## Related
-
-- [contracts.md](../contracts.md) — task, event, and API schemas
-- [orchestration.md](../data_model/orchestration.md) — job/task schemas
-- [event_flow.md](../event_flow.md) — end-to-end sequence diagram
-- [security_model.md](../../standards/security_model.md) — isolation model

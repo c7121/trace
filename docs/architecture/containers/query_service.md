@@ -33,8 +33,7 @@ flowchart LR
 ## Description
 
 Accepts SQL queries via REST API and executes against federated hot (Postgres data) and cold
-(S3 Parquet) storage using embedded DuckDB. Designed for interactive, ad-hoc exploration,
-with a batch mode that enqueues a `query` job when limits are exceeded.
+(S3 Parquet) storage using embedded DuckDB. Designed for interactive exploration with a batch mode for heavy queries.
 
 ## Endpoint
 
@@ -179,9 +178,6 @@ Query Service supports two authn/authz modes:
 
 For Postgres data-backed datasets, Query Service uses a read-only Postgres user and views filter by `org_id`.
 
-See:
-- [security_model.md](../../standards/security_model.md) — isolation model
-- [contracts.md](../contracts.md#udf-data-access-token-capability-token) — capability token contract
 
 ## Dataset resolution and pinning
 
@@ -194,13 +190,6 @@ Pinning is per-query:
 
 For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).
 
-## Dependencies
-
-
-- **IdP** — token validation
-- **Postgres data** — hot storage (read-only user)
-- **S3** — cold storage reads, result writes
-- **DuckDB extensions** — `postgres_scanner`, `httpfs`
 
 ## Observability
 
@@ -228,22 +217,7 @@ Logs include: query hash (not full SQL for PII), org_id, user_id, duration, row_
 Batch mode creates a `query` task using the same operator as the interactive path and records a `query_results` row.
 Results are written to S3; clients poll task status or fetch `query_results` by `query_id`.
 
-## Query Capabilities
 
-| Feature | Support |
-|---------|---------|
-| Federated joins (hot + cold) | ✅ |
-| Aggregations | ✅ |
-| Window functions | ✅ |
-| Parquet pushdown | ✅ |
-| Postgres pushdown | ✅ |
-| Export formats (JSON, CSV, Parquet) | ✅ |
-
-## Saved Queries
-
-Users can save queries for reuse.
-
-PII column: `saved_queries.query` (user-provided). Mark it as PII in dataset metadata; see [pii.md](../data_model/pii.md) for visibility and audit rules.
 
 ## Query Results
 
@@ -251,6 +225,3 @@ Query executions (interactive and batch) are recorded in a platform-managed tabl
 
 `query_id` in API responses is `query_results.id`.
 
-## Deferred
-
-See [backlog](../../plan/backlog.md#query-service) for discovery and rate limiting.

@@ -4,15 +4,10 @@ How the system tracks data changes, handles reorgs, and efficiently reprocesses 
 
 ## Overview
 
-**Delivery semantics:** Tasks and upstream events are **at-least-once**. The platform uses leasing to prevent concurrent execution, and uses `update_strategy` plus `unique_key` (for append) to achieve an exactly-once *effect* for datasets. See [task_lifecycle.md](task_lifecycle.md).
-
-Reactive jobs trigger on upstream output events. Events include `dataset_uuid` + `dataset_version` plus scope (`cursor` or `partition_key`). Duplicates and out-of-order delivery are expected; the Dispatcher dedupes task creation and operators must be idempotent.
-
-**Dataset generations:** Each published dataset has a stable `dataset_uuid`. Deploy/rematerialize creates a new `dataset_version` (a generation) so the platform can build new outputs in parallel and then swap “current” pointers atomically (cutover/rollback). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
-
-Within a single `dataset_version`, the platform still does incremental updates (new partitions/rows) over time. Query pinning ensures reads are not a “moving target” mid-query even while new data arrives.
-
-**Chain identity:** For onchain datasets, `block_hash` is the stable identifier. `block_number` is an ordering/partitioning field and may be reused during reorgs. Hot datasets like `hot_blocks` are therefore mutable: the platform reconciles reorgs by rewriting the affected block-number range and emitting a `data_invalidations` record (scoped to the affected `dataset_version`) so downstream jobs can rematerialize impacted outputs.
+- Tasks and upstream events are **at-least-once**. Correctness comes from leasing, strict attempt fencing, and idempotent dataset writes.
+- Reactive jobs trigger on upstream output events. Events include `dataset_uuid` + `dataset_version` plus a scope (`cursor` or `partition_key`).
+- `dataset_version` changes on deploy/rematerialize so new definitions can build in parallel and cut over atomically.
+- For onchain datasets, `block_hash` is the stable identity. Reorgs rewrite affected block-number ranges and create invalidations so downstream jobs rematerialize impacted outputs.
 
 The system supports two granularities of change tracking:
 
@@ -130,15 +125,11 @@ Uncommitted staging prefixes (non-committed attempt artifacts) may be cleaned up
 
 ### Replace and Downstream Invalidations
 
-If a job uses `update_strategy: replace` and rewrites a scope/range, it must emit a downstream invalidation for that same scope/range so dependent jobs recompute (invalidations cascade transitively through the DAG).
+If a job rewrites a scope (partition or row-range) it should emit an invalidation for that same scope so dependent jobs recompute. Invalidations cascade transitively through the DAG.
 
-### Append Means “Don’t Delete”
+### Append with `unique_key`
 
-If a job uses `update_strategy: append`, it never deletes prior rows. Reprocessing may introduce new rows for the same historical range, but old rows can remain as auditable history/orphans. If you need retractions/corrections, use `replace` (or introduce explicit tombstones as a future extension).
-
-### Append with Deduplication
-
-For `update_strategy: append`, the job **must** declare a `unique_key`. DAG validation rejects `append` without `unique_key`.
+For `update_strategy: append`, the dataset must declare a deterministic `unique_key` and writers must upsert / do-nothing on conflict so reprocessing doesn't create duplicates.
 
 ```sql
 INSERT INTO alert_events (org_id, dedupe_key, ...)
@@ -146,24 +137,11 @@ VALUES (...)
 ON CONFLICT (org_id, dedupe_key) DO NOTHING;
 ```
 
-This ensures:
-- Reprocessing the same data doesn't create duplicate alerts
-- Reorgs with same tx in new block → new alert (different `block_hash`)
-- Same tx in same block reprocessed → no duplicate (same key)
+Guidance:
+- derive keys from input identity (`block_hash`, `tx_hash`, `log_index`, external ids) plus stable configuration (e.g., `alert_definition_id`)
+- avoid timestamps / runtime-generated values
+- do not rely on `task_id` or `attempt` unless the dataset is explicitly a run log
 
-### Unique Key Requirements
-
-For `update_strategy: append`, `unique_key` must be **deterministic** from input data and stable configuration. Avoid timestamps and runtime-generated values.
-
-Good examples (often combined):
-- Input identity: `block_hash`, `tx_hash`, `log_index`, `record_id`, `external_id`
-- Stable config identity: `alert_definition_id`, `producer_job_id`
-
-Avoid: `created_at`, `processed_at`, `now()`, `random()`, and other per-execution values.
-
-> **Note:** platform-level idempotency uses `task_id` + `attempt` gating, but dataset-level `unique_key` should not depend on task execution identity unless the dataset is explicitly a run log.
-
----
 
 ## Reorg Handling
 
@@ -188,21 +166,6 @@ sequenceDiagram
     DS->>INV: Mark invalidation processed
 ```
 
-### Invalidation Record
-
-When `block_follower` detects a reorg:
-
-```sql
-INSERT INTO data_invalidations (dataset_uuid, dataset_version, scope, row_filter, reason, source_event)
-VALUES (
-    'uuid', -- dataset_uuid for hot_blocks
-    'uuid', -- dataset_version for hot_blocks (current generation)
-    'row_range',
-    '{"block_number": {"gte": 995, "lte": 1005}}',
-    'reorg',
-    '{"old_tip": "0xabc...", "new_tip": "0xdef...", "fork_block": 994}'
-);
-```
 
 ### Downstream Behavior by Job Type
 
@@ -222,33 +185,13 @@ VALUES (
 |---------|-----------|------------|
 | **Data stale** | New input partition/rows since last run | Upstream event |
 | **Invalidation** | `data_invalidations` record | Dispatcher schedules scoped reprocessing |
-| **Definition change** | New `dag_version` → new `dataset_version` | Deploy/rematerialize + atomic cutover (see [dag_deployment.md](dag_deployment.md) and [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md)) |
+| **Definition change** | New `dag_version` → new `dataset_version` | Deploy/rematerialize + atomic cutover |
 | **Manual repair/backfill** | User/API initiated | Explicit backfill tasks (typically `replace`) |
 
-### Provenance: `config_hash` and `schema_hash`
+Provenance fields like `config_hash` and `schema_hash` help audit what produced a partition materialization or cursor advancement.
 
-Even though definition changes create new `dataset_version`s, it’s still useful to record what produced a given partition/cursor advancement:
+Backfill is an explicit repair mechanism (recompute specific partitions/ranges, typically `replace`). It is not the primary mechanism for deploy/rematerialize cutovers.
 
-```sql
--- On partition materialization, upsert the partition metadata for this dataset_version.
-UPDATE partition_versions
-SET materialized_at = now(), config_hash = $config_hash, schema_hash = $schema_hash
-WHERE dataset_uuid = $dataset_uuid AND dataset_version = $dataset_version AND partition_key = $partition_key;
-```
-
-### Backfill API (Repair)
-
-Backfill is an explicit repair mechanism (e.g., recompute specific partitions/ranges). It is not the primary mechanism for deploy/rematerialize cutovers.
-
-```
-POST /v1/backfill
-{
-  "job": "enrich_transfers",
-  "dataset_version": "uuid",                // optional; defaults to current
-  "partitions": ["2024-01-01", "2024-01-02"],  // or "all"
-  "reason": "repair"
-}
-```
 
 ---
 

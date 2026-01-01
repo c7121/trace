@@ -94,26 +94,12 @@ flowchart LR
 
 ## Execution Model
 
-- **ECS runtimes**: long-poll SQS task queues (wake-up messages contain `task_id` only), then **claim** the task from Dispatcher to obtain a lease + payload.
-  See [contracts.md](../contracts.md) and [task_lifecycle.md](../task_lifecycle.md).
+- **ECS runtimes**: receive `task_id` from SQS, claim the task to obtain `(attempt, lease_token, payload)`, execute, heartbeat, then complete. The wrapper extends SQS visibility for long tasks.
 - **Lambda runtimes**:
-  - **Sources** are invoked by EventBridge/API Gateway and emit upstream events to Dispatcher.
-  - **Reactive jobs** are invoked by Dispatcher with the full task payload; the Lambda must report completion via `/internal/task-complete`.
-  See [contracts.md](../contracts.md#dispatcher--lambda-runtimelambda).
-- **Retries and visibility**: leasing, retries, and rehydration are owned by Dispatcher; wrappers extend SQS visibility for long tasks.
-  See [task_lifecycle.md](../task_lifecycle.md).
-- **Trust boundaries**: platform vs UDF workers are enforced by IAM + network policy.
-  See [security_model.md](../../standards/security_model.md) and [udf.md](../../features/udf.md).
+  - **Sources**: invoked by EventBridge / API Gateway and emit upstream events.
+  - **Reactive jobs**: invoked by Dispatcher with the full task payload and must report completion.
 
 Notes:
 - v1 targets `linux/amd64` for ECS runtimes; additional architectures can be added as new runtimes.
 
-## Related
-
-
-- [contracts.md](../contracts.md) — worker/dispatcher contract
-- [dispatcher.md](dispatcher.md) — orchestration and backpressure
-- [task_lifecycle.md](../task_lifecycle.md) — leasing, retries, rehydration
-- [udf.md](../../features/udf.md) — sandbox model (for user code)
-- [security_model.md](../../standards/security_model.md) — isolation model
 
