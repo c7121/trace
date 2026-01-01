@@ -33,7 +33,7 @@ It changes on deploy/rematerialize cutovers (definition changes), not on every i
 
 Postgres-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/backfill or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
 
-Retention/GC: v1 is manual purge (no auto GC). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
+Committed dataset versions are retained until an admin explicitly purges them (v1: manual GC). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
 
 ### Partition Versions
 
@@ -126,7 +126,7 @@ How jobs write their output:
 
 This avoids S3 “renames” (copy+delete) and avoids rewriting data: Parquet files are written once; commit is metadata.
 
-Uncommitted staging prefixes are garbage-collected after a TTL.
+Uncommitted staging prefixes (non-committed attempt artifacts) may be cleaned up to control cost; this cleanup MUST NOT remove committed outputs. The TTL is an implementation detail.
 
 ### Replace and Downstream Invalidations
 

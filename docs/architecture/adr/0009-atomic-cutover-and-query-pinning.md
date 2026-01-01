@@ -45,6 +45,8 @@
 - Deploy must track a per-dataset pointer set per `dag_version` so rollback can restore the exact prior mapping.
 - v1 retention is conservative for versioned datasets: keep all prior `dataset_version`s until an admin explicitly purges them (no automatic GC).
 
+Note: this manual GC policy applies to **committed** dataset versions. Temporary/uncommitted staging artifacts may be cleaned up independently.
+
 ## Schema Sketch (names only)
 
 This ADR focuses on the *cutover/rollback model*, not full schema definitions.
