@@ -55,6 +55,15 @@ flowchart LR
 
 ## Webhook safety
 
-Webhook URLs are user input. Delivery Service must treat them as untrusted and enforce SSRF defenses (HTTPS-only, block private/metadata ranges, reject redirects, tight timeouts, and request auditing). Webhooks are **POST-only in v1**.
+Webhook URLs are user input. Delivery Service must treat them as untrusted and enforce SSRF defenses.
 
-The normative requirements for webhook validation live in `docs/features/alerting.md`.
+v1 policy:
+
+- **POST-only** requests; `https://` URLs only.
+- Reject redirects (do not follow `3xx` to a new host).
+- Resolve DNS server-side and reject destinations that resolve to private/link-local/loopback/multicast ranges, the VPC CIDR, or cloud metadata IPs (e.g., `169.254.169.254`).
+- Strip/deny unsafe headers (e.g., `Host`, `Connection`, `Proxy-*`) and cap total header size.
+- Tight timeouts and response size limits; never log webhook headers/bodies that may contain secrets.
+- Always include a stable idempotency key (`Idempotency-Key: <delivery_id>`), and include `delivery_id` in the payload for receiver-side dedupe.
+
+This service is the only internet-egress component in the alerting path; it must audit outbound requests and attribute them to `(org_id, delivery_id)`.

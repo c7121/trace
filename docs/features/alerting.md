@@ -46,59 +46,32 @@ Runtime selection is per-job in the DAG. A single DAG can include many detector 
 
 ## Delivery
 
-Operators/UDFs do **not** communicate with the outside world. Delivery is split into:
+Operators/UDFs do **not** communicate with the outside world. Delivery is centralized:
 
-- **Routing operators (in the DAG)**: read `alert_events`, apply filters + staleness gating, and create `alert_deliveries` work items.
-- **Delivery Service (platform service)**: leases pending `alert_deliveries`, performs the external send, and updates delivery status.
+- **Routing operators (in the DAG)** read `alert_events`, apply filters + staleness gating, and create `alert_deliveries` work items.
+- **Delivery Service (platform service)** is the only component with internet egress for alerting. It leases pending `alert_deliveries`, performs the external send, and records outcomes.
 
-If a delivery row exists, it should be sent (deploy/rollback does not cancel pending deliveries).
+`alert_deliveries` is the durable work queue: one row per `(org_id, alert_event_id, channel)`. Retries update the same row.
 
-Delivery outcomes are recorded in `alert_deliveries` with one row per `(alert_event_id, channel)`. Retries overwrite/update the same row (replace/upsert semantics).
-
-PII note: delivery destinations (email addresses, phone numbers, webhook URLs) live in `alert_definitions.channels`. `alert_deliveries` should not duplicate destinations; store only channel type and provider response metadata.
-
-### Delivery Guarantees (Never Missed, No Double-Fire)
-
-`alert_deliveries` is the durable work queue. The Delivery Service:
-
-1. Materializes work idempotently: create one row per `(org_id, alert_event_id, channel)` (unique constraint prevents duplicates).
-2. Claims work with a short lease (`leased_until`) so only one worker attempts a delivery at a time; if a worker dies mid-send, the lease expires and another worker retries.
-3. Retries until success: failures set `status='retrying'` and schedule `next_attempt_at` with backoff.
-
-To prevent double-firing external notifications, every outbound send includes a stable **idempotency key**:
-
-- Use `alert_deliveries.id` as the idempotency key for the `(alert_event_id, channel)` delivery.
-- PagerDuty: map it to `dedup_key`.
-- Webhooks: send `Idempotency-Key: <delivery_id>` and include `delivery_id` in the body for receivers to dedupe.
-
-Without downstream idempotency (provider- or receiver-side), no system can guarantee both “never missed” and “never twice” under timeouts/crashes. In that case Trace provides **at-least-once** delivery semantics.
+Delivery semantics are **at-least-once**. Under timeouts/unknown outcomes, external sends may occur more than once. Trace includes a stable idempotency key (`alert_deliveries.id`) in outbound requests whenever possible.
 
 ### Channels
 
 | Channel | Provider | Config |
 |---------|----------|--------|
-| Email | SES (VPC endpoint) | `to`, `subject_template` |
-| SMS | SNS (VPC endpoint) | `phone_number` |
-| Webhook | HTTP (via Delivery Service) | `url`, `headers` |
-| Slack | Slack (via Delivery Service) | `webhook_url`, `channel` |
-| PagerDuty | PagerDuty Events API (via Delivery Service) | `routing_key`, `dedup_key` |
+| Email | SES | `to`, `subject_template` |
+| SMS | SNS | `phone_number` |
+| Webhook | HTTP via Delivery Service | `url`, `headers` |
+| Slack | Slack via Delivery Service | `webhook_url`, `channel` |
+| PagerDuty | PagerDuty Events API via Delivery Service | `routing_key`, `dedup_key` |
 
 Webhook deliveries are **POST-only** in v1.
 
-Outbound destinations are not restricted by a global destination list at the network layer. Delivery Service is the only component with internet egress and must validate destinations (e.g., block private IP ranges) and audit outbound requests.
-
-#### Webhook safety (SSRF protection)
-
-Webhook URLs are user-supplied input. Delivery Service must treat them as untrusted and enforce:
-
-- `https://` URLs only; reject redirects.
-- Server-side DNS resolution; reject destinations that resolve to private/link-local/loopback/multicast ranges, cloud metadata IPs (e.g., `169.254.169.254`), or the VPC CIDR.
-- Strip/deny unsafe headers (e.g., `Host`, `Connection`, `Proxy-*`) and cap total header size.
-- Tight timeouts and response size limits; never log webhook headers/bodies that may contain secrets.
-- Always include a stable idempotency key (`Idempotency-Key: <delivery_id>` and `delivery_id` in the payload).
-
+Destination validation (SSRF protections) and auditing are enforced by the Delivery Service.
+See [delivery_service.md](../architecture/containers/delivery_service.md).
 
 ### Routing (Filters)
+
 
 To route alerts by severity (or any column), run multiple routing jobs with filtered inputs. Filters are read-time predicates on the input edge; see [ADR 0007](../architecture/adr/0007-input-edge-filters.md).
 

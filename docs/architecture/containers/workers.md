@@ -80,7 +80,7 @@ flowchart LR
     classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
 ```
 
-## Runtime Model
+## Runtimes
 
 | Runtime | Execution | Trust | Use Case |
 |---------|-----------|-------|----------|
@@ -92,25 +92,24 @@ flowchart LR
 | `ecs_udf_python` | ECS (Python) | untrusted | User-defined ML/pandas |
 | `ecs_udf_rust` | ECS (Rust) | untrusted | User-defined high-perf scanning |
 
-**Queue model (ECS):** One SQS queue per runtime. SQS payload includes `task_id` only; the worker wrapper **claims** the task from the Dispatcher to acquire a lease and receive the full task payload.
+## Execution Model
 
-**Lambda sources:** Invoked by EventBridge/API Gateway, emit upstream events to Dispatcher.
+- **ECS runtimes**: long-poll SQS task queues (wake-up messages contain `task_id` only), then **claim** the task from Dispatcher to obtain a lease + payload.
+  See [contracts.md](../contracts.md) and [task_lifecycle.md](../task_lifecycle.md).
+- **Lambda runtimes**:
+  - **Sources** are invoked by EventBridge/API Gateway and emit upstream events to Dispatcher.
+  - **Reactive jobs** are invoked by Dispatcher with the full task payload; the Lambda must report completion via `/internal/task-complete`.
+  See [contracts.md](../contracts.md#dispatcher--lambda-runtimelambda).
+- **Retries and visibility**: leasing, retries, and rehydration are owned by Dispatcher; wrappers extend SQS visibility for long tasks.
+  See [task_lifecycle.md](../task_lifecycle.md).
+- **Trust boundaries**: platform vs UDF workers are enforced by IAM + network policy.
+  See [security_model.md](../../standards/security_model.md) and [udf.md](../../features/udf.md).
 
-**Lambda reactive jobs:** Invoked by Dispatcher when upstream datasets update (jobs with `runtime: lambda`). Dispatcher invokes the Lambda with the **full task payload** (same shape as `/internal/task-fetch`) and does not wait; a task is “done” only when the Lambda reports `/internal/task-complete`. Timeouts/crashes are handled by the reaper + retries (`max_attempts`) and Lambda built-in retries should be disabled (Dispatcher owns retries uniformly).
-
-**ECS:** Long-polls SQS, stays warm per `idle_timeout`, heartbeats to Dispatcher.
-
-**SQS visibility:** The wrapper extends visibility (`ChangeMessageVisibility`) for long-running tasks until completion; this avoids premature redelivery while the task is still running.
-
-**UDF runtimes:** Use locked-down network security groups and task roles:
-- No internet egress.
-- No direct network path to Postgres (RDS).
-- No Secrets Manager permissions (secrets are injected at launch; UDFs typically receive only a capability token).
-- Data reads go through Query Service; S3 access is via Credential Broker-scoped STS credentials.
-
-**Architecture (v1):** ECS worker images run on `linux/amd64` to keep user bundle targeting simple. Additional architectures (e.g., `arm64`) can be introduced as separate runtimes in the registry.
+Notes:
+- v1 targets `linux/amd64` for ECS runtimes; additional architectures can be added as new runtimes.
 
 ## Related
+
 
 - [contracts.md](../contracts.md) — worker/dispatcher contract
 - [dispatcher.md](dispatcher.md) — orchestration and backpressure

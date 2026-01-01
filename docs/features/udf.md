@@ -28,7 +28,7 @@ UDFs are **untrusted**. The full sandbox and isolation requirements live in
 In v1, assume:
 
 - Runs in isolated ECS tasks with CPU/memory/timeout limits.
-- No internet egress; UDFs can only call in-VPC platform services and required AWS VPC endpoints.
+- No direct internet egress; UDFs can only call in-VPC platform services (e.g., Query Service, Credential Broker).
 - No direct Postgres access; ad-hoc reads go through the Query Service.
 - No Secrets Manager access; secrets (when needed for trusted platform tasks) are injected at task launch.
 
@@ -36,49 +36,17 @@ UDFs should be deterministic for backfill/replay. Any non-deterministic values (
 
 ### Data Access
 
-UDFs do not receive broad infrastructure credentials.
+UDFs do not receive broad infrastructure credentials. For task-scoped access they rely on:
 
-They access data through two platform primitives:
+- **Query Service** — `POST /v1/task/query` for SELECT-only SQL scoped to the task’s declared/pinned inputs. Large results may be exported to S3.
+  See [query_service.md](../architecture/containers/query_service.md).
+- **Credential Broker** — `POST /v1/task/credentials` to exchange the task capability token for short-lived STS credentials restricted to the task’s allowed S3 prefixes.
+  See [credential_broker.md](../architecture/containers/credential_broker.md).
 
-1. **Query Service** (SQL gateway)
-   - UDFs can issue arbitrary **SELECT-only** SQL, but only over the datasets declared as inputs to the task (enforced by the task capability token).
-   - Large results can be exported to S3 (Parquet) and returned as an S3 location.
-
-2. **Credential Broker** (scoped S3 credentials)
-   - The worker wrapper provides a short-lived **capability token** for the task attempt.
-   - The UDF exchanges the token for short-lived STS credentials restricted to:
-     - input dataset prefixes
-     - output dataset prefix
-     - task scratch/export prefix
-
-```mermaid
-flowchart LR
-    subgraph U[UDF Task]
-        wrapper[Worker Wrapper]:::component
-        udf[User Code]:::component
-    end
-
-    qs[Query Service]:::component
-    broker[Credential Broker]:::component
-    pg["Postgres hot"]:::database
-    s3["S3 Parquet"]:::database
-
-    wrapper -->|capability token| udf
-
-    udf -->|SELECT SQL| qs
-    qs -->|read| pg
-    qs -->|read/write| s3
-
-    udf -->|exchange token| broker
-    broker -->|scoped STS creds| udf
-
-    udf -->|read/write| s3
-
-    classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
-    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
-```
+The capability token itself is defined in [contracts.md](../architecture/contracts.md#udf-data-access-token-capability-token).
 
 ## Use Cases
+
 
 | Use Case | Description | Docs |
 |---------|-------------|------|

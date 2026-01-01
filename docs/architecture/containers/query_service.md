@@ -164,80 +164,38 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 
 DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at the DuckDB layer.
 
-## Org Isolation
+## Access Control
 
 Query Service supports two authn/authz modes:
 
 1. **User queries** (`/v1/query`)
-   - Bearer token resolved to `org_id` via IdP / auth service
-   - Query Service attaches **per-org dataset views** and enforces dataset visibility (e.g., via `datasets.read_roles`)
-   - User cannot query other orgs' data
+   - Authenticated with a user Bearer token.
+   - Exposes only **published datasets** from the dataset registry (see [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)).
+   - Enforces org isolation and dataset visibility.
 
 2. **Task-scoped queries** (`/v1/task/query`)
-   - Capability token resolves to `(org_id, task_id, attempt)`
-   - Query Service attaches **only** the dataset views enumerated in the token (and nothing else)
-   - Task queries may include internal/unpublished dataset versions because the token is issued by the Dispatcher after validating DAG wiring and dataset permissions
+   - Authenticated with a **task capability token** issued by Dispatcher.
+   - Exposes only the dataset versions enumerated in the token (may include internal/unpublished versions referenced by the task’s input edges).
 
-For Postgres-backed datasets, views filter underlying tables by `org_id` and Query Service uses a read-only Postgres user.
+For Postgres-backed datasets, Query Service uses a read-only Postgres user and views filter by `org_id`.
 
-Dataset registry ACLs (`datasets.read_roles`) are the shared visibility enforcement point across the platform (Query Service reads and DAG-to-dag reads that reference a published dataset by name).
+See:
+- [security_model.md](../../standards/security_model.md) — isolation model
+- [contracts.md](../contracts.md#udf-data-access-token-capability-token) — capability token contract
 
-## Data Sources
+## Dataset resolution and pinning
 
-**User queries** expose only **published** datasets from the dataset registry (see [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)).
+- **User queries** resolve `dataset_name` through the dataset registry and the producer DAG’s current `dag_version` pointer.
+- **Task-scoped queries** are already pinned by the capability token (it contains resolved dataset versions/locations).
 
-**Task queries** expose the dataset versions enumerated in the capability token and can include internal/unpublished datasets referenced by the task’s input edges.
-
-| Source | Attachment | Access |
-|--------|------------|--------|
-| Hot storage | Postgres via `postgres_scanner` | Read-only user |
-| Cold storage | S3 Parquet via `httpfs` / `parquet_scan` | IAM role with S3 read |
-
-Virtual tables (e.g., `transactions`) unify hot and cold transparently.
-
-## Dataset Resolution
-
-**User queries** use `dataset_name` (human-readable). Physical storage uses UUIDs and versioned locations; Query Service resolves names to concrete locations “under the hood”.
-
-**Task queries** are already pinned: the capability token includes resolved dataset versions/locations. Query Service attaches only those locations under stable aliases provided in the token (typically the dataset name or an edge alias).
-
-At query start, Query Service resolves and pins:
-
-1. `dataset_name -> dataset_uuid` (registry)
-2. `dataset_uuid -> current dataset_version` (producer DAG’s current `dag_version` pointer set)
-3. `(dataset_uuid, dataset_version) -> storage_location` (version-addressed location)
-
-Concretely (v1 model):
-
-- Lookup `datasets` by `(org_id, dataset_name)` to get `dataset_uuid`, storage backend config, and `producer_dag_name`.
-- Lookup producer DAG’s current `dag_version_id` in `dag_current_versions` by `(org_id, producer_dag_name)`.
-- Lookup `dataset_version` in `dag_version_datasets` by `(dag_version_id, dataset_uuid)`.
-- Lookup `storage_location` in `dataset_versions` by `(dataset_uuid, dataset_version)`.
-- Attach a DuckDB view named `dataset_name` that points at that pinned `storage_location` (Postgres table/view or S3 prefix/manifest).
-
-For Postgres-backed datasets (live in v1), `storage_location` typically points at a stable table/view name. Query Service keeps SQL ergonomic by exposing a stable view named `dataset_name`, and pins consistency via a single Postgres transaction snapshot (e.g., `REPEATABLE READ`) rather than retaining historical physical tables per `dataset_version`.
-
-Pinning means no “moving target” mid-query:
+Pinning is per-query:
 - Postgres reads run inside a single transaction snapshot (e.g., `REPEATABLE READ`).
 - S3/Parquet reads use a fixed manifest/file list resolved at query start.
 
-For deploy/rematerialize cutover/rollback semantics, see [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).
-
-## Authentication
-
-1. Client sends `Authorization: Bearer <token>`
-2. Service validates token with IdP (Cognito/SSO)
-3. Extracts `org_id`, `user_id`, `role` from claims
-4. Rejects if token invalid or expired
-
-For task-scoped queries:
-
-1. Caller sends `X-Trace-Task-Capability: <token>`
-2. Service validates token signature + expiry
-3. Extracts `org_id`, `task_id`, `attempt` from token
-4. Attaches only the token’s dataset views and executes the query
+For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).
 
 ## Dependencies
+
 
 - **IdP** — token validation
 - **Postgres** — hot storage (read-only user)
