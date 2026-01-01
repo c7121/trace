@@ -57,7 +57,8 @@ Event emission is explicit via `/internal/events` (mid-task) and may also be bun
 
 Workers should only call `/internal/task-complete` after all intended events have been accepted (either emitted earlier via `/internal/events` or included as “final events” on `/internal/task-complete`).
 
-To support retries and late replies (especially for Lambda), workers include an `attempt` number on `/internal/events` and `/internal/task-complete`. The Dispatcher accepts events/completion only for the **current** attempt and rejects stale attempts once a newer attempt has started.
+Workers include `{task_id, attempt, lease_token}` on `/internal/heartbeat` and `/internal/task-complete`, and include `{task_id, attempt}` on `/internal/events`.
+The Dispatcher accepts these calls only for the **current** attempt and current lease; stale attempts are rejected and **must not** commit outputs or mutate state. See [task_lifecycle.md](task_lifecycle.md).
 
 Late replies for the current attempt may still be accepted even if the task was already marked timed out (as long as no newer attempt has started).
 

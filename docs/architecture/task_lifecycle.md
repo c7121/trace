@@ -82,7 +82,7 @@ Dispatcher accepts completion only if:
 - `attempt` matches the task's current attempt, and
 - `lease_token` matches the current lease token.
 
-This prevents stale completions from prior attempts from mutating state.
+This prevents stale completions from prior attempts from mutating state (including output commits).
 
 ## SQS Visibility
 
