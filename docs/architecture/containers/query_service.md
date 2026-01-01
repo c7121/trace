@@ -82,12 +82,12 @@ Interactive queries return results in one of two ways:
 - **Exported** to S3 for larger results (and always when `format: parquet`).
 
 User queries (`/v1/query`) may include a presigned `result_url`. Task-scoped queries (`/v1/task/query`)
-return `output_location` and should fetch results using scoped STS credentials from the Credential Broker.
+return `output_location` and should fetch results using scoped STS credentials from the Dispatcher credential minting.
 
 Exported results are written to caller-scoped prefixes:
 
 - `/v1/query`: org results prefix (e.g., `s3://.../results/{org_id}/{query_id}/`).
-- `/v1/task/query`: task scratch/export prefix from the capability token (so the task can read it via the Credential Broker).
+- `/v1/task/query`: task scratch/export prefix from the capability token (so the task can read it via the Dispatcher credential minting).
 
 #### Response (interactive, inline)
 

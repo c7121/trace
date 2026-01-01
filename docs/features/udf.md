@@ -28,7 +28,7 @@ UDFs are **untrusted**. The full sandbox and isolation requirements live in
 In v1, assume:
 
 - Runs in isolated ECS tasks with CPU/memory/timeout limits.
-- No direct internet egress; UDFs can only call in-VPC platform services (e.g., Query Service, Credential Broker).
+- No direct internet egress; UDFs can only call in-VPC platform services (e.g., Query Service, Dispatcher credential minting).
 - No direct Postgres access; ad-hoc reads go through the Query Service.
 - No Secrets Manager access; secrets (when needed for trusted platform tasks) are injected at task launch.
 
@@ -40,8 +40,8 @@ UDFs do not receive broad infrastructure credentials. For task-scoped access the
 
 - **Query Service** — `POST /v1/task/query` for SELECT-only SQL scoped to the task’s declared/pinned inputs. Large results may be exported to S3.
   See [query_service.md](../architecture/containers/query_service.md).
-- **Credential Broker** — `POST /v1/task/credentials` to exchange the task capability token for short-lived STS credentials restricted to the task’s allowed S3 prefixes.
-  See [credential_broker.md](../architecture/containers/credential_broker.md).
+- **Dispatcher credential minting** — `POST /v1/task/credentials` to exchange the task capability token for short-lived STS credentials restricted to the task’s allowed S3 prefixes.
+  See [dispatcher.md](../architecture/containers/dispatcher.md#credential-minting).
 
 The capability token itself is defined in [contracts.md](../architecture/contracts.md#udf-data-access-token-capability-token).
 

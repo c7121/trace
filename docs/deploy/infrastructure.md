@@ -21,12 +21,10 @@ flowchart TB
             subgraph ECS["ECS Cluster"]
                 DISPATCHER_SVC[Dispatcher Service]
                 QUERY_SVC[Query Service]
-                BROKER_SVC[Credential Broker]
                 RUST_WORKERS["Rust Workers - ecs_rust"]
                 PYTHON_WORKERS["Python Workers - ecs_python"]
                 UDF_WORKERS["UDF Workers - ecs_udf_*"]
                 DELIVERY_SVC[Delivery Service]
-                SINKS_SVC[Dataset Sinks]
                 RPC_EGRESS[RPC Egress Gateway]
             end
 
@@ -78,7 +76,6 @@ flowchart TB
     QUERY_SVC --> S3_SCRATCH
 
     UDF_WORKERS --> QUERY_SVC
-    UDF_WORKERS --> BROKER_SVC
     UDF_WORKERS --> S3_BUCKET
     UDF_WORKERS --> SQS_QUEUES
 
@@ -125,7 +122,15 @@ flowchart TB
 - **SQS**: Standard queues (one per runtime) + DLQ. Base visibility is minutes; worker wrappers extend visibility for long tasks. Ordering is enforced by DAG dependencies, not SQS.
 - **S3**: Data bucket for dataset storage + scratch bucket for query exports and task scratch
 - **Query Service**: DuckDB federation layer (read-only Postgres user) + result export to S3
-- **Credential Broker**: Issues short-lived, prefix-scoped STS credentials for untrusted UDF tasks
+- **Dispatcher credential minting**: Issues short-lived, prefix-scoped STS credentials for untrusted UDF tasks
+
+
+## Scheduled and webhook triggers
+
+- **Cron / schedules**: use EventBridge Rules (or EventBridge Scheduler) to invoke a Lambda function on a schedule.
+  The scheduled Lambda can enqueue work by calling the Dispatcher or publishing to SQS.
+- **Webhooks**: use API Gateway to invoke Lambda (or forward to Gateway/Dispatcher).
+  API Gateway is the recommended entry point when you want auth, rate limiting, and request validation.
 
 ## Deployment Order
 

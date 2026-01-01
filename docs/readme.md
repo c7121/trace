@@ -63,7 +63,7 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 Canonical C4 diagrams live in [c4.md](architecture/c4.md):
 
 - **C4 L1 (System Context)**
-- **C4 L2 (Container View)** — includes Platform Workers vs UDF Workers, Credential Broker, Delivery Service, and egress gateways
+- **C4 L2 (Container View)** — includes Platform Workers vs UDF Workers, Dispatcher credential minting, Delivery Service, and egress gateways
 
 This `docs/readme.md` keeps the architecture overview concise; use the C4 page for diagrams and component boundaries.
 
@@ -78,12 +78,11 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 - C4 diagrams: [c4.md](architecture/c4.md)
 - End-to-end flow: [event_flow.md](architecture/event_flow.md)
 - Task lifecycle: [task_lifecycle.md](architecture/task_lifecycle.md)
-- Idempotency checklist: [idempotency.md](standards/idempotency.md)
-- Failure drills: [game_day.md](standards/game_day.md)
+- Operations (targets, invariants, failure drills): [operations.md](standards/operations.md)
 - Orchestration internals: [dispatcher.md](architecture/containers/dispatcher.md)
 - Execution model: [workers.md](architecture/containers/workers.md)
 - Query federation: [query_service.md](architecture/containers/query_service.md)
-- Scoped data access: [credential_broker.md](architecture/containers/credential_broker.md)
+- Scoped data access: [dispatcher.md#credential-minting](architecture/containers/dispatcher.md#credential-minting)
 - Outbound egress: [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md)
 - API/task/event schemas: [contracts.md](architecture/contracts.md)
 
@@ -92,15 +91,15 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 
 | Area | Documents |
 |------|-----------|
-| Containers | [gateway.md](architecture/containers/gateway.md), [dispatcher.md](architecture/containers/dispatcher.md), [workers.md](architecture/containers/workers.md), [query_service.md](architecture/containers/query_service.md), [credential_broker.md](architecture/containers/credential_broker.md), [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md), [dataset_sinks.md](architecture/containers/dataset_sinks.md) |
+| Containers | [gateway.md](architecture/containers/gateway.md), [dispatcher.md](architecture/containers/dispatcher.md), [workers.md](architecture/containers/workers.md), [query_service.md](architecture/containers/query_service.md), [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md) |
 | Data Model | [erd.md](architecture/data_model/erd.md), [orchestration.md](architecture/data_model/orchestration.md), [pii.md](architecture/data_model/pii.md) |
 | Architecture | [c4.md](architecture/c4.md), [contracts.md](architecture/contracts.md), [event_flow.md](architecture/event_flow.md), [data_versioning.md](architecture/data_versioning.md), [dag_deployment.md](architecture/dag_deployment.md), [ADRs](architecture/adr/) |
 | Operators | [catalog](architecture/operators/README.md) |
 | Features | [alerting.md](features/alerting.md), [dag_configuration.md](features/dag_configuration.md), [ingestion.md](features/ingestion.md), [metadata.md](features/metadata.md), [udf.md](features/udf.md) |
 | Deploy | [infrastructure.md](deploy/infrastructure.md), [monitoring.md](deploy/monitoring.md) |
-| Standards | [security_model.md](standards/security_model.md), [nfr.md](standards/nfr.md), [idempotency.md](standards/idempotency.md), [game_day.md](standards/game_day.md) |
+| Standards | [security_model.md](standards/security_model.md), [operations.md](standards/operations.md), [docs_hygiene.md](standards/docs_hygiene.md) |
 | Use Cases | [use_cases](use_cases/README.md) |
-| Planning | [backlog.md](plan/backlog.md), [implementation_sequence.md](plan/implementation_sequence.md), [prd.md](prd/prd.md) |
+| Planning | [backlog.md](plan/backlog.md), [prd.md](prd/prd.md) |
 
 When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
 
@@ -108,14 +107,12 @@ When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.
 
 **IAM roles (high-level):**
 
-- dispatcher-role (SQS, Postgres state, CloudWatch)
-- platform-worker-role (SQS, Postgres data, S3)
-- udf-worker-role (SQS only; data access is via Query Service + Credential Broker)
-- query-service-role (Postgres data read-only, S3 read/write for results)
-- credential-broker-role (STS AssumeRole into a constrained base role)
+- dispatcher-role (SQS, Postgres state, CloudWatch, STS AssumeRole for credential minting)
+- platform-worker-role (trusted operators; SQS task queues; Postgres data; S3 as needed; may also drain SQS dataset buffers when acting as a sink consumer)
+- udf-worker-role (SQS task queues only; reads via Query Service; S3 access via Dispatcher credential minting)
+- query-service-role (read-only Postgres data + S3 export)
 - delivery-service-role (Postgres data + controlled internet egress)
 - rpc-egress-gateway-role (controlled internet egress; provider creds injected at launch)
-- dataset-sink-role (SQS buffers, Postgres data)
 
 **Secrets:** RPC keys and DB creds in Secrets Manager, injected as env vars.
 

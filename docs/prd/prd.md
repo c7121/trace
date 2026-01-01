@@ -42,4 +42,4 @@ As an analyst or researcher, I can:
 
 ## Non-Functional Requirements
 
-See [standards/nfr.md](../standards/nfr.md) for detailed targets.
+See [standards/operations.md](../standards/operations.md) for operational targets and invariants.

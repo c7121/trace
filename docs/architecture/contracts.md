@@ -77,7 +77,7 @@ The token is the single source of truth for what the UDF is allowed to read and 
 The token is enforced by:
 
 - **Query Service** — for ad-hoc SQL reads across Postgres + S3; only the datasets in the token are attached as views.
-- **Credential Broker** — exchanges the token for short-lived STS credentials scoped to the allowed S3 prefixes.
+- **Dispatcher** — exchanges the token for short-lived STS credentials scoped to the allowed S3 prefixes (credential minting).
 
 UDF code never connects to Postgres directly.
 

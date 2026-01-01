@@ -66,6 +66,26 @@ Propagates upstream through DAG edges. When a queue trips its threshold (depth o
 - Mode: `pause` (stop task creation until queue drains)
 - Priority tiers: `normal`, `backfill` — shed `backfill` first when under pressure
 
+## Credential minting
+
+To keep UDF tasks near-zero-permission, the Dispatcher includes a **credential minting** component.
+It exchanges a **task capability token** for short-lived AWS credentials scoped to the task’s allowed S3 prefixes.
+
+This is the v1 replacement for a separate “Credential Broker” service.
+
+### API
+
+```
+POST /v1/task/credentials
+X-Trace-Task-Capability: <capability_token>
+```
+
+- The capability token is issued per `(task_id, attempt)` and defines allowed input/output/scratch prefixes.
+- Dispatcher calls `sts:AssumeRole` with a session policy derived from the token.
+- Returned credentials are short-lived and allow only S3 access within the encoded prefixes.
+
+**Networking:** Dispatcher must be able to reach AWS STS (prefer an STS VPC endpoint).
+
 ## Out of Scope
 
 **Does NOT:**

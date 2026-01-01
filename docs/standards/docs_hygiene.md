@@ -11,7 +11,7 @@ Use these canonical names consistently:
 - **SQS task queues**: runtime wake-up queues for tasks (at-least-once, unordered)
 - **SQS dataset buffers**: queues used by buffered Postgres datasets (ADR 0006)
 - **Query Service**: the only Postgres read path for untrusted UDFs
-- **Credential Broker**: mints short-lived S3 credentials scoped to a task capability token
+- **Dispatcher credential minting**: mints short-lived S3 credentials scoped to a task capability token
 - **RPC Egress Gateway**: the only outbound RPC path for jobs that need chain RPC access
 
 > **Rule of thumb:** job containers have no direct internet egress. Only platform egress services (Delivery Service, RPC Egress Gateway) can reach the public internet.

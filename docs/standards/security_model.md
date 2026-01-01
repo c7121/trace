@@ -100,7 +100,7 @@ See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
 ## Data Access Control
 
 - **Scoped credentials**: each job receives credentials for only the datasets it's configured to read.
-- **Capability-based enforcement**: untrusted tasks receive a short-lived capability token that enumerates allowed datasets/versions and output locations. The token is enforced by Query Service (SQL reads) and the Credential Broker (scoped S3 credentials).
+- **Capability-based enforcement**: untrusted tasks receive a short-lived capability token that enumerates allowed datasets/versions and output locations. The token is enforced by Query Service (SQL reads) and the Dispatcher credential minting (scoped S3 credentials).
 - **Org isolation**: queries are automatically filtered by `org_id`; jobs cannot access other orgs' data.
 - **Dataset visibility**: dataset read access is enforced via the dataset registry (`datasets.read_roles`) and applies to Query Service reads and DAG-to-dag reads (`inputs: from: { dataset: ... }`).
   - If `read_roles` is empty: the dataset is private to the producing DAG’s deployers/triggerers plus org admins.
@@ -134,9 +134,9 @@ The token is passed to the worker wrapper via task payload and then to the UDF r
 
 UDFs issue ad-hoc SQL through Query Service using the capability token. Query Service attaches only the dataset views referenced by the token and rejects all other dataset access.
 
-### Credential Broker
+### Dispatcher credential minting
 
-UDFs exchange the capability token with a Credential Broker service to receive short-lived STS credentials scoped to:
+UDFs exchange the capability token with a Dispatcher credential minting service to receive short-lived STS credentials scoped to:
 
 - Read access to the allowed input prefixes
 - Write access to the allowed output prefix

@@ -6,10 +6,35 @@
 ## Decision
 - The platform supports a general “buffer → sink” pattern for Postgres-backed datasets:
   - Producers **publish records** to a dataset buffer (SQS).
-  - A platform-managed sink service drains the buffer and writes to a Postgres data table.
+  - A platform-managed sink consumer drains the buffer and writes to a Postgres data table.
 - v1 uses **one SQS queue per buffered dataset** and a sink consumer per dataset queue (shared code, per-dataset config) for isolation and backpressure visibility.
 - Dataset schema is declared at deploy time (as part of publishing the dataset in DAG config / registry) and the platform creates the table (and indexes/constraints) during deploy/startup.
 - v1 uses **SQS** for dataset buffers (Kinesis is deferred until real throughput/ordering problems are observed).
+
+
+## Implementation sketch
+
+In v1, sink consumers run as a **platform worker profile** (not a separate conceptual service).
+They consume from an SQS dataset buffer queue and apply dedupe/upsert into Postgres data.
+
+```mermaid
+flowchart LR
+    buffer[[SQS dataset buffers]]:::infra
+    sink{{Sink worker}}:::component
+    writer["Dedupe and upsert"]:::component
+    pg[(Postgres data)]:::database
+    obs[Observability]:::ext
+
+    buffer -->|messages| sink
+    sink -->|apply dedupe_key| writer
+    writer -->|insert or upsert| pg
+    sink -->|metrics| obs
+
+    classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+    classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
+    classDef ext fill:#eee,stroke:#666,color:#000;
+```
 
 ## Context
 - Some datasets are naturally **multi-writer** (many jobs produce the same event stream), e.g., alerts, integrity signals, monitoring events.
