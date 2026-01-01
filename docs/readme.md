@@ -96,7 +96,7 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 | Architecture | [c4.md](architecture/c4.md), [contracts.md](architecture/contracts.md), [event_flow.md](architecture/event_flow.md), [data_versioning.md](architecture/data_versioning.md), [dag_deployment.md](architecture/dag_deployment.md), [ADRs](architecture/adr/) |
 | Operators | [catalog](architecture/operators/README.md) |
 | Features | [alerting.md](features/alerting.md), [dag_configuration.md](features/dag_configuration.md), [ingestion.md](features/ingestion.md), [metadata.md](features/metadata.md), [udf.md](features/udf.md) |
-| Deploy | [infrastructure.md](deploy/infrastructure.md), [monitoring.md](deploy/monitoring.md) |
+| Deploy | [deployment_profiles.md](deploy/deployment_profiles.md), [infrastructure.md](deploy/infrastructure.md), [monitoring.md](deploy/monitoring.md) |
 | Standards | [security_model.md](standards/security_model.md), [operations.md](standards/operations.md), [docs_hygiene.md](standards/docs_hygiene.md) |
 | Use Cases | [use_cases](use_cases/README.md) |
 | Planning | [backlog.md](plan/backlog.md), [prd.md](prd/prd.md) |
