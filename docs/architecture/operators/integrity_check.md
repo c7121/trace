@@ -8,7 +8,7 @@ Defense-in-depth verification and repair against canonical chain state.
 |----------|-------|
 | **Runtime** | `ecs_rust` |
 | **Activation** | `reactive` |
-| **Execution Strategy** | Bulk |
+| **Execution Strategy** | PerUpdate |
 | **Image** | `integrity_check:latest` |
 
 ## Description
@@ -52,7 +52,7 @@ Validates that finalized data in cold storage (S3 Parquet) matches the canonical
 
 ## Scope
 
-This operator targets **finalized data only**. It does not check hot storage (Postgres), which is handled by `block_follower`'s realtime reorg detection.
+This operator targets **finalized data only**. It does not check hot storage (Postgres data), which is handled by `block_follower`'s realtime reorg detection.
 
 ## Dependencies
 
@@ -68,13 +68,15 @@ This operator targets **finalized data only**. It does not check hot storage (Po
   activation: reactive
   runtime: ecs_rust
   operator: integrity_check
-  execution_strategy: Bulk
+  execution_strategy: PerUpdate
+  inputs:
+    - from: { job: daily_trigger, output: 0 }
+  outputs: 1
   config:
     chain_id: 10143
     check_range: last_30d_finalized
     rpc_pool: monad
     sample_rate: 0.01
-  input_datasets: [daily_events]
-  output_dataset: null
+  update_strategy: replace
   timeout_seconds: 300
 ```

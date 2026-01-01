@@ -4,106 +4,67 @@ How the system tracks data changes, handles reorgs, and efficiently reprocesses 
 
 ## Overview
 
-**Delivery semantics:** Tasks may be delivered more than once (at-least-once via SQS). Idempotency is achieved through `update_strategy`: `replace` overwrites the scope; `append` dedupes via `unique_key`. The combination provides exactly-once *effect*.
-
-**Chain identity:** For on-chain datasets, `block_hash` is the stable identifier. `block_number` is an ordering/partitioning field and may be reused during reorgs. Hot datasets like `hot_blocks` are therefore mutable: the platform reconciles reorgs by rewriting the affected block-number range and emitting a `data_invalidations` record so downstream jobs can rematerialize impacted outputs.
+- Tasks and upstream events are **at-least-once**. Correctness comes from leasing, strict attempt fencing, and idempotent dataset writes.
+- Reactive jobs trigger on upstream output events. Events include `dataset_uuid` + `dataset_version` plus a scope (`cursor` or `partition_key`).
+- `dataset_version` changes on deploy/rematerialize so new definitions can build in parallel and cut over atomically.
+- For onchain datasets, `block_hash` is the stable identity. Reorgs rewrite affected block-number ranges and create invalidations so downstream jobs rematerialize impacted outputs.
 
 The system supports two granularities of change tracking:
 
 | Level | Use Case | Storage Type |
 |-------|----------|--------------|
 | **Partition** | Cold storage (S3 Parquet), batch jobs | Partitioned by block range |
-| **Row/Cursor** | Hot storage (Postgres), incremental jobs | Unpartitioned tables |
+| **Row/Cursor** | Hot storage (Postgres data), incremental jobs | Unpartitioned tables |
 
 Both levels coexist. Jobs declare which mode they use.
 
 ---
 
-## Data Model
+## Dataset Versions (Generations)
+
+`dataset_version` is an opaque UUID that identifies a version-addressed location for a dataset’s outputs (a “generation”).
+
+It changes on deploy/rematerialize cutovers (definition changes), not on every incremental write.
+
+Postgres data-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/backfill or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
+
+Committed dataset versions are retained until an admin explicitly purges them (v1: manual GC). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
 
 ### Partition Versions
 
-Tracks the version (last materialization time) and config hash for each partition.
+Tracks per-partition materialization metadata within a given `dataset_version`.
 
-```sql
-CREATE TABLE partition_versions (
-    dataset TEXT NOT NULL,
-    partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000"
-    version TIMESTAMPTZ NOT NULL DEFAULT now(),
-    config_hash TEXT,                 -- job config at time of materialization
-    schema_hash TEXT,                 -- data shape (columns, types)
-    location TEXT,                    -- s3://bucket/path or postgres table
-    row_count BIGINT,
-    bytes BIGINT,
-    PRIMARY KEY (dataset, partition_key)
-);
-```
+For Cryo-style Parquet layouts, the range should remain visible in the object key / filename (e.g., `blocks_{start}_{end}.parquet`), even if the dataset prefix is UUID/version-addressed.
 
 ### Dataset Cursors
 
-Tracks high-water marks for cursor-based incremental jobs.
-
-```sql
-CREATE TABLE dataset_cursors (
-    dataset TEXT NOT NULL,
-    job_id UUID NOT NULL,
-    cursor_column TEXT NOT NULL,      -- e.g., "block_number"
-    cursor_value TEXT NOT NULL,       -- e.g., "1005000" (stored as text for flexibility)
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (dataset, job_id)
-);
-```
+Tracks high-water marks for cursor-based incremental jobs (scoped to a `dataset_version`).
 
 ### Data Invalidations
 
 Records when data needs reprocessing (reorgs, corrections, manual fixes).
 
-```sql
-CREATE TABLE data_invalidations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    dataset TEXT NOT NULL,
-    scope TEXT NOT NULL,              -- 'partition' | 'row_range'
-    partition_key TEXT,               -- for scope='partition'
-    row_filter JSONB,                 -- for scope='row_range', e.g., {"block_number": {"gte": 995, "lte": 1005}}
-    reason TEXT NOT NULL,             -- 'reorg' | 'correction' | 'manual' | 'schema_change'
-    source_event JSONB,               -- details (e.g., reorg info: old_tip, new_tip, fork_block)
-    created_at TIMESTAMPTZ DEFAULT now(),
-    processed_by UUID[],              -- job_ids that have processed this invalidation
-    processed_at TIMESTAMPTZ
-);
-
-CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset) WHERE processed_at IS NULL;
-```
-
 ---
 
 ## Incremental Modes
 
-Jobs declare their incremental mode in YAML config:
+Reactive jobs declare their incremental mode via `execution_strategy` in the DAG YAML:
 
-```yaml
-- name: alert_evaluate
-  incremental:
-    mode: cursor
-    cursor_column: block_number
-    unique_key: [alert_def_id, block_hash, tx_hash]
-  update_strategy: append
+- `PerPartition` — partition-key events (cold/batch)
+- `PerUpdate` — cursor or row-range events (hot/incremental)
 
-- name: parquet_compact
-  incremental:
-    mode: partition
-  update_strategy: replace
-```
+Operator-specific details (e.g., cursor column, range size) live in the operator `config`.
 
-### Mode: `partition`
+
+### Mode: `partition` (`execution_strategy: PerPartition`)
 
 For jobs operating on partitioned data (typically cold storage).
 
 **Behavior:**
-1. Trigger fires with `partition_key` (e.g., `"1000000-1010000"`)
-2. Job reads entire partition from input dataset
-3. Job writes output partition
-4. System updates `partition_versions` with new version timestamp
+1. After output commit, Dispatcher emits an event `{dataset_uuid, dataset_version, partition_key}` (at-least-once).
+2. Dispatcher creates a downstream task pinned to the triggering `dataset_version`.
+3. Job reads the input partition and writes the output partition (replace).
+4. Dispatcher records the materialization in `partition_versions` when it accepts task completion.
 
 **On invalidation:**
 1. Invalidation created with `scope: partition`
@@ -111,15 +72,15 @@ For jobs operating on partitioned data (typically cold storage).
 3. Job re-runs for that partition
 4. Output partition is replaced entirely
 
-### Mode: `cursor`
+### Mode: `cursor` (`execution_strategy: PerUpdate`)
 
 For jobs operating on unpartitioned data (typically hot storage).
 
 **Behavior:**
-1. Job reads `cursor_value` from `dataset_cursors` (e.g., block 1000)
-2. Job queries: `WHERE block_number > 1000`
-3. Job processes new rows, writes output
-4. Job updates `cursor_value` to max processed (e.g., block 1050)
+1. Dispatcher resolves the pinned input `dataset_version` for the task and reads the consumer cursor from `dataset_cursors`.
+2. Job queries incrementally (e.g., `WHERE block_number > last_cursor`).
+3. Job writes output (append or replace depending on strategy).
+4. Dispatcher advances `dataset_cursors.cursor_value` when it accepts task completion.
 
 **On invalidation:**
 1. Invalidation created with `scope: row_range` and `row_filter`
@@ -148,37 +109,39 @@ How jobs write their output:
 | `replace` | Overwrite a materialized scope (partition/range) | Compaction, rollups, derived views |
 | `append` | Append immutable facts, dedupe by `unique_key` | Event logs, audit trails |
 
-### Append with Deduplication
+### Replace Output Commit Protocol (S3 / Parquet)
 
-For `update_strategy: append`, the job **must** declare a `unique_key`. DAG validation rejects `append` without `unique_key`.
+`update_strategy: replace` must be crash-safe and tolerate retries. The platform separates **write** from **commit**:
+
+1. **Write (worker)**: write Parquet objects to a unique, attempt-scoped **staging prefix** (includes `task_id` + `attempt`).
+2. **Finalize (worker)**: write a small `_manifest.json` and a `_SUCCESS` marker under the same prefix.
+3. **Commit (Dispatcher)**: on `/internal/task-complete`, verify the marker/manifest exists and atomically update scope metadata (e.g., `partition_versions`) for `(dataset_uuid, dataset_version, partition_key)` to point at the staging prefix.
+   - Commit is **attempt-fenced**: if the completion is rejected as stale (non-current attempt), no dataset pointers are updated.
+4. **Emit (Dispatcher)**: only after commit, emit the upstream event `{dataset_uuid, dataset_version, partition_key}`.
+
+This avoids S3 “renames” (copy+delete) and avoids rewriting data: Parquet files are written once; commit is metadata.
+
+Uncommitted staging prefixes (non-committed attempt artifacts) may be cleaned up to control cost; this cleanup MUST NOT remove committed outputs. The TTL is an implementation detail.
+
+### Replace and Downstream Invalidations
+
+If a job rewrites a scope (partition or row-range) it should emit an invalidation for that same scope so dependent jobs recompute. Invalidations cascade transitively through the DAG.
+
+### Append with `unique_key`
+
+For `update_strategy: append`, the dataset must declare a deterministic `unique_key` and writers must upsert / do-nothing on conflict so reprocessing doesn't create duplicates.
 
 ```sql
-INSERT INTO alert_events (alert_definition_id, block_hash, tx_hash, ...)
+INSERT INTO alert_events (org_id, dedupe_key, ...)
 VALUES (...)
-ON CONFLICT (alert_definition_id, block_hash, tx_hash) DO NOTHING;
+ON CONFLICT (org_id, dedupe_key) DO NOTHING;
 ```
 
-This ensures:
-- Reprocessing the same data doesn't create duplicate alerts
-- Reorgs with same tx in new block → new alert (different `block_hash`)
-- Same tx in same block reprocessed → no duplicate (same key)
+Guidance:
+- derive keys from input identity (`block_hash`, `tx_hash`, `log_index`, external ids) plus stable configuration (e.g., `alert_definition_id`)
+- avoid timestamps / runtime-generated values
+- do not rely on `task_id` or `attempt` unless the dataset is explicitly a run log
 
-### Unique Key Requirements
-
-`unique_key` must be **deterministic** — derived solely from input data, never execution context.
-
-**Valid unique_key columns** (examples):
-- Input data fields: `block_hash`, `tx_hash`, `log_index`, `record_id`, `external_id`
-- Config references: `alert_definition_id`, `job_id`
-- Any field that comes from the input dataset or job config
-
-**Invalid unique_key columns (will cause duplicates on retry):**
-- `created_at`, `processed_at` — different timestamp per attempt
-- `task_id`, `worker_id` — different per execution
-- `now()`, `random()` — non-deterministic functions
-- Any value generated at execution time
-
----
 
 ## Reorg Handling
 
@@ -187,36 +150,22 @@ This ensures:
 ```mermaid
 sequenceDiagram
     participant BF as block_follower
-    participant PG as Postgres (hot)
+    participant PG as Postgres data
     participant INV as data_invalidations
     participant DISP as Dispatcher
     participant DS as Downstream Jobs
 
-    BF->>BF: Detect reorg (parent hash mismatch)
-    BF->>PG: DELETE orphaned blocks (995-1005)
-    BF->>PG: INSERT canonical blocks (995-1005)
-    BF->>INV: INSERT invalidation (row_range, blocks 995-1005)
+    BF->>BF: Detect reorg: parent hash mismatch
+    BF->>PG: DELETE orphaned blocks 995-1005
+    BF->>PG: INSERT canonical blocks 995-1005
+    BF->>INV: INSERT invalidation row_range blocks 995-1005
     DISP->>INV: Poll for unprocessed invalidations
     DISP->>DS: Create tasks for downstream jobs with row_filter
-    DS->>PG: Query with row_filter (not full scan)
-    DS->>DS: Process, write output (append/replace)
+    DS->>PG: Query with row_filter: not full scan
+    DS->>DS: Process, write output append/replace
     DS->>INV: Mark invalidation processed
 ```
 
-### Invalidation Record
-
-When `block_follower` detects a reorg:
-
-```sql
-INSERT INTO data_invalidations (dataset, scope, row_filter, reason, source_event)
-VALUES (
-    'hot_blocks',
-    'row_range',
-    '{"block_number": {"gte": 995, "lte": 1005}}',
-    'reorg',
-    '{"old_tip": "0xabc...", "new_tip": "0xdef...", "fork_block": 994}'
-);
-```
 
 ### Downstream Behavior by Job Type
 
@@ -228,66 +177,21 @@ VALUES (
 
 ---
 
-## Staleness and Code Changes
+## Staleness, Invalidations, and Definition Changes
 
-### What Makes Data Stale?
+### What Causes Reprocessing?
 
-| Staleness Type | Detection | Auto-Rerun? |
-|----------------|-----------|-------------|
-| **Data stale** | New input partition/rows since last run | Yes (upstream event) |
-| **Invalidation** | `data_invalidations` record | Yes (Dispatcher) |
-| **Config stale** | `config_hash` changed | No (mark stale, manual backfill) |
-| **Schema stale** | `schema_hash` changed (breaking) | No (mark stale, manual backfill) |
+| Trigger | Detection | How It Runs |
+|---------|-----------|------------|
+| **Data stale** | New input partition/rows since last run | Upstream event |
+| **Invalidation** | `data_invalidations` record | Dispatcher schedules scoped reprocessing |
+| **Definition change** | New `dag_version` → new `dataset_version` | Deploy/rematerialize + atomic cutover |
+| **Manual repair/backfill** | User/API initiated | Explicit backfill tasks (typically `replace`) |
 
-### Config Hash Tracking
+Provenance fields like `config_hash` and `schema_hash` help audit what produced a partition materialization or cursor advancement.
 
-Every job run records the `config_hash` (hash of job config at execution time).
+Backfill is an explicit repair mechanism (recompute specific partitions/ranges, typically `replace`). It is not the primary mechanism for deploy/rematerialize cutovers.
 
-```sql
--- On job completion, update partition version
-UPDATE partition_versions
-SET version = now(), config_hash = $new_config_hash
-WHERE dataset = $dataset AND partition_key = $partition_key;
-```
-
-When config changes:
-1. New jobs run with new `config_hash`
-2. Old partitions have old `config_hash`
-3. System can report: "partition X is stale (config changed)"
-4. User initiates a manual backfill
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant DEP as DAG Deploy
-    participant J as jobs (state)
-    participant PV as partition_versions
-    participant D as Dispatcher
-    participant Q as SQS
-    participant W as Worker
-
-    U->>DEP: Update job config (YAML)
-    DEP->>J: Upsert job + new config_hash
-    Note over PV: Existing partitions keep old config_hash
-    U->>D: Start backfill (job + partitions)
-    D->>Q: Enqueue tasks (per partition)
-    Q->>W: Deliver task
-    W->>W: Recompute partition (replace)
-    W->>PV: Update partition_versions(config_hash=...)
-```
-
-### Backfill API
-
-```
-POST /v1/backfill
-{
-  "job": "enrich_transfers",
-  "partitions": ["2024-01-01", "2024-01-02"],  // or "all"
-  "reason": "config_change"
-}
-```
-
-Creates tasks for each partition; runs replace entire output.
 
 ---
 
@@ -295,7 +199,7 @@ Creates tasks for each partition; runs replace entire output.
 
 Alerts use `update_strategy: append` with a deterministic `unique_key` so reprocessing doesn't re-fire alerts while still behaving correctly across reorgs.
 
-See [alerting.md](../../capabilities/alerting.md#deduplication) for the dedupe schema and behavior matrix.
+See [alerting.md](../features/alerting.md#deduplication) for the dedupe schema and behavior matrix.
 
 ---
 
@@ -307,57 +211,47 @@ The Dispatcher watches for:
 2. **Unprocessed invalidations** → create tasks with invalidation context
 3. **Manual sources** → create tasks via API
 
-### Upstream Events ("New Rows Exist")
+### Upstream Events (New Rows Exist)
 
-When a job writes to its `output_dataset`, it emits an upstream event `{dataset, cursor|partition_key}` to the Dispatcher. The Dispatcher routes the event to dependent jobs (those whose `input_datasets` include that dataset) and enqueues tasks.
+When a task materializes an output, it reports completion to the Dispatcher with `outputs` describing what was written (including the changed scope: `cursor` or `partition_key`). The Dispatcher then:
 
-Upstream events are best-effort push. For cursor-based jobs, if an event is missed, the next event catches the job up because it queries `WHERE cursor_column > last_cursor` (from `dataset_cursors`), not `WHERE cursor_column = event_cursor`.
+1. **Commits** the output for the pinned `{dataset_uuid, dataset_version}` (updates `partition_versions` or advances `dataset_cursors`).
+2. **Emits** an upstream event `{dataset_uuid, dataset_version, cursor|partition_key}` after commit.
 
-```mermaid
-sequenceDiagram
-    participant P as Producer (source/reactive)
-    participant D as Dispatcher
-    participant PG as Postgres (state)
-    participant Q as SQS
-    participant W as Worker
-    participant S as Storage
+Events are **wake-ups**, not authoritative payloads: duplicates and out-of-order delivery are expected.
 
-    P->>S: Write output
-    P->>D: Emit event {dataset, cursor|partition_key}
-    D->>PG: Find dependent jobs
-    D->>PG: Create tasks
-    D->>Q: Enqueue tasks
-    Q->>W: Deliver task
-    W->>S: Read inputs, write outputs
-    W->>PG: Update task status
-    W->>D: Emit event {output_dataset, cursor|partition_key}
-```
+- For cursor-based jobs, missed events are harmless because consumers query `WHERE cursor_column > last_cursor` (from `dataset_cursors`), not `WHERE cursor_column = event_cursor`.
+- For partition-based jobs, events may be dropped; the Dispatcher must periodically reconcile upstream partitions vs downstream materializations to schedule any missing partitions.
+
+See [event_flow.md](event_flow.md) for the end-to-end sequence.
 
 ### Invalidation Handling
 
-Jobs declare their input datasets in the DAG. When an invalidation is created for a dataset, the Dispatcher:
+Jobs declare their input edges in the DAG. When an invalidation is created for a dataset (scoped to a specific `dataset_version`), the Dispatcher:
 
-1. Finds all jobs that depend on the invalidated dataset
+1. Finds all jobs that directly depend on the invalidated dataset
 2. Creates tasks with `invalidation_id` in context
 3. Jobs receive `row_filter` from the invalidation record
 4. Jobs process only affected rows
 5. Jobs mark invalidation as processed (appends job_id to `processed_by`)
+
+Because `replace` rewrites emit downstream invalidations for the rewritten scope/range, invalidations effectively cascade transitively through the DAG: downstream jobs don’t need awareness of “3 levels upstream” causes.
 
 ```mermaid
 sequenceDiagram
     participant S as Invalidation Source
     participant INV as data_invalidations
     participant D as Dispatcher
-    participant PG as Postgres (state)
+    participant PG as Postgres state
     participant Q as SQS
     participant W as Worker
 
-    S->>INV: INSERT invalidation (partition_key or row_filter)
+    S->>INV: INSERT invalidation partition_key or row_filter
     loop poll
         D->>INV: SELECT unprocessed invalidations
     end
     D->>PG: Find dependent jobs
-    D->>PG: Create tasks (invalidation_id)
+    D->>PG: Create tasks invalidation_id
     D->>Q: Enqueue tasks
     Q->>W: Deliver task
     W->>INV: Load invalidation context
@@ -371,9 +265,10 @@ sequenceDiagram
 
 | Concern | Solution |
 |---------|----------|
-| Cold storage (S3) | Partition-level versioning |
-| Hot storage (Postgres) | Cursor-based high-water mark |
+| Deploy/rematerialize | `dataset_versions` + atomic cutover/rollback (ADR 0009) |
+| Cold storage (S3) | Partition-level tracking (`partition_versions`) within a `dataset_version` |
+| Hot storage (Postgres data) | Cursor-based high-water mark (`dataset_cursors`) within a `dataset_version` |
 | Reorg handling | Row-range invalidations, scoped reprocessing |
-| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../../capabilities/alerting.md#deduplication)) |
-| Code changes | Config hash tracking, manual backfill |
+| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../features/alerting.md#deduplication)) |
+| Definition changes | New `dataset_version` generation; optional manual repair backfills |
 | Efficiency | Never full-table scan; use partition or row_filter |

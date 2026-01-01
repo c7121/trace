@@ -1,6 +1,6 @@
 # block_follower
 
-Follow chain tip in real-time, writing new blocks to hot storage.
+Follow chain tip in real-time and maintain canonical blocks/logs in **hot storage** (Postgres).
 
 ## Overview
 
@@ -11,57 +11,44 @@ Follow chain tip in real-time, writing new blocks to hot storage.
 | **Source Kind** | `always_on` |
 | **Image** | `block_follower:latest` |
 
-## Description
-
-Long-running service that subscribes to new blocks at chain tip and writes them to hot storage (Postgres) immediately. Emits threshold events when block count reaches configurable limits.
-
 ## Inputs
 
 | Input | Type | Description |
 |-------|------|-------------|
 | `chain_id` | config | Target chain (e.g., 10143 for Monad) |
 | `rpc_pool` | config | RPC provider pool to use |
-| `threshold_blocks` | config | Emit event after N new blocks |
+| `start_block` | config | Required: starting block for cold start |
+| `emit_strategy` | config | `per_update` (default) or `threshold` |
+| `threshold_blocks` | config | If `emit_strategy=threshold`, emit after N new blocks |
+| `bootstrap.reset_outputs` | bootstrap | Optional: if true, truncate owned hot tables and restart from `start_block` on explicit bootstrap (not on crash restarts) |
 
 ## Outputs
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Block data | `postgres://hot_blocks` | Rows |
-| Log data | `postgres://hot_logs` | Rows |
-| Threshold events | Dispatcher | Event |
+| Blocks | `postgres://hot_blocks` | Rows |
+| Logs | `postgres://hot_logs` | Rows |
+| Dataset events | Dispatcher | `{dataset_uuid, dataset_version, cursor|partition_key}` |
 
-## Execution
+## Semantics
 
-- **Startup**: Dispatcher launches on deploy
-- **Auto-restart**: Dispatcher restarts on failure/heartbeat timeout
+- Tracks the canonical chain tip and backfills gaps when the head jumps forward.
+- On reorg, rewrites the affected `block_number` range in hot Postgres and records a `data_invalidations` row-range invalidation so downstream jobs can rematerialize only what changed. See [data_versioning.md](../data_versioning.md#reorg-handling).
 
-## Behavior
+- **Reset (optional):** if deployed with `bootstrap.reset_outputs: true`, the job performs a one-time bootstrap reset: truncate owned hot tables and restart from `start_block`. This is an explicit rebuild mechanism and is not triggered by normal restarts.
 
-- Source: only one instance runs at a time (activation: source)
-- Emits heartbeat every 30s
-- Handles RPC disconnects with automatic reconnection
-- Emits upstream event to Dispatcher when new blocks written
+**Retention note:** `block_follower` does **not** decide how long data stays in Postgres. Hot retention/compaction is defined by downstream jobs in the DAG (e.g., compaction/purge operators). The Dispatcher treats these as normal jobs and does not interpret chain finality or retention policies.
 
-### Tip Continuity
+## Hot Postgres table expectations
 
-- Tracks the last ingested chain tip (height + hash)
-- If head jumps forward, backfills missing blocks by number (`last+1..head`)
-- Verifies continuity by checking `parent_hash` between successive blocks
+Hot chain tables should be designed for frequent **range rewrites** (reorgs) and optional **range deletes** (post-compaction retention):
 
-### Reorg Handling (Tip)
+- **Optional:** range partitioning by `(chain_id, block_number)` can make reorg rewrites and retention cleanup cheaper, but is not required in v1.
+- **Minimum indexes:**
+  - `INDEX (chain_id, block_number)` for range scans and bounded deletes.
+  - `UNIQUE (chain_id, block_hash)` (or equivalent) to prevent duplicates and to support tip continuity checks.
 
-- Detects a reorg when the next block’s `parent_hash` does not match the stored tip hash
-- Walks backwards by height (via RPC) until it finds a common ancestor where `rpc.hash == stored.hash`
-- Deletes orphaned blocks from hot storage, then ingests the canonical branch forward
-- Records a `data_invalidations` row-range invalidation for downstream reprocessing (see [data_versioning.md](../data_versioning.md#reorg-handling))
-
-## Dependencies
-
-- RPC provider access (WebSocket preferred)
-- Postgres write access to hot tables
-
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: block_follower
@@ -70,11 +57,16 @@ Long-running service that subscribes to new blocks at chain tip and writes them 
   operator: block_follower
   source:
     kind: always_on
+  # Optional: wipe job-owned outputs and restart from start_block (executed once at activation/deploy)
+  # bootstrap:
+  #   reset_outputs: true
   config:
     chain_id: 10143
     rpc_pool: monad
-    emit_strategy: per_update  # emit downstream event per block
-  input_datasets: []
-  output_dataset: hot_blocks
+    start_block: 1000000
+    emit_strategy: per_update  # or: threshold
+    threshold_blocks: 100      # only if emit_strategy=threshold
+  outputs: 2
+  update_strategy: replace
   heartbeat_timeout_seconds: 60
 ```

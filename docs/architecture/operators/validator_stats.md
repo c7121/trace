@@ -43,7 +43,7 @@ Periodically fetches validator duties/attestations/rewards from chain APIs and w
 
 ## Dependencies
 
-- RPC / beacon API access (allowlisted endpoints)
+- RPC / beacon API access via the RPC Egress Gateway (or in-VPC nodes)
 - Postgres write access to `validator_performance`
 
 ## Example DAG Config
@@ -62,7 +62,7 @@ Periodically fetches validator duties/attestations/rewards from chain APIs and w
     rpc_pool: monad
     validators: [0xabc..., 0xdef...]
     epoch_lookback: 2
-  output_dataset: validator_performance
+  outputs: 1
+  update_strategy: replace
   timeout_seconds: 60
 ```
-

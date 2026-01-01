@@ -17,7 +17,7 @@ How the platform tracks data provenance, versioning, and job history.
 
 | Data Type | Behavior |
 |-----------|----------|
-| **Core chain data** | Immutable in cold storage (S3 Parquet) after finality; hot storage (Postgres) is mutable to handle reorgs at chain tip |
+| **Core chain data** | Immutable in cold storage (S3 Parquet) after finality; hot storage (Postgres data) is mutable to handle reorgs at chain tip |
 | **Derived assets** | Versioned; overwrites create new versions, previous versions retained |
 | **PII/user data** | Mutable; deletion and redaction must be possible |
 
@@ -27,7 +27,7 @@ How the platform tracks data provenance, versioning, and job history.
 
 ## Debugging and Iteration
 
-- **Inspectable outputs**: every DAG node's output is viewable
+- **Inspectable outputs**: published datasets are discoverable/queryable; internal edges can be made queryable by publishing (see [ADR 0008](../architecture/adr/0008-dataset-registry-and-publishing.md))
 - **Error visibility**: failed jobs expose error messages, stack traces, logs
 - **Edit and re-run**: users can modify a job/node and re-run downstream jobs
 - **Selective re-run**: re-run a single job without re-running upstream
@@ -35,4 +35,4 @@ How the platform tracks data provenance, versioning, and job history.
 ## Related
 
 - [data_versioning.md](../architecture/data_versioning.md) — partition versioning, incremental processing
-- [overview.md](../architecture/overview.md) — data model schema
+- [readme.md](../readme.md) — data model schema

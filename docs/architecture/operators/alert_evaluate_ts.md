@@ -14,21 +14,20 @@ Evaluate alert conditions against data (TypeScript implementation).
 
 ## Description
 
-Evaluates user-defined alert conditions against incoming or historical data. TypeScript implementation — good for JSON-heavy conditions, complex logic, async data fetches.
+Evaluates user-defined alert conditions against incoming or historical data. TypeScript implementation — good for JSON-heavy conditions and complex logic.
 
 ## Inputs
 
 | Input | Type | Description |
 |-------|------|-------------|
-| `alert_id` | partition | Alert definition to evaluate |
-| `data_partition` | partition | Data partition to check |
+| `cursor` | event | Cursor value from upstream dataset event (e.g., `block_number`) |
+| `alert_definitions` | storage | Postgres table of enabled alert definitions (read) |
 
 ## Outputs
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Triggered alerts | `postgres://triggered_alerts` | Rows |
-| Evaluation log | `postgres://alert_evaluations` | Rows |
+| Alert events | `postgres://alert_events` (buffered sink) | Rows |
 
 ## Execution
 
@@ -41,8 +40,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 - Fetches alert definition (condition, thresholds)
 - Loads relevant data partition
 - Evaluates condition using user-defined logic
-- If triggered: writes to triggered_alerts for delivery
-- Logs evaluation result (pass/fail, metrics)
+- If triggered: publishes an alert record to the `alert_events` dataset buffer (deduped downstream by `dedupe_key`)
 
 ## Condition Types Supported
 
@@ -57,7 +55,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 
 - Postgres read access to alert_definitions
 - Data storage read access (S3/Postgres)
-- Postgres write access to triggered_alerts
+- SQS send access to the `alert_events` dataset buffer
 
 ## Example DAG Config
 
@@ -69,7 +67,10 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
   execution_strategy: PerUpdate
   idle_timeout: 5m
   config: {}
-  input_datasets: [hot_blocks, alert_definitions]
-  output_dataset: triggered_alerts
+  inputs:
+    - from: { job: block_follower, output: 0 }
+  outputs: 1
+  update_strategy: append
+  unique_key: [dedupe_key]
   timeout_seconds: 120
 ```

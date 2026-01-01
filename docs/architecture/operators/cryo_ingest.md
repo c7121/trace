@@ -1,6 +1,6 @@
 # cryo_ingest
 
-Archive historical on-chain data using [Cryo](https://github.com/paradigmxyz/cryo).
+Archive historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo).
 
 ## Overview
 
@@ -42,14 +42,15 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ## Behavior
 
 - Idempotent: re-running same range overwrites with identical data
-- Writes Cryo-convention filenames: `{dataset}_{start}_{end}.parquet`
+- Writes Cryo-convention filenames: `{dataset}_{start}_{end}.parquet` (end is inclusive)
 
 ## Scaling
 
 Each cryo worker is configured with its own RPC API key. To run concurrent backfills:
-- Deploy N workers, each with its own secret reference
-- Set `max_concurrency: N` in DAG config
-- Dispatcher scales worker count based on workload (up to N)
+- Define a `worker_pools` entry with N slots (each slot maps `MONAD_RPC_KEY` → a distinct secret name)
+- Each slot can include multiple `secret_env` entries if the operator needs more than one secret.
+- Configure the job with `scaling.worker_pool` and `scaling.max_concurrency: N`
+- Dispatcher leases one slot per running task; effective concurrency is `min(max_concurrency, pool size)`
 
 ## Dependencies
 
@@ -65,14 +66,16 @@ Each cryo worker is configured with its own RPC API key. To run concurrent backf
   operator: cryo_ingest
   execution_strategy: PerPartition
   idle_timeout: 0
-  input_datasets: [backfill_requests]
+  inputs:
+    - from: { job: backfill_request, output: 0 }
   config:
     chain_id: 10143
     datasets: [blocks, transactions, logs]
     rpc_pool: monad
   scaling:
-    mode: backfill        # or 'steady' for single-partition
+    worker_pool: monad_rpc_keys
     max_concurrency: 20   # dispatcher limits parallel jobs
-  output_dataset: cold_blocks
+  outputs: 3
+  update_strategy: replace
   timeout_seconds: 3600
 ```

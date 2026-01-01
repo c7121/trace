@@ -1,6 +1,6 @@
 # parquet_compact
 
-Compact hot storage data into cold Parquet files.
+Compact **finalized** hot data from Postgres into cold Parquet partitions in S3.
 
 ## Overview
 
@@ -8,71 +8,57 @@ Compact hot storage data into cold Parquet files.
 |----------|-------|
 | **Runtime** | `ecs_rust` |
 | **Activation** | `reactive` |
-| **Execution Strategy** | Bulk |
+| **Execution Strategy** | PerPartition |
 | **Image** | `parquet_compact:latest` |
-
-## Description
-
-Reads accumulated data from hot storage (Postgres) and writes optimized Parquet files to cold storage (S3). Handles partitioning, compression, and cleanup of compacted hot data.
 
 ## Inputs
 
 | Input | Type | Description |
 |-------|------|-------------|
-| `dataset` | config | Which dataset to compact (blocks, logs, etc.) |
-| `start_block` | config | First block in range |
-| `end_block` | config | Last block in range |
+| `chain_id` | config | Target chain (used for S3 layout) |
+| `dataset` | config | What to compact (blocks, logs, etc.) |
+| `partition_key` | event | Block range to compact (e.g., `"1000000-1010000"`; inclusive) |
+| `finality_depth_blocks` | config | Only compact blocks `<= tip - finality_depth_blocks` |
 | `chunk_size` | config | Rows per Parquet file |
+| `delete_after_compact` | config | If true, delete the compacted range from hot Postgres |
 
 ## Outputs
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Compacted data | `s3://{bucket}/cold/{dataset}/` | Parquet |
-| Manifest | `s3://{bucket}/cold/{dataset}/manifest.json` | JSON |
+| Compacted data | `s3://{bucket}/cold/{chain}/{dataset}/` | Parquet |
+| Partition manifest | staging prefix | `_manifest.json` + `_SUCCESS` |
 
-## Execution
+## Semantics
 
-- **Threshold**: When hot storage reaches N blocks (from block_follower)
-- **Cron**: Scheduled compaction runs
-- **Manual**: On-demand compaction
+- **Finality is job-defined:** the Dispatcher does not interpret finality/retention. This operator enforces finality using `finality_depth_blocks`.
+- **Idempotent per range:** safe to re-run the same `partition_key`; uses `update_strategy: replace`.
+- **Commit protocol:** writes Parquet to a task staging prefix and finalizes a manifest/marker; the Dispatcher commits and then emits `{dataset_uuid, dataset_version, partition_key}`. See [data_versioning.md](../data_versioning.md#replace-output-commit-protocol-s3--parquet).
+- **Hot retention:** if `delete_after_compact=true`, delete is performed only after successful output commit, and should be bounded to the same block range.
 
-## Behavior
+## Hot Postgres considerations
 
-- Reads from Postgres hot tables
-- **Only compacts finalized blocks** — waits for finality threshold before compacting
-- Writes Parquet with snappy compression
-- Partitions by block-number range (e.g., `1000000-1010000`)
-- Optionally deletes compacted rows from hot storage
-- Idempotent: safe to re-run for same range
-- Uses `update_strategy: replace` so reruns overwrite the same partition (used for repair/recompaction)
+If `delete_after_compact=true`, the baseline cleanup method is a bounded range delete (e.g., `DELETE ... WHERE chain_id=? AND block_number BETWEEN start AND end`) after output commit. This keeps the operator table-agnostic, but large deletes can create bloat—ensure autovacuum is tuned accordingly.
 
-### Finality
+**Future optimization:** if hot tables are range-partitioned on `(chain_id, block_number)` with boundaries aligned to compaction ranges, cleanup can be implemented as partition drops instead of row deletes.
 
-- Finality threshold is chain-specific (e.g., 100 blocks for Monad)
-- Only blocks older than `tip - finality_threshold` are compacted
-- Ensures cold storage never contains reorg-able data
-
-## Dependencies
-
-- Postgres read access to hot tables
-- S3 write access to cold bucket
-- Postgres write access (if deleting compacted data)
-
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: parquet_compact
   activation: reactive
   runtime: ecs_rust
   operator: parquet_compact
-  execution_strategy: Bulk
+  execution_strategy: PerPartition
+  inputs:
+    - from: { job: block_range_aggregate, output: 0 }
+  outputs: 1
   config:
+    chain_id: 10143
     dataset: blocks
+    finality_depth_blocks: 100
     chunk_size: 10000
     delete_after_compact: true
-  input_datasets: [hot_blocks]
-  output_dataset: cold_blocks
   update_strategy: replace
   timeout_seconds: 1800
 ```

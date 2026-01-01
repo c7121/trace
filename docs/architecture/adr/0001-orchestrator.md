@@ -7,9 +7,9 @@
 - Build a **custom orchestration system** with:
   - **Dispatcher** — central coordinator, creates tasks, routes upstream events, manages state
   - **Lambda Sources** — cron/webhook/manual sources implemented as Lambda runtime
-  - **Workers** — polyglot containers (Rust, Python, R, Scala, etc.) that execute jobs
+  - **Workers** — polyglot containers (Rust, Python, etc.) that execute jobs
   - **SQS** — task queue for push-based dispatch to workers
-  - **Postgres** — source of truth for jobs, tasks, assets, lineage
+  - **Postgres state** — source of truth for jobs, tasks, assets, lineage
 
 ## Context
 - Initially considered Dagster for its asset model and UI.
@@ -17,7 +17,7 @@
   - Code changes trigger downstream reruns (not desirable for our use case)
   - Single runtime — Python-centric, conflicts with polyglot requirements
   - DAGs defined in code rather than config (we want YAML-based, version-controlled config)
-- Need to support Rust, R, Scala, TypeScript workers — not just Python.
+- Need to support Rust and TypeScript workers — not just Python.
 - Custom system allows "everything is a job" model with containerized, language-agnostic execution.
 
 ## Why
@@ -30,12 +30,10 @@
 - Must build and maintain dispatcher, event routing, worker contract.
 - Need to implement: task lifecycle, retries, dead-letter, heartbeats, memoization.
 - UI/observability is our responsibility (or build on top of standard tooling).
-- DAG definitions via YAML, synced to Postgres.
+- DAG definitions via YAML, synced to Postgres state.
 
 ## Trade-offs
 - More upfront work vs. Dagster's batteries-included.
-- No off-the-shelf UI (can build or use Postgres-backed dashboards).
+- No off-the-shelf UI (can build or use Postgres state-backed dashboards).
 - Full ownership of failure modes and edge cases.
 
-## Open Questions
-- None currently.

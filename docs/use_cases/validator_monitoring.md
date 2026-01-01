@@ -14,8 +14,8 @@ Ingest validator data per epoch. Track missed slots, attestation inclusion dista
 
 - **Operator**: `validator_stats` (lambda)
 - **Activation**: source
-- **Trigger**: cron schedule (see [Concepts](../capabilities/dag_configuration.md#concepts))
+- **Trigger**: cron schedule (see [Concepts](../features/dag_configuration.md#concepts))
 - **Output**: `validator_performance`
 - **Alert**: fire on missed slots or reward anomalies
 
-Configure this as a source DAG job using `operator: validator_stats` with `source.kind: cron`. See [validator_stats](../architecture/operators/validator_stats.md#example-dag-config) for an example job entry, and [dag_configuration.md](../capabilities/dag_configuration.md) for the full job YAML schema.
+Configure this as a source DAG job using `operator: validator_stats` with `source.kind: cron`. See [validator_stats](../architecture/operators/validator_stats.md#example-dag-config) for an example job entry, and [dag_configuration.md](../features/dag_configuration.md) for the full job YAML schema.
