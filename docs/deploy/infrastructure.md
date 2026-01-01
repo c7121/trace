@@ -116,6 +116,11 @@ flowchart TB
   - **Postgres (state)** for orchestration metadata
   - **Postgres (data)** for hot tables and platform-managed datasets
   Both are Postgres 15, encrypted, multi-AZ in prod, deployed into **private subnets**.
+  
+  For chain datasets, Postgres (data) should be optimized for frequent **block-range rewrites** (reorgs) and bounded deletes (post-compaction retention):
+  - Prefer table **partitioning by `chain_id` + `block_number` range** and keep range indexes minimal.
+  - Retention and compaction are **DAG-defined behaviors** (operators decide finality/TTL); the Dispatcher does not enforce a retention policy.
+  - In prod, consider a read replica for Query Service to protect ingestion latency.
 - **SQS**: Standard queues (one per runtime) + DLQ. Base visibility is minutes; worker wrappers extend visibility for long tasks. Ordering is enforced by DAG dependencies, not SQS.
 - **S3**: Data bucket for dataset storage + scratch bucket for query exports and task scratch
 - **Query Service**: DuckDB federation layer (read-only Postgres user) + result export to S3
