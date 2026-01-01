@@ -23,7 +23,7 @@ See ADR 0002 (networking).
 flowchart LR
     workers{{Platform workers}}:::component
 
-    subgraph RPCGW["RPC egress gateway"]
+    subgraph RPCGW["RPC Egress Gateway"]
         ingress["Request handler"]:::component
         limiter["Limits and timeouts"]:::component
         router["Provider router"]:::component

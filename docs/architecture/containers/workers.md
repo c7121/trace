@@ -4,7 +4,7 @@ Executors. One worker image per runtime.
 
 Trace uses **two worker profiles** with different trust assumptions:
 
-- **Platform workers** run trusted platform operators (block follower, ingest, compaction). They may use platform-managed secrets and may reach the RPC egress gateway.
+- **Platform workers** run trusted platform operators (block follower, ingest, compaction). They may use platform-managed secrets and may reach the RPC Egress Gateway.
 - **UDF workers** run untrusted user code (alerts, custom transforms). They do **not** have direct Postgres access and receive scoped data access via Query Service + Credential Broker.
 
 ## Component View

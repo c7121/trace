@@ -109,7 +109,7 @@ See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
   - v1 does not implement “anti re-sharing” controls: if you grant someone dataset read access, they can use it in their own DAG (subject to their own DAG permissions).
 - **DAG deploy/trigger permission**: permission to deploy/trigger a DAG implies permission to read and overwrite/create datasets produced by that DAG.
 - **RPC access**:
-  - **Platform jobs** (e.g., `block_follower`, `cryo_ingest`): access RPC providers only via the RPC egress gateway (or in-VPC nodes).
+  - **Platform jobs** (e.g., `block_follower`, `cryo_ingest`): access RPC providers only via the RPC Egress Gateway (or in-VPC nodes).
   - **User jobs** (alerts, enrichments, custom transforms): query platform storage only, no raw RPC access.
 - **PII gating**: jobs must be explicitly granted access to PII datasets; access is logged.
 

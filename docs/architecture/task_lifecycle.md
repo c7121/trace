@@ -2,7 +2,7 @@
 
 This document defines the durable execution model for tasks: how tasks are created, claimed, retried, and recovered after failures.
 
-**Summary:** **Postgres (state)** is the source of truth. Side effects are recorded in an **outbox**. **SQS** is a wake-up mechanism.
+**Summary:** **Postgres state** is the source of truth. Side effects are recorded in an **outbox**. **SQS** is a wake-up mechanism.
 
 ## Guarantees
 
@@ -15,7 +15,7 @@ These guarantees are achieved by **leasing** (in Postgres) plus **idempotent out
 
 ## Mental Model
 
-- **Postgres (state)** stores tasks, attempts, leases, and retry scheduling.
+- **Postgres state** stores tasks, attempts, leases, and retry scheduling.
 - **SQS** delivers a pointer (`task_id`) so workers don't poll Postgres.
 - **Workers are dumb**: they do not decide retries or scheduling. They:
   1) receive a `task_id` from SQS,

@@ -175,7 +175,7 @@ See [readme.md](../../readme.md) for diagrams and [contracts.md](../contracts.md
 
 ## Tasks
 
-Task instances. Durable state lives in Postgres (state). SQS carries only `task_id` wake-ups; workers must claim tasks to acquire a lease. See [task_lifecycle.md](../task_lifecycle.md).
+Task instances. Durable state lives in Postgres state. SQS carries only `task_id` wake-ups; workers must claim tasks to acquire a lease. See [task_lifecycle.md](../task_lifecycle.md).
 
 ```sql
 CREATE TABLE tasks (
@@ -242,7 +242,7 @@ This prevents concurrent execution even if SQS delivers duplicates.
 
 To make enqueueing and event routing **crash-safe** and **rehydratable**, the Dispatcher uses an outbox table.
 
-**Rule:** any durable mutation in Postgres (state) that requires a side effect (enqueue to SQS, route an upstream event) must create an outbox row **in the same transaction**.
+**Rule:** any durable mutation in Postgres state that requires a side effect (enqueue to SQS, route an upstream event) must create an outbox row **in the same transaction**.
 
 - Task creation / retry → outbox `enqueue_task`
 - Event acceptance / task completion → outbox `route_event`

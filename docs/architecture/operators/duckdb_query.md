@@ -13,7 +13,7 @@ Execute federated queries across hot and cold storage.
 
 ## Description
 
-Executes SQL queries that span both hot storage (Postgres) and cold storage (S3 Parquet)
+Executes SQL queries that span both hot storage (Postgres data) and cold storage (S3 Parquet)
 using DuckDB's federation capabilities. This is the batch query operator; interactive
 queries use the query service endpoint.
 

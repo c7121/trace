@@ -1,6 +1,6 @@
 # Event Flow
 
-Reactive execution is event-driven, but durability comes from Postgres (state) plus leasing (see [task_lifecycle.md](task_lifecycle.md)).
+Reactive execution is event-driven, but durability comes from Postgres state plus leasing (see [task_lifecycle.md](task_lifecycle.md)).
 
 ```mermaid
 sequenceDiagram

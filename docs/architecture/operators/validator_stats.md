@@ -43,7 +43,7 @@ Periodically fetches validator duties/attestations/rewards from chain APIs and w
 
 ## Dependencies
 
-- RPC / beacon API access via the RPC egress gateway (or in-VPC nodes)
+- RPC / beacon API access via the RPC Egress Gateway (or in-VPC nodes)
 - Postgres write access to `validator_performance`
 
 ## Example DAG Config

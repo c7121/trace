@@ -12,7 +12,7 @@
 - External egress (internet) is allowed only from dedicated, platform-managed egress services:
   - **Delivery Service / Webhook Egress Gateway** for outbound webhooks.
   - **RPC Egress Gateway** (or in-VPC nodes) for blockchain RPC access.
-- Platform operators (e.g., `cryo_ingest`, `block_follower`) may access RPC providers **only via the RPC egress gateway** (or an in-VPC node).
+- Platform operators (e.g., `cryo_ingest`, `block_follower`) may access RPC providers **only via the RPC Egress Gateway** (or an in-VPC node).
 
 ## Why
 - Aligns with zero-trust posture (least egress, SOC2) and reduces exposure.

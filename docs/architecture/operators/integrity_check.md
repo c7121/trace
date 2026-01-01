@@ -52,7 +52,7 @@ Validates that finalized data in cold storage (S3 Parquet) matches the canonical
 
 ## Scope
 
-This operator targets **finalized data only**. It does not check hot storage (Postgres), which is handled by `block_follower`'s realtime reorg detection.
+This operator targets **finalized data only**. It does not check hot storage (Postgres data), which is handled by `block_follower`'s realtime reorg detection.
 
 ## Dependencies
 

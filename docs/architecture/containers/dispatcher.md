@@ -3,8 +3,8 @@
 Central orchestration coordinator. Primary control-plane service.
 
 > **Note on Postgres:** the docs use “Postgres” as a technology for two separate databases:
-> - **Postgres (state)** — control-plane source of truth (jobs, tasks, versions, leases)
-> - **Postgres (data)** — data-plane hot tables (alerts, hot chain tables, query results, etc.)
+> - **Postgres state** — control-plane source of truth (jobs, tasks, versions, leases)
+> - **Postgres data** — data-plane hot tables (alerts, hot chain tables, query results, etc.)
 >
 > They are deployed as **two separate instances/clusters** (e.g., two RDS databases), even if they share the same engine/version.
 
@@ -114,7 +114,7 @@ flowchart LR
 
     eventbridge["EventBridge"]:::infra
     gateway["Gateway"]:::infra
-    task_sqs["SQS Task Queues"]:::infra
+    task_sqs["SQS task queues"]:::infra
     buffers["Dataset Buffers SQS"]:::infra
     postgres_state["Postgres state"]:::database
     workers["ECS Workers"]:::component

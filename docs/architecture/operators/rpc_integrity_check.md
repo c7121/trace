@@ -46,7 +46,7 @@ For each new block event, fetch the same block from a configured set of RPC prov
 
 ## Dependencies
 
-- RPC provider access via the RPC egress gateway (or in-VPC nodes)
+- RPC provider access via the RPC Egress Gateway (or in-VPC nodes)
 - Postgres write access to `rpc_divergence_events`
 
 ## Example DAG Config

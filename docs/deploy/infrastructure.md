@@ -113,11 +113,11 @@ flowchart TB
 - **VPC**: Private/public subnets, VPC endpoints for S3/SQS (and other AWS APIs as needed)
 - **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)
 - **RDS**: Two clusters/instances:
-  - **Postgres (state)** for orchestration metadata
-  - **Postgres (data)** for hot tables and platform-managed datasets
+  - **Postgres state** for orchestration metadata
+  - **Postgres data** for hot tables and platform-managed datasets
   Both are Postgres 15, encrypted, multi-AZ in prod, deployed into **private subnets**.
   
-  For chain datasets, Postgres (data) should be optimized for frequent **block-range rewrites** (reorgs) and bounded deletes (post-compaction retention):
+  For chain datasets, Postgres data should be optimized for frequent **block-range rewrites** (reorgs) and bounded deletes (post-compaction retention):
   - Baseline: bounded **row-range deletes** are supported. Large deletes can create bloat; tune autovacuum accordingly.
   - Optional optimization: **partition by `chain_id` + `block_number` range**. If partition boundaries align with compaction ranges, retention cleanup can later be implemented as partition drops.
   - Retention and compaction are **DAG-defined behaviors** (operators decide finality/TTL); the Dispatcher does not enforce a retention policy.

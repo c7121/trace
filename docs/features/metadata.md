@@ -17,7 +17,7 @@ How the platform tracks data provenance, versioning, and job history.
 
 | Data Type | Behavior |
 |-----------|----------|
-| **Core chain data** | Immutable in cold storage (S3 Parquet) after finality; hot storage (Postgres) is mutable to handle reorgs at chain tip |
+| **Core chain data** | Immutable in cold storage (S3 Parquet) after finality; hot storage (Postgres data) is mutable to handle reorgs at chain tip |
 | **Derived assets** | Versioned; overwrites create new versions, previous versions retained |
 | **PII/user data** | Mutable; deletion and redaction must be possible |
 

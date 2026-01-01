@@ -1,6 +1,6 @@
 # Dataset Sinks
 
-Dataset Sinks are trusted platform workers that consume buffered dataset records from SQS and write them into Postgres (data).
+Dataset Sinks are trusted platform workers that consume buffered dataset records from SQS and write them into Postgres data.
 
 This pattern is used when:
 

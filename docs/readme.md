@@ -20,7 +20,7 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 2. **Everything produces assets** — Postgres tables, S3 Parquet, any URI
 3. **Workers are dumb** — Receive task, execute, report result
 4. **YAML is source of truth** — Definitions in git, state in Postgres
-5. **Single dispatcher** — Simple, stateless, restartable
+5. **Single dispatcher service** — Simple, stateless, restartable
 
 ### Tenancy Model
 
@@ -70,7 +70,7 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 
 ### Storage
 
-**Storage:** Postgres (state) holds orchestration metadata (multi-AZ, PITR). Postgres (data) and S3 are used for job data: Postgres (data) is typically used for hot/mutable datasets (e.g., recent chain ranges, alert tables), while S3 Parquet is used for cold/immutable datasets and exported results. The "hot" vs "cold" split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not a separate storage engine. DuckDB federates across both.
+**Storage:** Postgres state holds orchestration metadata (multi-AZ, PITR). Postgres data and S3 are used for job data: Postgres data is typically used for hot/mutable datasets (e.g., recent chain ranges, alert tables), while S3 Parquet is used for cold/immutable datasets and exported results. The "hot" vs "cold" split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not a separate storage engine. DuckDB federates across both.
 
 
 ### Deep Dives
@@ -97,6 +97,8 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 | Features | [alerting.md](features/alerting.md), [dag_configuration.md](features/dag_configuration.md), [ingestion.md](features/ingestion.md), [metadata.md](features/metadata.md), [udf.md](features/udf.md) |
 | Deploy | [infrastructure.md](deploy/infrastructure.md), [monitoring.md](deploy/monitoring.md) |
 | Standards | [security_model.md](standards/security_model.md), [nfr.md](standards/nfr.md) |
+
+When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
 | Use Cases | [use_cases](use_cases/README.md) |
 | Planning | [backlog.md](plan/backlog.md), [prd.md](prd/prd.md) |
 
@@ -104,14 +106,14 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 
 **IAM roles (high-level):**
 
-- dispatcher-role (SQS, Postgres (state), CloudWatch)
-- platform-worker-role (SQS, Postgres (data), S3)
+- dispatcher-role (SQS, Postgres state, CloudWatch)
+- platform-worker-role (SQS, Postgres data, S3)
 - udf-worker-role (SQS only; data access is via Query Service + Credential Broker)
-- query-service-role (Postgres (data) read-only, S3 read/write for results)
+- query-service-role (Postgres data read-only, S3 read/write for results)
 - credential-broker-role (STS AssumeRole into a constrained base role)
-- delivery-service-role (Postgres (data) + controlled internet egress)
+- delivery-service-role (Postgres data + controlled internet egress)
 - rpc-egress-gateway-role (controlled internet egress; provider creds injected at launch)
-- dataset-sink-role (SQS buffers, Postgres (data))
+- dataset-sink-role (SQS buffers, Postgres data)
 
 **Secrets:** RPC keys and DB creds in Secrets Manager, injected as env vars.
 
