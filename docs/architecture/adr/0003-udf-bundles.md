@@ -6,9 +6,14 @@
 ## Decision
 - User-defined code (alert conditions, transforms, enrichments) is packaged and distributed as **AWS Lambda-style zip bundles** stored in S3.
 - v1 standardizes execution on **`linux/amd64`** so users build a single artifact target.
-- Bundles are executed by Trace workers (ECS) via the worker wrapper:
-  - Wrapper downloads the bundle from S3 (scoped read access), verifies integrity, and runs it in an isolated container.
-  - Wrapper provides a **Lambda Runtime API-compatible invocation loop** (single-invocation per task) so standard Lambda runtime libraries can run unmodified.
+- Bundles are executed by Trace runtimes in two ways:
+  - **ECS UDF workers (`ecs_udf`)** via a worker wrapper container:
+    - Wrapper downloads the bundle from S3 (scoped read access), verifies integrity, and runs it in an isolated container.
+    - Wrapper provides a **Lambda Runtime API-compatible invocation loop** (one invocation per task) so standard Lambda runtime libraries can run unmodified.
+  - **Lambda UDF runtime (`runtime: lambda`)** via a platform-managed **UDF runner** Lambda:
+    - Runner downloads/verifies the same bundle format and executes it for a single invocation.
+    - Runner treats the bundle as untrusted code and uses task capability tokens for all task-scoped APIs (no hidden internal secrets).
+
 
 ### Bundle Formats
 
@@ -30,9 +35,10 @@
 - **Portability**: Lambda-compatible zips are a well-understood “function bundle” interchange format.
 
 ## Consequences
-- The worker wrapper must implement enough of the Lambda Runtime API to support common runtimes (fetch next invocation, post response/error).
+- The ECS worker wrapper and the Lambda UDF runner must implement enough of the Lambda Runtime API (or equivalent) to support common runtimes (one invocation per task; response/error reporting).
 - v1 requires `linux/amd64` artifacts for any native bundles (e.g., Rust `bootstrap`).
-- Node bundles must be deterministic and run without outbound network access; `ethers` usage is for decoding/formatting over task-provided data.
+- Bundles are executed as untrusted code. The platform passes only a per-attempt task capability token; do not inject long-lived internal secrets into the bundle.
+- Node bundles must be deterministic and run without outbound internet access; `ethers` usage is for decoding/formatting over task-provided data.
 - The task payload must fully describe allowed inputs/outputs so the wrapper can scope data access:
   - Query Service attaches only dataset views enumerated in the task capability token.
   - Dispatcher credential minting issues S3 credentials scoped to the task’s allowed prefixes.

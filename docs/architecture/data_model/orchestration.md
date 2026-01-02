@@ -327,7 +327,7 @@ stateDiagram-v2
 
 **Retry behavior:** failed tasks retry up to `jobs.max_attempts`. `next_retry_at` schedules retries with backoff; retries reuse the same `task_id` and increment `tasks.attempt`.
 
-**Leasing:** `tasks.lease_expires_at` is extended by `/internal/heartbeat`. If the lease expires, the reaper marks the task failed and schedules a retry.
+**Leasing:** `tasks.lease_expires_at` is extended by `/v1/task/heartbeat`. If the lease expires, the reaper marks the task failed and schedules a retry.
 
 **Idempotent creation:** when `dedupe_key` is set, the Dispatcher enforces one task per `(job_id, dedupe_key)` even if an upstream event is delivered multiple times.
 

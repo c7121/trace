@@ -6,7 +6,7 @@
 ## Decision
 - Enforce **no internet egress by default** for job containers.
 - Permit outbound traffic only to:
-  - **AWS VPC endpoints / PrivateLink** for required AWS APIs (e.g., S3, SQS, ECR, CloudWatch Logs, Secrets Manager).
+  - **AWS VPC endpoints / PrivateLink** for required AWS APIs (e.g., S3, SQS, ECR, CloudWatch Logs; Secrets Manager only for platform-managed tasks via ECS secret injection).
   - **In-VPC services** (Dispatcher, sinks, query service) via private DNS / security groups.
   - **Designated egress services** (see below) for any outbound internet access.
 - External egress (internet) is allowed only from dedicated, platform-managed egress services:

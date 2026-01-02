@@ -36,7 +36,7 @@ org_id UUID NOT NULL -- soft ref: Postgres state orgs(id)
 Because Postgres cannot enforce cross-DB integrity, Trace enforces correctness by **controlling writers** and **carrying trusted context**:
 
 - **API-created rows (CRUD)**: the Dispatcher is the writer and validates identifiers (e.g., org/user existence) in Postgres state before writing to Postgres data.
-- **Buffered datasets**: the Dispatcher accepts a fenced `/internal/buffer-publish` from the task lease-holder and enqueues a buffer message that includes trusted `org_id` and producer identifiers.
+- **Buffered datasets**: the Dispatcher accepts a fenced `/v1/task/buffer-publish` from the task lease-holder and enqueues a buffer message that includes trusted `org_id` and producer identifiers.
   - The sink worker must assign `org_id` (and other attribution) from the trusted buffer message / publish record.
   - The sink must not trust `org_id` embedded inside batch rows written by user code.
 - **Other platform writers** (trusted operators/sinks): treated as trusted code. If they write inconsistent IDs, it is a platform bug, not a tenant bypass.

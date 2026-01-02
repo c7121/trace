@@ -51,19 +51,13 @@ flowchart LR
 
 All requests require `Authorization: Bearer <token>`.
 
-1. API Gateway validates JWT signature against IdP JWKS
-2. Extracts claims: `sub`, `org_id`, `email`, `role`
-3. Passes claims to backend via headers:
-   - `X-Org-Id`: org UUID
-   - `X-User-Id`: user UUID (resolved from `sub`)
-   - `X-User-Role`: platform role (reader/writer/admin)
-4. Backend services may use these forwarded headers as **convenience**, but they must treat the **Bearer JWT** (validated by API Gateway and re-validated or verified by the backend) as the source of truth for identity/role. Do **not** treat forwarded identity headers as a standalone trust boundary, because backend services are also reachable from inside the VPC (workers, Lambdas).
+- API Gateway validates the JWT signature/expiry against the IdP JWKS and applies edge controls (rate limiting, request validation).
+- API Gateway forwards the request to the internal ALB and preserves the `Authorization` header.
+- Backend services **must validate the user JWT themselves** and derive `org_id`, `user_id`, and `role` from the JWT claims.
 
-> **Hard requirement:** do not expose the ALB to the public internet. If the ALB must be internet-facing, backend services must validate JWTs themselves (and apply rate limits/WAF).
-
-
-> **Not exposed:** task-scoped endpoints like `/v1/task/query` and `/v1/task/credentials` are **internal-only** and must not be routed through the public Gateway. They are called by workers/Lambdas using a task capability token (see `security_model.md`).
-
+> **Hard requirement:** the ALB must be internal-only (private subnets; no public listener).
+>
+> **Not exposed:** task-scoped endpoints under `/v1/task/*` are **internal-only** (workers/Lambdas) and must not be routed through the public Gateway. They use a task capability token (see `security_model.md` and `contracts.md`).
 ## Rate Limiting
 
 | Scope | Limit | Window |

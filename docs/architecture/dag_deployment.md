@@ -49,7 +49,7 @@ Source jobs may declare one-time bootstrap actions in YAML (v1: `bootstrap.reset
 
 While the downstream subgraph is rebuilding:
 
-- The Dispatcher continues accepting `/internal/events` from unchanged upstream jobs and persists the resulting work in Postgres state.
+- The Dispatcher continues accepting `/v1/task/events` from unchanged upstream jobs and persists the resulting work in Postgres state.
 - The Dispatcher **pauses dispatch** for the rebuilding downstream subgraph (it does not push those tasks to SQS / workers).
 - This creates backpressure at the Dispatcher (the “valve”), not at sources.
 

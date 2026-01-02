@@ -40,7 +40,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 - Fetches alert definition (condition, thresholds)
 - Loads relevant data partition
 - Evaluates condition using user-defined logic
-- If triggered: writes alert record(s) to an object-store scratch batch artifact and requests publish to the `alert_events` buffered sink via `POST /internal/buffer-publish` (deduped downstream by `dedupe_key`)
+- If triggered: writes alert record(s) to an object-store scratch batch artifact and requests publish to the `alert_events` buffered sink via `POST /v1/task/buffer-publish` (deduped downstream by `dedupe_key`)
 
 ## Condition Types Supported
 
@@ -55,7 +55,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 
 - Query Service read access to `alert_definitions` (scoped by org)
 - Scoped object storage access for reading inputs and writing scratch artifacts
-- Wrapper-mediated `POST /internal/buffer-publish` (no direct queue permissions)
+- Wrapper-mediated `POST /v1/task/buffer-publish` (no direct queue permissions)
 
 ## Example DAG Config
 

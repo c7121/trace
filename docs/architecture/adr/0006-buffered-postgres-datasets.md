@@ -7,7 +7,7 @@
 
 The platform supports a general **buffer → sink** pattern for Postgres-backed datasets:
 
-- Producers **write a batch artifact** to object storage (S3/MinIO) and call `POST /internal/buffer-publish` with a pointer to that artifact.
+- Producers **write a batch artifact** to object storage (S3/MinIO) and call `POST /v1/task/buffer-publish` with a pointer to that artifact.
 - The Dispatcher persists the publish request (outbox) and enqueues a **small** message to the Buffer Queue.
 - A platform-managed **sink worker** drains the Buffer Queue and performs idempotent upsert into a Postgres data table.
 

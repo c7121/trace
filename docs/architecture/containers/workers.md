@@ -35,7 +35,7 @@ flowchart LR
     operator -->|write| s3
     operator -->|write batch artifact| scratch
     operator -.->|batch_uri + schema_hash| wrapper
-    wrapper -->|POST /internal/buffer-publish| dispatcher
+    wrapper -->|POST /v1/task/buffer-publish| dispatcher
     dispatcher -->|enqueue buffer_batch| bufferq
     operator -.->|platform jobs only| rpcgw
 
@@ -80,7 +80,7 @@ flowchart LR
     udf -->|read/write scoped| s3
     udf -->|write batch artifact| scratch
     udf -.->|batch_uri + schema_hash| wrapper
-    wrapper -->|POST /internal/buffer-publish| dispatcher
+    wrapper -->|POST /v1/task/buffer-publish| dispatcher
     dispatcher -->|enqueue buffer_batch| bufferq
 
     wrapper -->|report status| dispatcher

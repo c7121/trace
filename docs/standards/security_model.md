@@ -77,7 +77,7 @@ See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
 
 - Job containers run in private subnets with **no direct internet egress**.
 - Jobs may reach only:
-  - required AWS APIs via VPC endpoints / PrivateLink (e.g., S3, SQS, ECR, CloudWatch Logs, Secrets Manager, KMS),
+  - required AWS APIs via VPC endpoints / PrivateLink (e.g., S3, SQS, ECR, CloudWatch Logs, KMS; Secrets Manager only for platform-managed tasks),
   - in-VPC platform services (Dispatcher, Query Service, sinks),
   - designated **egress gateway services** for external communication.
 - Only the egress gateway services have a route to the public internet:
@@ -102,8 +102,8 @@ Trace uses **three** distinct auth contexts. Keep them separate.
 User-facing endpoints (e.g., `GET/POST /v1/...`) are authenticated with an OIDC JWT from the IdP.
 
 - API Gateway should validate the JWT (rate limiting, WAF, request validation).
-- **Backends must still treat the user JWT as the source of truth** for identity/role (defense in depth), because backend services are also reachable from inside the VPC.
-- Forwarded identity headers (`X-Org-Id`, `X-User-Id`, etc.) are convenience only; they are **not** a security boundary by themselves.
+- Backend services must validate the JWT signature/claims themselves and derive identity/role from it (defense in depth; internal callers exist inside the VPC).
+
 
 ### 2) Task-scoped APIs (untrusted compute)
 
@@ -226,7 +226,7 @@ sequenceDiagram
     U->>GW: Request with Bearer token
     GW->>IDP: Validate token
     IDP->>GW: Claims sub, email, org_id
-    GW->>D: Forward request + Bearer JWT (and convenience identity headers)
+    GW->>D: Forward request + Bearer JWT
     D->>PG: Check users table
     alt User exists
         PG->>D: Return user

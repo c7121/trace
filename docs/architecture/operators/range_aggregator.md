@@ -50,7 +50,7 @@ Each emitted manifest includes both:
 - `partition_key`: `"start-end"` (inclusive), and
 - explicit range fields: `start`, `end` (inclusive)
 
-See `docs/architecture/contracts.md` for the canonical `/internal/events` partitioned event shape.
+See `docs/architecture/contracts.md` for the canonical `/v1/task/events` partitioned event shape.
 
 ## Durable state
 

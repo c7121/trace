@@ -2,7 +2,7 @@
 
 Component boundaries: task payloads, results, and upstream events.
 
-> `/internal/*` endpoints are internal-only and are not exposed to end users. They are called by platform-managed runtimes (ECS workers, Lambda) and platform services.
+> `/internal/*` endpoints are internal-only and are not exposed to end users. They are callable only by **trusted** platform components (worker wrappers and platform services). Untrusted runtimes (UDF code, including `runtime: lambda`) must not call `/internal/*`.
 >
 > **Transport:** TLS is required for all internal APIs.
 >
@@ -13,6 +13,9 @@ Component boundaries: task payloads, results, and upstream events.
 
 
 **Delivery semantics:** tasks and upstream events are **at-least-once**. Duplicates and out-of-order delivery are expected; correctness comes from attempt/lease gating plus idempotent output commits. See [task_lifecycle.md](task_lifecycle.md).
+
+> **Internal-only:** endpoints under `/v1/task/*` are reachable only from within the VPC (workers/Lambdas) and must not be routed through the public Gateway.
+
 
 ## Queue → Worker (Task wake-up)
 
@@ -64,9 +67,9 @@ Small Lambda operators can be implemented in TypeScript/JavaScript, Rust, or Pyt
 Workers call Dispatcher for:
 - Claim a task and obtain a lease + payload (`/internal/task-claim`)
 - (Optional) Fetch task details (`/internal/task-fetch`)
-- Report task completion/failure (`/internal/task-complete`)
-- Heartbeat (`/internal/heartbeat`)
-- Emit upstream events (`/internal/events`)
+- Report task completion/failure (`/v1/task/complete`)
+- Heartbeat (`/v1/task/heartbeat`)
+- Emit upstream events (`/v1/task/events`)
 
 Workers never have Postgres state credentials.
 
@@ -75,7 +78,7 @@ It must not be able to call privileged platform endpoints (admin APIs, cross-tas
 
 Authentication is split by endpoint type:
 
-- **Task-scoped endpoints** (`/internal/heartbeat`, `/internal/task-complete`, `/internal/events`, `/internal/buffer-publish`) require:
+- **Task-scoped endpoints** (`/v1/task/heartbeat`, `/v1/task/complete`, `/v1/task/events`, `/v1/task/buffer-publish`) require:
   - `X-Trace-Task-Capability: <capability_token>` (short-lived JWT), and
   - `{task_id, attempt, lease_token}` in the request body (must match the token + the current lease).
 
@@ -87,11 +90,11 @@ For `runtime: lambda`, the Lambda receives the task capability token in the invo
 
 Secrets (when required) are injected at task launch (ECS task definition `secrets`) and are available to operator code as environment variables. Untrusted tasks must not have Secrets Manager permissions.
 
-Event emission is explicit via `/internal/events` (mid-task) and may also be bundled as “final events” on `/internal/task-complete`.
+Event emission is explicit via `/v1/task/events` (mid-task) and may also be bundled as “final events” on `/v1/task/complete`.
 
-Workers should only call `/internal/task-complete` after all intended events have been accepted (either emitted earlier via `/internal/events` or included as “final events” on `/internal/task-complete`).
+Workers should only call `/v1/task/complete` after all intended events have been accepted (either emitted earlier via `/v1/task/events` or included as “final events” on `/v1/task/complete`).
 
-Workers include `{task_id, attempt, lease_token}` on `/internal/heartbeat`, `/internal/task-complete`, and `/internal/events`.
+Workers include `{task_id, attempt, lease_token}` on `/v1/task/heartbeat`, `/v1/task/complete`, and `/v1/task/events`.
 The Dispatcher accepts these calls only for the **current** attempt and current lease; stale attempts are rejected and **must not** commit outputs or mutate state. See [task_lifecycle.md](task_lifecycle.md).
 
 Late replies for the current attempt may still be accepted even if the task was already marked timed out (as long as no newer attempt has started).
@@ -177,14 +180,14 @@ X-Trace-Worker-Token: <worker_token>
 ```
 
 If the task is canceled (e.g., during rollback), the Dispatcher may return `status: "Canceled"`.
-In that case the wrapper exits without running operator code and reports the cancellation via `/internal/task-complete` with `status: "Canceled"`.
+In that case the wrapper exits without running operator code and reports the cancellation via `/v1/task/complete` with `status: "Canceled"`.
 
 ## Buffered dataset publish (Worker → Dispatcher)
 
-Buffered Postgres datasets are published by calling `POST /internal/buffer-publish`. This is attempt-fenced just like heartbeat/completion.
+Buffered Postgres datasets are published by calling `POST /v1/task/buffer-publish`. This is attempt-fenced just like heartbeat/completion.
 
 ```
-POST /internal/buffer-publish
+POST /v1/task/buffer-publish
 X-Trace-Task-Capability: <capability_token>
 ```
 
@@ -208,12 +211,12 @@ Dispatcher behavior:
 - Reject if `(task_id, attempt, lease_token)` does not match the current lease.
 - Treat duplicate publishes as idempotent (same `(task_id, attempt, dataset_uuid, batch_uri)`).
 
-### Heartbeat (`/internal/heartbeat`)
+### Heartbeat (`/v1/task/heartbeat`)
 
 Workers extend their lease while executing.
 
 ```
-POST /internal/heartbeat
+POST /v1/task/heartbeat
 X-Trace-Task-Capability: <capability_token>
 ```
 
@@ -230,7 +233,7 @@ Dispatcher rejects heartbeats for stale attempts or stale lease tokens.
 ## Task Completion (Worker → Dispatcher)
 
 ```
-POST /internal/task-complete
+POST /v1/task/complete
 X-Trace-Task-Capability: <capability_token>
 ```
 
@@ -256,7 +259,7 @@ Task completion includes an `outputs` array so a single task can materialize mul
 ## Upstream Events (Worker → Dispatcher)
 
 ```
-POST /internal/events
+POST /v1/task/events
 X-Trace-Task-Capability: <capability_token>
 ```
 
@@ -325,7 +328,7 @@ Some published datasets are written by multiple jobs (e.g., `alert_events`). In 
 Pattern:
 
 1. Producer writes a batch artifact to object storage (S3/MinIO) under a buffer prefix.
-2. Producer calls `POST /internal/buffer-publish` (attempt-fenced) with a pointer to that artifact.
+2. Producer calls `POST /v1/task/buffer-publish` (attempt-fenced) with a pointer to that artifact.
 3. Dispatcher persists the publish request (outbox) and enqueues a small message to the **Buffer Queue** (Queue in AWS, pgqueue in Lite).
 4. A trusted sink worker (`ecs_platform`) dequeues the message, validates schema, performs an idempotent upsert into Postgres data, and emits the dataset event via Dispatcher.
 5. The batch artifact can be GC’d by policy after the sink commits.
