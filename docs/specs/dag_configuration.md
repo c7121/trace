@@ -115,6 +115,7 @@ publish:
 | `secrets` | | Logical secret names required by the operator |
 | `timeout_seconds` | | Hard execution timeout (platform-enforced) |
 | `config` | | Operator-specific config |
+| `udf` | | UDF bundle reference (required for `operator: udf` and any operator that executes user bundles) |
 
 Notes:
 - `runtime: lambda` is allowed for **untrusted** user code, but the runtime is a **platform-managed runner** (see `docs/specs/udf.md`).
@@ -132,6 +133,28 @@ inputs:
       chain_id: 1
       label_type: "cex"
 ```
+
+
+### UDF jobs (optional)
+
+Some jobs execute **user-defined bundles** (untrusted code). In v1 this is supported only with `runtime: lambda` (the platform-managed UDF runner).
+
+- Use `operator: udf` for a generic “run this bundle” job.
+- Some built-in operators (e.g., `alert_evaluate`) may also require an `udf` block to supply the user logic.
+
+Add an `udf` block to the job:
+
+```yaml
+udf:
+  bundle_id: "<bundle-id>"
+  entrypoint: "trace.handler"
+```
+
+Constraints:
+- UDF jobs MUST NOT request `secrets`.
+- UDF jobs MUST read only via Query Service and write only via task-scoped APIs.
+- Use `update_strategy: append` + `unique_key` for idempotent sinks.
+
 
 V1 constraints:
 - Filters are simple equality matches on a small allowlist of fields for the referenced dataset/operator.

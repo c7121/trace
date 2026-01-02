@@ -58,6 +58,31 @@ flowchart LR
   - The runner Lambda execution role is near-zero (logs + networking only). It should not have broad S3/SQS/Secrets permissions.
 - `ecs_udf` is **deferred to v2** for untrusted code. ECS tasks share IAM creds across containers, so a secure design requires additional isolation work (see “ECS UDF (v2) hurdle”).
 
+
+### Referencing bundles in DAG config
+
+A DAG job that runs user code MUST include an `udf` block:
+
+```yaml
+- name: my_udf_job
+  activation: reactive
+  runtime: lambda
+  operator: udf
+  outputs: 1
+  inputs:
+    - from: { dataset: some_dataset }
+  update_strategy: append
+  unique_key: [dedupe_key]
+  udf:
+    bundle_id: "<bundle-id>"
+    entrypoint: "trace.handler"
+```
+
+- `bundle_id` is the immutable identifier of a previously uploaded bundle.
+- `entrypoint` is the handler function inside the bundle (per ADR 0003).
+
+See `docs/specs/dag_configuration.md` for the job schema.
+
 ### Bundle format and provenance
 - Bundle format and entrypoints are defined in `docs/adr/0003-udf-bundles.md`.
 - UDF bundles MUST be signed/validated and associated with an org + user for auditability. See `docs/standards/security_model.md`.

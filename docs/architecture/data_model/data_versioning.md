@@ -58,4 +58,4 @@ CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset_uuid, datas
 ## Related
 
 - [data_versioning.md](../data_versioning.md) — incremental processing behavior
-- [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md) — cutover and query pinning
+- [ADR 0009](../../adr/0009-atomic-cutover-and-query-pinning.md) — cutover and query pinning

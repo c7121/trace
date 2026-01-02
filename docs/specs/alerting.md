@@ -35,7 +35,7 @@ Public surface includes API endpoints, schemas, config semantics, and persistenc
 - Endpoints/RPC: Alert CRUD + delivery status endpoints (defined elsewhere); task buffer publish for `alert_events` (see `docs/architecture/contracts.md`).
 - Events/schemas: `alert_events` buffered dataset batch format (see `docs/adr/0006-buffered-postgres-datasets.md`).
 - CLI: None.
-- Config semantics: DAG jobs `alert_evaluate_*` and `alert_route` (see `docs/specs/dag_configuration.md` and operator docs).
+- Config semantics: DAG jobs `alert_evaluate` and `alert_route` (see `docs/specs/dag_configuration.md` and operator docs).
 - Persistence format/migration: Postgres data tables `alert_definitions`, `alert_events`, `alert_deliveries` (DDL in `docs/architecture/data_model/alerting.md`).
 - Intentionally not supported (surface area control): direct webhook calls from UDFs; custom provider integrations inside UDF runtime.
 
@@ -47,7 +47,7 @@ flowchart LR
   API -->|writes| PD[(Postgres data)]
 
   subgraph Exec[Execution]
-    EVAL[alert_evaluate_* (untrusted UDF)] -->|batch pointer publish| DISP[Dispatcher /v1/task/buffer-publish]
+    EVAL[alert_evaluate (untrusted UDF)] -->|batch pointer publish| DISP[Dispatcher /v1/task/buffer-publish]
     DISP -->|enqueues| Q[SQS buffer queue]
     Q -->|consume| SINK[Buffer sink consumer (trusted)]
     SINK -->|upsert| AE[(Postgres data: alert_events)]

@@ -175,7 +175,7 @@ Query Service supports two authn/authz modes:
 
 1. **User queries** (`/v1/query`)
    - Authenticated with a user Bearer token.
-   - Exposes only **published datasets** from the dataset registry (see [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)).
+   - Exposes only **published datasets** from the dataset registry (see [ADR 0008](../../adr/0008-dataset-registry-and-publishing.md)).
    - Enforces org isolation and dataset visibility.
 
 2. **Task-scoped queries** (`/v1/task/query`)
@@ -194,7 +194,7 @@ Pinning is per-query:
 - Postgres data reads run inside a single transaction snapshot (e.g., `REPEATABLE READ`).
 - S3/Parquet reads use a fixed manifest/file list resolved at query start.
 
-For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).
+For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../../adr/0009-atomic-cutover-and-query-pinning.md).
 
 
 ## Observability
@@ -227,7 +227,7 @@ Results are written to S3; clients poll task status or fetch `query_results` by 
 
 ## Query Results
 
-Query executions (interactive and batch) are recorded in a platform-managed table. See [ADR 0005](../adr/0005-query-results.md).
+Query executions (interactive and batch) are recorded in a platform-managed table. See [ADR 0005](../../adr/0005-query-results.md).
 
 `query_id` in API responses is `query_results.id`.
 

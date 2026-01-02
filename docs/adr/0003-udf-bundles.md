@@ -3,16 +3,16 @@
 ## Status
 - Accepted (December 2025)
 
+### Amendment (January 2026)
+- v1 executes untrusted UDF bundles only via the **platform-managed Lambda UDF runner** (`runtime: lambda`).
+- **ECS UDF execution is deferred to v2** because ECS/Fargate does not support per-container IAM roles; achieving zero trust requires a different launcher/credential isolation design.
+
 ## Decision
 - User-defined code (alert conditions, transforms, enrichments) is packaged and distributed as **AWS Lambda-style zip bundles** stored in S3.
 - v1 standardizes execution on **`linux/amd64`** so users build a single artifact target.
-- Bundles are executed by Trace runtimes in two ways:
-  - **ECS UDF workers (`ecs_udf`)** via a worker wrapper container:
-    - Wrapper downloads the bundle from S3 (scoped read access), verifies integrity, and runs it in an isolated container.
-    - Wrapper provides a **Lambda Runtime API-compatible invocation loop** (one invocation per task) so standard Lambda runtime libraries can run unmodified.
-  - **Lambda UDF runtime (`runtime: lambda`)** via a platform-managed **UDF runner** Lambda:
-    - Runner downloads/verifies the same bundle format and executes it for a single invocation.
-    - Runner treats the bundle as untrusted code and uses task capability tokens for all task-scoped APIs (no hidden internal secrets).
+Bundles are executed by Trace runtimes as follows:
+- **v1:** **Lambda UDF runtime (`runtime: lambda`)** via a platform-managed UDF runner Lambda.
+- **v2 (deferred):** ECS UDF execution (`ecs_udf`) with a separate launcher/credential isolation design (see Amendment).
 
 
 ### Bundle Formats
@@ -26,7 +26,7 @@
 - User jobs run with **no internet egress by default** and must access data only through platform primitives:
   - **Query Service** for ad-hoc SQL reads (no direct Postgres access for UDFs)
   - **Dispatcher credential minting** for short-lived, prefix-scoped S3 credentials (no broad IAM in UDF tasks)
-  (see ADR 0002 and [security_model.md](../../standards/security_model.md)).
+  (see ADR 0002 and [security_model.md](../standards/security_model.md)).
 
 ## Why
 - **Tooling reuse**: users can leverage `cargo-lambda`, SAM, Serverless, and common build pipelines that already output Lambda-compatible zips.
@@ -56,4 +56,3 @@
 - **Signing**: signature verification is deferred (future work).
 - **Node dependencies**: Node bundles must vendor dependencies inside the zip (no `npm install` at runtime; no outbound network required).
 - **Architectures**: v1 supports `linux/amd64` only. `linux/arm64` runtimes are deferred.
-

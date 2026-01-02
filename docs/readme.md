@@ -94,15 +94,15 @@ See [db_boundaries.md](architecture/db_boundaries.md) for hard invariants and cr
 
 | Area | Documents |
 |------|-----------|
-| Architecture | [C4 model](architecture/c4.md), [contracts](architecture/contracts.md), [task lifecycle](architecture/task_lifecycle.md), [event flow](architecture/event_flow.md), [data versioning](architecture/data_versioning.md), [ADRs](adr/) |
-| Containers | [dispatcher](architecture/containers/dispatcher.md), [workers](architecture/containers/workers.md), [query service](architecture/containers/query_service.md), [delivery service](architecture/containers/delivery_service.md), [rpc egress gateway](architecture/containers/rpc_egress_gateway.md) |
-| Data model | [ERD](architecture/data_model/erd.md), [orchestration](architecture/data_model/orchestration.md), [alerting](architecture/data_model/alerting.md) |
+| Architecture | [architecture index](architecture/README.md), [ADRs](adr/) |
+| Containers | [containers](architecture/containers/) |
+| Data model | [data model](architecture/data_model/) |
 | Operators | [operator catalog](architecture/operators/README.md) |
-| Features | [DAG config](specs/dag_configuration.md), [ingestion](specs/ingestion.md), [alerting](specs/alerting.md), [UDFs](specs/udf.md) |
+| Specs | [spec index](specs/README.md) |
 | Deploy | [deployment profiles](deploy/deployment_profiles.md), [infrastructure](deploy/infrastructure.md), [monitoring](deploy/monitoring.md) |
-| Standards | [security model](standards/security_model.md), [operations](standards/operations.md), [docs hygiene](standards/docs_hygiene.md) |
-| Use cases | [use case index](use_cases/README.md) |
-| Planning | [backlog](plan/backlog.md), [Trace Lite plan](plan/trace_lite.md), [PRD](prd/prd.md) |
+| Standards | [standards](standards/) |
+| Use cases | [operator recipes](architecture/operators/README.md#recipes) |
+| Planning | [planning](plan/) |
 
 When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
 

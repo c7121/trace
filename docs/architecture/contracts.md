@@ -278,7 +278,7 @@ X-Trace-Task-Capability: <capability_token>
 
 Jobs can produce multiple outputs. DAG wiring in YAML is by `{job, output_index}` edges, but at runtime the Dispatcher routes by the upstream output identity (`dataset_uuid`).
 
-Input filters are read-time predicates applied by the consumer. See [ADR 0007](adr/0007-input-edge-filters.md).
+Input filters are read-time predicates applied by the consumer. See [ADR 0007](../adr/0007-input-edge-filters.md).
 
 YAML example:
 

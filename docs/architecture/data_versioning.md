@@ -28,7 +28,7 @@ It changes on deploy/rematerialize cutovers (definition changes), not on every i
 
 Postgres data-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/backfill or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
 
-Committed dataset versions are retained until an admin explicitly purges them (v1: manual GC). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
+Committed dataset versions are retained until an admin explicitly purges them (v1: manual GC). See [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).
 
 ### Partition Versions
 
@@ -195,12 +195,15 @@ Backfill is an explicit repair mechanism (recompute specific partitions/ranges, 
 
 ---
 
-## Alert Deduplication
+## Append idempotency and dedupe keys
 
-Alerts use `update_strategy: append` with a deterministic `unique_key` so reprocessing doesn't re-fire alerts while still behaving correctly across reorgs.
+For `update_strategy: append`, the platform assumes **at-least-once** execution and requires idempotent sinks.
 
-See [alerting.md](../specs/alerting.md#deduplication) for the dedupe schema and behavior matrix.
+Invariants:
+- Each appended row MUST carry a deterministic `dedupe_key` that is stable across retries and replays.
+- The sink MUST enforce `UNIQUE(dedupe_key)` (or an equivalent constraint) and use upserts to avoid duplicates.
 
+This pattern is used by alerting (`alert_events`) and any other “event log” style datasets.
 ---
 
 ## Dispatcher Integration

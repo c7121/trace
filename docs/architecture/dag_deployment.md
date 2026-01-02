@@ -6,7 +6,7 @@ How `dag.yaml` is parsed and synced into orchestration state (jobs/tasks) and ho
 
 - DAG YAML is the source of truth; Postgres state stores the runtime state.
 - Deployment is idempotent: the same `dag.yaml` produces the same deploy record (`dag_version`) and job definitions.
-- Deploy/rematerialize is **non-destructive** and uses **atomic cutover/rollback** (see [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md)).
+- Deploy/rematerialize is **non-destructive** and uses **atomic cutover/rollback** (see [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md)).
 - Reactive triggers are per-update: **1 upstream event → 1 task** for each dependent reactive job (no dispatcher-side coalescing/bulk).
 
 ## Flow
@@ -30,7 +30,7 @@ At deploy time, the system:
 1. Parses and validates YAML.
 2. Creates (or reuses) a `dag_version` for the YAML (keyed by `org_id + dag_name + yaml_hash`).
 3. Upserts the job definitions and the resolved `inputs` edges for that `dag_version`.
-4. Applies `publish:` entries to the dataset registry (see [ADR 0008](adr/0008-dataset-registry-and-publishing.md)).
+4. Applies `publish:` entries to the dataset registry (see [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)).
 
 ### Rematerialization scope (“from the edit onward”)
 
@@ -74,4 +74,4 @@ During rollback/rollover, the system pauses DAG processing:
 - In-flight tasks are canceled cooperatively (workers see `status: "Canceled"` on `/internal/task-fetch` and exit without running operator code).
 - Because outputs are written as versioned artifacts (`dataset_version`), results from the rolled-back version cannot become “current” after rollback.
 
-See [orchestration.md](data_model/orchestration.md) for the current `jobs`/`tasks` schema and [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md) for the cutover/rollback model.
+See [orchestration.md](data_model/orchestration.md) for the current `jobs`/`tasks` schema and [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md) for the cutover/rollback model.

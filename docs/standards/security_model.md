@@ -1,364 +1,124 @@
 # Security
 
-Security model for the Trace platform. This document is the single source of truth for security requirements.
+Status: Draft
+Owner: Platform
+Last updated: 2026-01-02
 
-## Principles
+This document is the canonical security artifact for Trace v1. It defines the **trust boundaries** and **enforceable invariants** the implementation MUST uphold.
 
-- **Least privilege**: every component (jobs, workers, services) receives only the permissions required for its function.
-- **Defense in depth**: multiple layers of isolation (container, network, IAM, data).
-- **Zero trust**: all user code is untrusted; all requests are authenticated and authorized.
-- **Encryption everywhere**: data encrypted in transit (TLS 1.2+) and at rest (S3 SSE, RDS encryption).
-- **No secrets in code or logs**: secrets injected at runtime, redacted from all logs and error messages.
-- **Auditability**: all access and actions are logged and attributable to a user/job.
+## Scope and non-goals
 
----
+**In scope (v1):**
+- AWS deployment profile (API Gateway, private services, RDS, S3, SQS)
+- Untrusted user code execution via `runtime: lambda` UDF runner
+- Single-tenant deployment (schema supports future multi-tenant expansion)
 
-## Threat Model
+**Not in scope (v1):**
+- On-prem / BYO network perimeter assumptions
+- Untrusted ECS UDF execution (deferred to v2; requires a different credential isolation story)
 
-- **Malicious code**: data exfiltration, crypto mining, lateral attacks.
-- **Buggy code**: infinite loops, memory leaks, crashes.
-- **Resource abuse**: CPU/memory exhaustion, cost runaway.
-- **Data access violations**: reading other orgs' data, unauthorized PII access.
+## Threat model
 
-## Container Isolation
+Primary threats Trace must be correct against:
 
-- Each job runs in its own Fargate task (no shared compute with other jobs or orgs).
-- **No privileged mode**: containers cannot access host resources.
-- **Read-only root filesystem**: writes only to designated output paths.
-- **No IAM role assumption**: tasks do not assume arbitrary IAM roles at runtime.
-  - **Untrusted UDF tasks** run with a near-zero-permission task role; they obtain scoped data access via capability tokens (see “Credential Handling”).
-  - **Platform operators** (trusted code) run with a narrow platform task role appropriate for their function.
+- **Untrusted code execution**: user bundles attempt to exfiltrate data, escalate privileges, or tamper with task state.
+- **Confused deputy**: a component with broad access is tricked into acting on behalf of another org/user/task.
+- **Replay / stale attempt**: retries or duplicate deliveries attempt to commit outputs for a non-current attempt.
+- **Ingress bypass**: internal callers exist (within VPC); no security boundary may rely only on API Gateway.
+- **Provider compromise**: RPC/data providers can return stale/incorrect data; correctness checks must be possible.
 
-### Secrets Injection
+## Trust boundaries
 
-Secrets are injected into job containers as environment variables by the platform at **task launch**.
+Trace uses three distinct identity contexts. Treat them as different “principals”:
 
-- In AWS ECS/Fargate, secrets are referenced in the task definition and fetched by the **task execution role**.
-- The **task role** does not need Secrets Manager access (and untrusted tasks must not have it).
-- User/operator code reads secrets from environment variables and never calls Secrets Manager directly.
+1. **User principal** (end-user requests)
+2. **Task principal** (untrusted compute: Lambda UDF runner)
+3. **Worker principal** (trusted platform pollers/launchers)
 
-> **Design note:** ECS secret references are typically static in the task definition. For jobs that need distinct credentials per concurrent task (worker pools), the platform uses separate task definitions per slot (or another equivalent mechanism) so secrets remain injected by ECS rather than fetched dynamically by untrusted code.
+The implementation MUST prevent principals from impersonating one another.
 
-### Secrets Naming Convention
+## Authentication and authorization
 
-Secrets are stored in AWS Secrets Manager with a hierarchical path:
+### User API calls (Bearer JWT)
 
-```
-/{env}/{org_slug}/{secret_name}
-```
+User-facing endpoints (`/v1/...`) are authenticated with an OIDC JWT from the IdP.
 
-| Component | Example | Description |
-|-----------|---------|-------------|
-| `env` | `prod`, `staging` | Deployment environment |
-| `org_slug` | `acme` | Organization slug (from `orgs.slug`) |
-| `secret_name` | `monad_rpc_key` | Name declared in DAG YAML |
-
-**Example**: `/prod/acme/monad_rpc_key`
-
-**DAG config**:
-```yaml
-jobs:
-  - name: block_follower
-    secrets: [monad_rpc_key]
-```
-
-**Platform behavior (ECS)**:
-1. During task launch, the platform resolves the secret reference (e.g., `/{env}/{org_slug}/monad_rpc_key`) into the ECS task definition `secrets` mapping.
-2. ECS fetches the secret using the **task execution role** and injects it as an env var (e.g., `MONAD_RPC_KEY`).
-3. Operator code reads `std::env::var("MONAD_RPC_KEY")`.
-
-The secret **value** never appears in the task payload and untrusted code never receives credentials that can call Secrets Manager.
-
-**Scoping**: In v1 (single-tenant), all secrets are under one org. Future multi-tenant deployments isolate secrets per org via IAM policies on the `/{env}/{org_slug}/*` path.
-
-## Network Isolation
-
-See [ADR 0002: Networking Posture](../adr/0002-networking.md).
-
-- Job containers run in private subnets with **no direct internet egress**.
-- Jobs may reach only:
-  - required AWS APIs via VPC endpoints / PrivateLink (e.g., S3, SQS, ECR, CloudWatch Logs, KMS; Secrets Manager only for platform-managed tasks),
-  - in-VPC platform services (Dispatcher, Query Service, sinks),
-  - designated **egress gateway services** for external communication.
-- Only the egress gateway services have a route to the public internet:
-  - Delivery Service for outbound notifications/webhooks
-  - RPC Egress Gateway (or in-VPC nodes) for blockchain RPC access
-- Egress gateway services must prevent SSRF to internal networks (deny VPC CIDR/RFC1918/metadata IPs) and must audit outbound requests.
-- Untrusted UDF tasks must not have a network path to Postgres (RDS) or Secrets Manager endpoints; they access hot storage only via Query Service.
-- No inbound connections to job containers.
-- **TLS required**: all internal and external traffic uses TLS 1.2+.
-- **Internal APIs are authenticated** (do not rely on network placement alone):
-  - **Task-scoped endpoints** (task heartbeat/completion/events, task query, credential minting) require a short-lived **task capability token** (JWT) plus lease fencing. These endpoints are safe to call from untrusted runtimes (`lambda` in v1; `ecs_udf` is deferred to v2).
-  - **Worker-only endpoints** (task claim/fetch) are callable only by trusted worker wrappers and must be protected by security groups plus a worker identity mechanism (e.g., a worker token injected only into the wrapper container).
-- **Lambda UDFs are supported**: if `runtime: lambda` executes user/UDF bundles, treat the entire Lambda as untrusted. Do not inject long-lived internal secrets; rely on task capability tokens + scoped, short-lived AWS credentials.
-
-
-## Internal Service Authentication
-
-Trace uses **three** distinct auth contexts. Keep them separate.
-
-### 1) User API (end-user calls)
-
-User-facing endpoints (e.g., `GET/POST /v1/...`) are authenticated with an OIDC JWT from the IdP.
-
-- API Gateway should validate the JWT (rate limiting, WAF, request validation).
-- Backend services must validate the JWT signature/claims themselves and derive identity/role from it (defense in depth; internal callers exist inside the VPC).
-
+- API Gateway SHOULD validate JWTs for edge rejection (WAF, rate limiting).
+- Backend services MUST validate JWT signature + claims themselves and derive identity from the verified token.
+- Backends MUST NOT treat forwarded headers (`X-Org-Id`, `X-User-Id`, etc.) as authoritative identity.
 
 #### User JWT claim contract (v1)
 
-Trace treats the OIDC JWT as **authentication** (who the user is), and uses Trace’s own database as the source of truth for **authorization** (what the user can do in which org).
+Trace treats the OIDC JWT as **authentication** only. Authorization is derived from Postgres state.
 
 Required JWT claims:
-- `iss` (issuer)
-- `aud` (audience)
-- `sub` (stable subject identifier)
-- `exp` (expiry)
+- `iss`, `aud`, `sub`, `exp`
 
-Recommended JWT claims:
-- `iat` (issued-at)
-- `email` (for UX/audit, not authorization)
+Recommended (non-authoritative) claims:
+- `email`
 
-Trace identity mapping:
-- `sub` MUST map to a Trace user record (e.g., `users.idp_subject = sub`).
-- Org membership and role MUST be loaded from Postgres state (e.g., `org_memberships`), not trusted from forwarded headers.
-
-Org selection (multi-org users):
-- Requests MAY include `X-Trace-Org: <org_id>` (or an equivalent path parameter) as a **selection hint**.
-- The backend MUST verify the user is a member of that org and derive the effective role from the membership record.
+Authorization rules:
+- `sub` maps to `users.external_id`.
+- Org membership and role are resolved from `org_role_memberships` + `org_roles` in Postgres state.
+- Requests MAY include `X-Trace-Org: <org_id>` as an org selection hint.
+- The backend MUST verify membership and compute effective role from Postgres state.
 - If no org is provided:
-  - If the user belongs to exactly one org, the backend may default to it.
-  - Otherwise return a 400 asking the client to select an org.
+  - if the user belongs to exactly one org, the backend MAY default to it
+  - otherwise return 400 requiring org selection
 
-The backend MUST NOT treat any request header as authoritative user identity or role.
+### Task-scoped APIs (capability tokens)
 
+Task-scoped endpoints are callable by **untrusted** execution (the Lambda UDF runner). They are authenticated with a per-attempt **task capability token** (JWT) plus strict attempt fencing.
 
-### 2) Task-scoped APIs (untrusted compute)
+Invariants:
+- The capability token is minted by Dispatcher per `(task_id, attempt)` and expires quickly.
+- Requests MUST include `{task_id, attempt, lease_token}` and MUST be rejected if the lease token does not match the current attempt.
+- Capability tokens grant **read/scoped access** only (Query Service reads, credential minting).
 
-Task-scoped endpoints are callable by untrusted runtimes (`lambda` in v1; `ecs_udf` is deferred to v2) and are authenticated with a per-attempt **task capability token** (JWT).
+### Worker-only APIs (worker tokens)
 
-- The token is minted per `(task_id, attempt)` and expires quickly.
-- Requests are additionally fenced by `{task_id, attempt, lease_token}` in the request body.
-- Examples: task heartbeat, task completion, emitting upstream events, buffered dataset publish, task query, credential minting.
+Some endpoints exist only because trusted platform workers need to claim and fetch tasks (e.g., for ECS platform operators).
 
-This gives **zero trust** properties without needing to hide secrets inside the runtime.
+- These endpoints MUST NOT be callable by untrusted code.
+- Protect them by **network policy** (private subnets + security groups) AND a worker identity mechanism.
+- v1 worker identity is a shared **worker token** (rotatable secret) injected only into the trusted worker wrapper/poller.
 
-### 3) Worker-only APIs (queue pollers)
+> mTLS is optional hardening for trusted service-to-service calls. It is NOT a primary mechanism for untrusted task auth.
 
-Some endpoints exist only because ECS workers poll the queue and must claim tasks before a capability token exists. These endpoints are called only by **trusted worker wrappers**.
+## Secrets and key management
 
-- Protect them by **network policy** (security groups allow only the worker service) plus a **worker identity mechanism** (e.g., a worker token injected only into the wrapper container).
-- Do not grant untrusted user code access to the worker identity.
+- **Untrusted task execution MUST NOT receive platform secrets** (no Secrets Manager access, no long-lived credentials).
+- Platform-managed operators MAY receive secrets via:
+  - ECS secret injection (Secrets Manager → env var in trusted container), or
+  - other platform-controlled injection mechanisms.
 
-> mTLS can be used as an optional hardening technique for trusted service-to-service calls, but it is **not required** for the v1 model and does not replace capability tokens for untrusted runtimes.
+JWT signing keys:
+- AWS profile SHOULD use an asymmetric key managed by AWS KMS (ES256 recommended).
+- Verifiers fetch public keys via an internal JWKS endpoint and cache them; rotation uses `kid`.
 
+## Network and egress control
 
+- All services run in private subnets; inbound paths are explicitly routed (API Gateway → internal ALB or VPC Link as applicable).
+- Untrusted compute MUST have no third-party internet egress by default.
+- External egress is mediated by:
+  - RPC Egress Gateway (chain RPC)
+  - Delivery Service (notifications/webhooks)
 
-## Locked v1 decisions
+## Data access control
 
-This section exists to prevent drift between the written security model and the implementation.
-If you change any of these, update this document and any impacted ADRs/contracts.
+- Data is encrypted in transit (TLS) and at rest (RDS encryption, S3 SSE).
+- Postgres state contains orchestration truth; Postgres data contains datasets and derived records.
+- Untrusted tasks MUST NOT have direct Postgres credentials.
+- Query Service is the primary read path for tasks and enforces capability-token-scoped reads.
 
-### User JWT verification (public API)
+## Audit and monitoring
 
-**Decision:** API Gateway validates user JWTs, and every backend service validates them again.
+Minimum audit requirements:
+- Every user API request is attributable to `sub` and org.
+- Every task mutation is attributable to `(task_id, attempt)` and runtime identity (task principal).
+- Security-relevant events (failed auth, invalid lease_token, repeated completion attempts) are logged and alertable.
 
-- API Gateway uses an OIDC/JWT authorizer for edge controls (reject invalid tokens early, apply rate limiting/WAF).
-- Backend services (Dispatcher, Query Service) **must** verify the JWT signature and validate claims (`iss`, `aud`, `exp`, `nbf`) and derive identity from claims.
-- Do **not** trust forwarded identity headers (`X-Org-Id`, `X-User-Id`, etc.) as an auth boundary.
+## Incident response defaults
 
-**Implementation recommendation (low ops):**
-- Maintain a tiny shared “trace-auth” middleware per language (Rust/Python/Node) that:
-  - caches IdP JWKS with a small TTL (e.g., 5–15 minutes),
-  - refreshes on `kid` miss,
-  - rejects unexpected algorithms (no `alg=none`),
-  - normalizes required claims (`org_id`, `role`, `sub`).
-
-### Task capability tokens (untrusted execution)
-
-**Decision:** task-scoped APIs use a per-attempt **capability token** (JWT) plus lease fencing. No hidden internal secrets are required inside untrusted runtimes.
-
-- Token minted by Dispatcher per `(task_id, attempt, org_id)`.
-- Token is presented on `/v1/task/*` endpoints and on Query Service `/v1/task/query`.
-- Requests are additionally fenced by `{task_id, attempt, lease_token}` in the request body.
-
-**Signing / verification (recommended default):**
-- JWT algorithm: **ES256**.
-- AWS profile: sign with an **AWS KMS asymmetric key** (`ECC_NIST_P256`).
-- Lite profile: sign with a local PEM keypair.
-- Dispatcher exposes a **task-JWKS** document (internal-only) that verifiers cache (Query Service, sinks).
-  - Rotation uses `kid`; keep old keys until max token TTL elapses.
-
-**Lifetime / refresh (minimize moving parts):**
-- Set `exp` to **at most** `lease_expires_at + 5 minutes`.
-- Renew the token opportunistically on `POST /v1/task/heartbeat` by returning:
-  - updated `lease_expires_at`, and
-  - a refreshed capability token.
-- Query Service must not call Dispatcher per query; it validates signature + expiry and enforces dataset/prefix limits from the token.
-
-### Worker identity for `/internal/task-claim` (queue pollers)
-
-**Decision:** only trusted worker wrappers may call `/internal/task-claim` and `/internal/task-fetch`.
-
-- Protect by **security groups** (only worker services can reach these endpoints) **and** a worker identity check.
-- Recommended worker identity: an environment-scoped **worker token** stored in Secrets Manager and injected only into the trusted wrapper container via ECS secret injection.
-- Rotation: Dispatcher accepts `{current, next}` worker tokens during rollout; remove old token after all workers redeploy.
-
-> Avoid mTLS as a v1 requirement here unless you already have a certificate issuance/rotation pipeline. Shared worker tokens + SGs are simpler and good enough when combined with lease fencing.
-
-### Lambda UDF runner (untrusted)
-
-**Decision:** `runtime: lambda` is a platform-managed runner that executes an **untrusted** bundle. Do not inject long-lived internal credentials.
-
-- The runner Lambda execution role should be **near-zero**: logs only + VPC networking (no S3/SQS/Secrets Manager).
-- Bundle download should use a **pre-signed S3 GET URL** (object-scoped) supplied by the Dispatcher.
-- All data access uses:
-  - capability token → Query Service (`/v1/task/query`), and
-  - capability token → Dispatcher credential minting (`/v1/task/credentials`) → scoped STS credentials for S3 prefixes.
-
-### ECS UDF note (AWS reality)
-
-**Decision:** treat ECS UDF execution as a phase-2 feature unless you isolate privileges.
-
-- ECS/Fargate does **not** support per-container IAM roles. All containers in a task share the task role and network.
-- Therefore, do **not** run untrusted UDF code in the same ECS task as a component that needs AWS API permissions (SQS, ECS RunTask, etc.).
-- v1 recommendation for zero-trust: run untrusted UDFs on **Lambda**. If you need ECS UDFs, implement them via a separate trusted launcher/poller that starts UDF tasks with a near-zero role.
-
-
-## Resource Limits
-
-- **CPU/memory**: hard caps in ECS task definition; job cannot exceed.
-- **Execution timeout**: Worker terminates jobs exceeding max duration.
-- **Disk quota**: ephemeral storage capped per task.
-- **Rate limits**: max concurrent jobs and jobs-per-hour per org.
-- **Cost alerts**: automated alerts when org approaches spend thresholds.
-
-## Data Access Control
-
-- **Scoped credentials**: each job receives credentials for only the datasets it's configured to read.
-- **Capability-based enforcement**: untrusted tasks receive a short-lived capability token that enumerates allowed datasets/versions and output locations. The token is enforced by Query Service (SQL reads) and the Dispatcher credential minting (scoped S3 credentials).
-- **Org isolation**: queries are automatically filtered by `org_id`; jobs cannot access other orgs' data.
-- **Dataset visibility**: dataset read access is enforced via the dataset registry (`datasets.read_roles`) and applies to Query Service reads and DAG-to-dag reads (`inputs: from: { dataset: ... }`).
-  - If `read_roles` is empty: the dataset is private to the producing DAG’s deployers/triggerers plus org admins.
-  - If `read_roles` is non-empty: those org roles also get read access (in addition to producing DAG deployers/triggerers + org admins).
-  - `read_roles` is admin-managed in v1 (registry), not embedded in DAG YAML.
-  - v1 does not implement “anti re-sharing” controls: if you grant someone dataset read access, they can use it in their own DAG (subject to their own DAG permissions).
-- **DAG deploy/trigger permission**: permission to deploy/trigger a DAG implies permission to read and overwrite/create datasets produced by that DAG.
-- **RPC access**:
-  - **Platform jobs** (e.g., `block_follower`, `cryo_ingest`): access RPC providers only via the RPC Egress Gateway (or in-VPC nodes).
-  - **User jobs** (alerts, enrichments, custom transforms): query platform storage only, no raw RPC access.
-- **PII gating**: jobs must be explicitly granted access to PII datasets; access is logged.
-
-## Credential Handling
-
-
-Each task attempt receives short-lived, scoped credentials at execution time.
-
-### Capability Token
-
-For untrusted tasks (UDFs), the Dispatcher issues a short-lived **capability token** that encodes:
-
-- `task_id`, `attempt`, `org_id`
-- Allowed input dataset versions (resolved to pinned locations)
-- Allowed output prefix (S3)
-- Allowed scratch/export prefix (S3)
-- Expiry
-
-The token is passed to the worker wrapper via task payload and then to the UDF runtime (e.g., `TRACE_TASK_CAPABILITY_TOKEN`).
-
-### Query Service Enforcement
-
-UDFs issue ad-hoc SQL through Query Service using the capability token. Query Service attaches only the dataset views referenced by the token and rejects all other dataset access.
-
-### Dispatcher credential minting
-
-UDFs exchange the capability token with a Dispatcher credential minting service to receive short-lived STS credentials scoped to:
-
-- Read access to the allowed input prefixes
-- Write access to the allowed output prefix
-- Read access to the task scratch/export prefix
-
-The broker uses STS session policies to enforce prefix scoping. Credentials expire quickly and can be refreshed.
-
-### Guarantees
-
-This model grants:
-- Read access only to declared/pinned input datasets
-- Write access only to declared output locations
-
-It does **not** grant:
-- Access to other datasets
-- Secrets Manager access (secrets are injected at launch)
-- Direct Postgres access (UDFs must use Query Service)
-- Internet egress (only platform egress services)
-
-## Audit and Monitoring
-
-- All job executions logged: who, what, when, resource usage.
-- All data access logged: datasets read, rows accessed.
-- Anomaly detection: unusual resource consumption, access patterns.
-- Abuse response: automatic job termination, org notification, potential suspension.
-- **Secrets redacted**: all log outputs are scrubbed for secret patterns before persistence.
-- **Retention**: audit logs retained for 1 year minimum (compliance).
-
-## Encryption
-
-- **In transit**: TLS 1.2+ for all connections (API, database, S3, internal services).
-- **At rest**:
-  - S3: SSE-S3 or SSE-KMS (configurable per bucket)
-  - RDS: encrypted storage with AWS-managed or customer-managed KMS key
-  - EBS: encrypted volumes for any ephemeral worker storage
-- **Secrets**: stored in AWS Secrets Manager (encrypted at rest with KMS).
-
-## User Onboarding Flow
-
-Users authenticate via external IdP (Cognito with OIDC/SAML). On first login:
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant IDP as IdP Cognito
-    participant GW as Gateway
-    participant D as Dispatcher
-    participant PG as Postgres
-
-    U->>IDP: Login SSO/OIDC
-    IDP->>U: JWT with claims
-    U->>GW: Request with Bearer token
-    GW->>IDP: Validate token
-    IDP->>GW: Claims sub, email, org_id
-    GW->>D: Forward request + Bearer JWT
-    D->>PG: Check users table
-    alt User exists
-        PG->>D: Return user
-    else First login
-        D->>PG: INSERT INTO users external_id, org_id, email, role
-        PG->>D: Return new user
-    end
-    D->>GW: Response
-    GW->>U: Response
-```
-
-### JWT Claims
-
-Expected claims from IdP:
-
-| Claim | Maps To | Description |
-|-------|---------|-------------|
-| `sub` | `users.external_id` | Unique IdP subject identifier |
-| `email` | `users.email` | User email (optional) |
-| `custom:org_id` | `users.org_id` | Organization UUID |
-| `custom:role` | `users.role` | Platform role: `reader`, `writer`, `admin` |
-
-### Org Provisioning
-
-In v1 (single-tenant), the org is pre-created via Terraform/migration. The `org_id` claim must match the deployed org.
-
-Future multi-tenant: org provisioning via admin API or self-service signup.
-
-## Security Operations (best-practice defaults)
-
-- **Signing & provenance**: Container images and DAG bundles are signed (e.g., cosign) with SBOMs published; deployments verify signatures before pull/apply. (Refs: [SLSA](https://slsa.dev), [CNCF Supply Chain Best Practices](https://github.com/cncf/tag-security/blob/main/community/working-groups/supply-chain-security/supply-chain-security-paper/sscsp.md), [PDF](https://raw.githubusercontent.com/cncf/tag-security/main/community/working-groups/supply-chain-security/supply-chain-security-paper/CNCF_SSCP_v1.pdf))
-- **Secrets & rotation**: Short-lived, scoped credentials per job/org; stored secrets rotate on a fixed cadence (e.g., ≤90d) and on key events; no Secrets Manager access from user code. (Refs: [NIST SP 800-57](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final), [NIST SP 800-63](https://pages.nist.gov/800-63-3/))
-- **Centralized egress**: only platform egress gateway services have an internet route; outbound configuration changes are reviewed and deployed via IaC.
-- **PII handling**: Datasets classified; PII access requires explicit grant + logging; jobs touching PII must be tagged and are subject to heightened audit/retention. (Refs: [GDPR Art. 5(1)(c) data minimization](https://gdpr.eu/article-5-how-to-process-personal-data/), [ISO 27001 Annex A.8](https://www.iso.org/standard/27001))
+- Token/key rotation paths must exist (JWKS `kid`, worker token rotation).
+- Compromise response should include: revoke/rotate keys, invalidate outstanding capability tokens, and disable affected bundle IDs.

@@ -33,6 +33,17 @@ It is intentionally **self-contained** so operators and engineers can reason abo
 - Query and scan costs must be attributable (dataset bytes scanned, S3 I/O, Postgres read load).
 - Prefer “export to S3” for large query results instead of streaming giant payloads.
 
+
+## Resource limits and quotas
+
+These controls exist to protect platform stability and costs. They are not security boundaries, but they are part of the operational contract.
+
+- **CPU/memory**: hard caps in ECS task definitions / Lambda memory settings.
+- **Execution timeout**: platform-enforced maximum runtime per job.
+- **Disk quota**: ephemeral storage capped per task.
+- **Rate limits**: max concurrent jobs and jobs-per-hour per org.
+- **Cost alerts**: alert when an org approaches spend thresholds.
+
 ## Retry safety and idempotency invariants
 
 Trace assumes **at-least-once** delivery for both tasks and internal events. The system is correct if the following invariants hold.
