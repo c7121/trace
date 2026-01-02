@@ -20,7 +20,6 @@ flowchart TB
                 DISPATCHER_SVC[Dispatcher Service]
                 QUERY_SVC[Query Service]
                 PLATFORM_WORKERS["Platform Workers - ecs_platform"]
-                UDF_WORKERS["UDF Workers - ecs_udf"]
                 DELIVERY_SVC[Delivery Service]
                 RPC_EGRESS[RPC Egress Gateway]
             end
@@ -58,10 +57,8 @@ flowchart TB
     DISPATCHER_SVC --> CW
 
     SQS_QUEUES --> PLATFORM_WORKERS
-    SQS_QUEUES --> UDF_WORKERS
 
     PLATFORM_WORKERS --> DISPATCHER_SVC
-    UDF_WORKERS --> DISPATCHER_SVC
 
     PLATFORM_WORKERS -->|hot data| RDS_DATA
     PLATFORM_WORKERS --> S3_BUCKET
@@ -70,9 +67,6 @@ flowchart TB
     QUERY_SVC --> S3_BUCKET
     QUERY_SVC --> S3_SCRATCH
 
-    UDF_WORKERS --> QUERY_SVC
-    UDF_WORKERS --> S3_BUCKET
-    UDF_WORKERS --> SQS_QUEUES
 
     PLATFORM_WORKERS --> RPC_EGRESS
 
@@ -81,6 +75,9 @@ flowchart TB
 
     ECR --> ECS
 ```
+
+> Note: Untrusted ECS UDF execution (`ecs_udf`) is deferred to v2. In v1, untrusted UDFs execute via the platform-managed Lambda runner.
+
 
 ## Terraform Structure
 

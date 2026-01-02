@@ -73,7 +73,7 @@ The secret **value** never appears in the task payload and untrusted code never 
 
 ## Network Isolation
 
-See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
+See [ADR 0002: Networking Posture](../adr/0002-networking.md).
 
 - Job containers run in private subnets with **no direct internet egress**.
 - Jobs may reach only:
@@ -88,7 +88,7 @@ See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
 - No inbound connections to job containers.
 - **TLS required**: all internal and external traffic uses TLS 1.2+.
 - **Internal APIs are authenticated** (do not rely on network placement alone):
-  - **Task-scoped endpoints** (task heartbeat/completion/events, task query, credential minting) require a short-lived **task capability token** (JWT) plus lease fencing. These endpoints are safe to call from untrusted runtimes (`ecs_udf` and `lambda`).
+  - **Task-scoped endpoints** (task heartbeat/completion/events, task query, credential minting) require a short-lived **task capability token** (JWT) plus lease fencing. These endpoints are safe to call from untrusted runtimes (`lambda` in v1; `ecs_udf` is deferred to v2).
   - **Worker-only endpoints** (task claim/fetch) are callable only by trusted worker wrappers and must be protected by security groups plus a worker identity mechanism (e.g., a worker token injected only into the wrapper container).
 - **Lambda UDFs are supported**: if `runtime: lambda` executes user/UDF bundles, treat the entire Lambda as untrusted. Do not inject long-lived internal secrets; rely on task capability tokens + scoped, short-lived AWS credentials.
 
@@ -105,9 +105,37 @@ User-facing endpoints (e.g., `GET/POST /v1/...`) are authenticated with an OIDC 
 - Backend services must validate the JWT signature/claims themselves and derive identity/role from it (defense in depth; internal callers exist inside the VPC).
 
 
+#### User JWT claim contract (v1)
+
+Trace treats the OIDC JWT as **authentication** (who the user is), and uses Trace’s own database as the source of truth for **authorization** (what the user can do in which org).
+
+Required JWT claims:
+- `iss` (issuer)
+- `aud` (audience)
+- `sub` (stable subject identifier)
+- `exp` (expiry)
+
+Recommended JWT claims:
+- `iat` (issued-at)
+- `email` (for UX/audit, not authorization)
+
+Trace identity mapping:
+- `sub` MUST map to a Trace user record (e.g., `users.idp_subject = sub`).
+- Org membership and role MUST be loaded from Postgres state (e.g., `org_memberships`), not trusted from forwarded headers.
+
+Org selection (multi-org users):
+- Requests MAY include `X-Trace-Org: <org_id>` (or an equivalent path parameter) as a **selection hint**.
+- The backend MUST verify the user is a member of that org and derive the effective role from the membership record.
+- If no org is provided:
+  - If the user belongs to exactly one org, the backend may default to it.
+  - Otherwise return a 400 asking the client to select an org.
+
+The backend MUST NOT treat any request header as authoritative user identity or role.
+
+
 ### 2) Task-scoped APIs (untrusted compute)
 
-Task-scoped endpoints are callable by untrusted runtimes (`ecs_udf` and `lambda`) and are authenticated with a per-attempt **task capability token** (JWT).
+Task-scoped endpoints are callable by untrusted runtimes (`lambda` in v1; `ecs_udf` is deferred to v2) and are authenticated with a per-attempt **task capability token** (JWT).
 
 - The token is minted per `(task_id, attempt)` and expires quickly.
 - Requests are additionally fenced by `{task_id, attempt, lease_token}` in the request body.

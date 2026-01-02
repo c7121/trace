@@ -54,7 +54,7 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 | Source | Job with `activation: source` — maintains connections, emits events |
 | Asset | Output of a job — Parquet file, table rows |
 | Partition | A subset of an asset (e.g., blocks 0-10000) |
-| Runtime | Execution environment: `lambda`, `ecs_platform`, `ecs_udf`, `dispatcher` |
+| Runtime | Execution environment: `lambda`, `ecs_platform`, `dispatcher` (v1); `ecs_udf` is deferred to v2 |
 
 ---
 
@@ -94,11 +94,11 @@ See [db_boundaries.md](architecture/db_boundaries.md) for hard invariants and cr
 
 | Area | Documents |
 |------|-----------|
-| Architecture | [C4 model](architecture/c4.md), [contracts](architecture/contracts.md), [task lifecycle](architecture/task_lifecycle.md), [event flow](architecture/event_flow.md), [data versioning](architecture/data_versioning.md), [ADRs](architecture/adr/) |
+| Architecture | [C4 model](architecture/c4.md), [contracts](architecture/contracts.md), [task lifecycle](architecture/task_lifecycle.md), [event flow](architecture/event_flow.md), [data versioning](architecture/data_versioning.md), [ADRs](adr/) |
 | Containers | [dispatcher](architecture/containers/dispatcher.md), [workers](architecture/containers/workers.md), [query service](architecture/containers/query_service.md), [delivery service](architecture/containers/delivery_service.md), [rpc egress gateway](architecture/containers/rpc_egress_gateway.md) |
 | Data model | [ERD](architecture/data_model/erd.md), [orchestration](architecture/data_model/orchestration.md), [alerting](architecture/data_model/alerting.md) |
 | Operators | [operator catalog](architecture/operators/README.md) |
-| Features | [DAG config](features/dag_configuration.md), [ingestion](features/ingestion.md), [alerting](features/alerting.md), [UDFs](features/udf.md) |
+| Features | [DAG config](specs/dag_configuration.md), [ingestion](specs/ingestion.md), [alerting](specs/alerting.md), [UDFs](specs/udf.md) |
 | Deploy | [deployment profiles](deploy/deployment_profiles.md), [infrastructure](deploy/infrastructure.md), [monitoring](deploy/monitoring.md) |
 | Standards | [security model](standards/security_model.md), [operations](standards/operations.md), [docs hygiene](standards/docs_hygiene.md) |
 | Use cases | [use case index](use_cases/README.md) |

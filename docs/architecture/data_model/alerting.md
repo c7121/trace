@@ -74,5 +74,5 @@ CREATE INDEX idx_alert_deliveries_ready ON alert_deliveries(status, next_attempt
 
 ## Related
 
-- [alerting.md](../../features/alerting.md) — alerting behavior and flows
+- [alerting.md](../../specs/alerting.md) — alerting behavior and flows
 - [pii.md](pii.md) — visibility and audit rules

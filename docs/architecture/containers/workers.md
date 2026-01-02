@@ -107,9 +107,10 @@ To reduce operational surface area, v1 treats language/runtime packaging as an i
 | `dispatcher` | In-process | trusted | Control-plane-only jobs |
 | `lambda` | AWS Lambda | trusted or untrusted | Sources + short operators; UDFs are allowed when treated as untrusted and restricted via capability tokens |
 | `ecs_platform` | ECS task | trusted | Platform operators (ingest, compaction, integrity) |
-| `ecs_udf` | ECS task | untrusted | User-defined logic (alerts, transforms, queries) |
+| `ecs_udf` | ECS task | untrusted | **Deferred to v2**: user-defined logic once a zero-trust isolation design exists |
 
 Notes:
+- In v1, untrusted user code executes via the platform-managed `lambda` runner. `ecs_udf` is not scheduled unless explicitly enabled for development/testing.
 - Trust is determined by the **operator** (platform-managed vs user/UDF bundle), not by the compute primitive. Treat `lambda` as **untrusted by default**.
 - `lambda` UDFs have no wrapper boundary: do not inject long-lived secrets. They must use the per-attempt task capability token for task-scoped APIs and obtain scoped object-store access via credential minting.
 - The operator implementation may be Rust, Python, or Node — that is a build/deployment detail, not a user-facing runtime enum.
@@ -127,5 +128,3 @@ Lambda UDF note:
 
 Notes:
 - v1 targets `linux/amd64` for ECS workers; additional architectures can be added as needed.
-
-

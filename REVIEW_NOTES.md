@@ -35,8 +35,8 @@ Independent reviews of gaps and brittleness in the Trace architecture docs.
 | Issue | Notes |
 |-------|-------|
 | **Spec template missing operational detail section** | Template is optimized for changes to existing systems, not greenfield; needs behavior matrices, config examples |
-| **ADRs in two places** | `docs/adr/` (empty except template) vs `docs/architecture/adr/` (actual ADRs) |
-| **features/ vs specs/** | `specs/` has only templates; `features/` has the actual designs — unclear lifecycle |
+| **ADRs in two places** | `docs/adr/` (empty except template) vs `docs/docs/adr/` (actual ADRs) |
+| **specs/ vs specs/** | `specs/` has only templates; `specs/` has the actual designs — unclear lifecycle |
 | **Glossary in two places** | `docs/readme.md` and `docs/standards/docs_hygiene.md` both define terms |
 
 ---

@@ -199,7 +199,7 @@ Backfill is an explicit repair mechanism (recompute specific partitions/ranges, 
 
 Alerts use `update_strategy: append` with a deterministic `unique_key` so reprocessing doesn't re-fire alerts while still behaving correctly across reorgs.
 
-See [alerting.md](../features/alerting.md#deduplication) for the dedupe schema and behavior matrix.
+See [alerting.md](../specs/alerting.md#deduplication) for the dedupe schema and behavior matrix.
 
 ---
 
@@ -273,6 +273,6 @@ sequenceDiagram
 | Cold storage (S3) | Partition-level tracking (`partition_versions`) within a `dataset_version` |
 | Hot storage (Postgres data) | Cursor-based high-water mark (`dataset_cursors`) within a `dataset_version` |
 | Reorg handling | Row-range invalidations, scoped reprocessing |
-| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../features/alerting.md#deduplication)) |
+| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../specs/alerting.md#deduplication)) |
 | Definition changes | New `dataset_version` generation; optional manual repair backfills |
 | Efficiency | Never full-table scan; use partition or row_filter |
