@@ -1,0 +1,71 @@
+name: Sync agent standards
+
+on:
+  schedule:
+    # Weekly on Monday at 10:00 UTC
+    - cron: '0 10 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-agent-standards
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repo
+        # Pinned SHA (actions/checkout v6.0.1)
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Node.js (native TypeScript execution)
+        # Pinned SHA (actions/setup-node v6.1.0)
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+        with:
+          # Node runs .cts via built-in TypeScript type stripping (no type-check).
+          node-version: "22.18.0"
+
+      - name: Checkout agent-standards repo
+        # Pinned SHA (actions/checkout v6.0.1)
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          # TODO: Set this to your canonical repo, e.g. my-org/agent-standards
+          repository: c7121/agent-bundle
+          ref: main
+          path: .agent-standards-src
+          # For private upstream repos, define a secret with read access to that repo.
+          token: ${{ secrets.AGENT_STANDARDS_TOKEN || github.token }}
+
+      - name: Sync files
+        run: |
+          node scripts/sync_agent_standards.cts .agent-standards-src
+
+      - name: Create Pull Request
+        # Pinned SHA (peter-evans/create-pull-request v7.0.11)
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676
+        with:
+          commit-message: "chore(agent): sync agent standards"
+          branch: chore/sync-agent-standards
+          delete-branch: true
+          title: "chore(agent): sync agent standards"
+          body: |
+            Automated sync from the canonical agent-standards repository.
+          labels: |
+            agent-standards
+            automated
+          # Defense-in-depth: only commit files under these paths.
+          add-paths: |
+            docs/agent/**
+            docs/specs/**
+            docs/adr/**
+          # Sign commits as github-actions[bot] when using GITHUB_TOKEN.
+          sign-commits: true
