@@ -87,22 +87,43 @@ See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
 - Untrusted UDF tasks must not have a network path to Postgres (RDS) or Secrets Manager endpoints; they access hot storage only via Query Service.
 - No inbound connections to job containers.
 - **TLS required**: all internal and external traffic uses TLS 1.2+.
-- Internal platform APIs (`/internal/*`) require **mutual TLS** client auth and are reachable only from platform components with the client certificate (e.g., the worker wrapper). User/UDF code must not have the client credential.
-- `runtime: lambda` is reserved for **trusted** platform operators. Do not execute untrusted user/UDF bundles in Lambda: you cannot withhold the mTLS client credential from user code in a single-process Lambda.
+- **Internal APIs are authenticated** (do not rely on network placement alone):
+  - **Task-scoped endpoints** (task heartbeat/completion/events, task query, credential minting) require a short-lived **task capability token** (JWT) plus lease fencing. These endpoints are safe to call from untrusted runtimes (`ecs_udf` and `lambda`).
+  - **Worker-only endpoints** (task claim/fetch) are callable only by trusted worker wrappers and must be protected by security groups plus a worker identity mechanism (e.g., a worker token injected only into the wrapper container).
+- **Lambda UDFs are supported**: if `runtime: lambda` executes user/UDF bundles, treat the entire Lambda as untrusted. Do not inject long-lived internal secrets; rely on task capability tokens + scoped, short-lived AWS credentials.
 
 
 ## Internal Service Authentication
 
-Internal control-plane endpoints (`/internal/*`) are protected by **mTLS** (mutual TLS).
+Trace uses **three** distinct auth contexts. Keep them separate.
 
-- **Server side**: Dispatcher (and other platform services exposing internal endpoints) terminate TLS and require a valid client certificate.
-- **Client side**: only trusted platform components receive the client certificate (e.g., the worker wrapper container, Delivery Service).
-- In ECS, implement this by running a **wrapper container** (trusted) alongside the **UDF container** (untrusted), and mounting the client cert only into the wrapper.
-- `runtime: lambda` operators are treated as trusted platform code and may call `/internal/*` using mTLS. Untrusted code must run as `ecs_udf` behind the wrapper.
-- **Untrusted UDF containers do not receive the client certificate**. Even if they can reach the service IP/port, they cannot authenticate to `/internal/*`.
-- The worker wrapper must not expose a local HTTP proxy that would let untrusted code relay privileged requests. Wrapper-to-UDF communication should be via process invocation (stdin/stdout) or a private file/pipe, not an HTTP port.
+### 1) User API (end-user calls)
 
-Lite profile note: local/dev deployments may relax mTLS for convenience, but production AWS deployments must enforce it.
+User-facing endpoints (e.g., `GET/POST /v1/...`) are authenticated with an OIDC JWT from the IdP.
+
+- API Gateway should validate the JWT (rate limiting, WAF, request validation).
+- **Backends must still treat the user JWT as the source of truth** for identity/role (defense in depth), because backend services are also reachable from inside the VPC.
+- Forwarded identity headers (`X-Org-Id`, `X-User-Id`, etc.) are convenience only; they are **not** a security boundary by themselves.
+
+### 2) Task-scoped APIs (untrusted compute)
+
+Task-scoped endpoints are callable by untrusted runtimes (`ecs_udf` and `lambda`) and are authenticated with a per-attempt **task capability token** (JWT).
+
+- The token is minted per `(task_id, attempt)` and expires quickly.
+- Requests are additionally fenced by `{task_id, attempt, lease_token}` in the request body.
+- Examples: task heartbeat, task completion, emitting upstream events, buffered dataset publish, task query, credential minting.
+
+This gives **zero trust** properties without needing to hide secrets inside the runtime.
+
+### 3) Worker-only APIs (queue pollers)
+
+Some endpoints exist only because ECS workers poll the queue and must claim tasks before a capability token exists. These endpoints are called only by **trusted worker wrappers**.
+
+- Protect them by **network policy** (security groups allow only the worker service) plus a **worker identity mechanism** (e.g., a worker token injected only into the wrapper container).
+- Do not grant untrusted user code access to the worker identity.
+
+> mTLS can be used as an optional hardening technique for trusted service-to-service calls, but it is **not required** for the v1 model and does not replace capability tokens for untrusted runtimes.
+
 ## Resource Limits
 
 - **CPU/memory**: hard caps in ECS task definition; job cannot exceed.
@@ -205,7 +226,7 @@ sequenceDiagram
     U->>GW: Request with Bearer token
     GW->>IDP: Validate token
     IDP->>GW: Claims sub, email, org_id
-    GW->>D: Forward with X-User-Id, X-Org-Id
+    GW->>D: Forward request + Bearer JWT (and convenience identity headers)
     D->>PG: Check users table
     alt User exists
         PG->>D: Return user

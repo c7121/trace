@@ -27,8 +27,11 @@ UDFs are **untrusted**. The full sandbox and isolation requirements live in
 
 In v1, assume:
 
-- Runs in isolated ECS tasks with CPU/memory/timeout limits.
+- Runs in isolated execution environments with CPU/memory/timeout limits:
+  - `ecs_udf` (ECS tasks) for long-running/heavy workloads
+  - `lambda` (AWS Lambda) when required (short, event-driven tasks)
 - No direct internet egress; UDFs can only call in-VPC platform services (e.g., Query Service, Dispatcher credential minting).
+  - For Lambda, this means running inside a VPC without a NAT path (or enforcing egress at the VPC boundary).
 - No direct Postgres access; ad-hoc reads go through the Query Service.
 - No Secrets Manager access; secrets (when needed for trusted platform tasks) are injected at task launch.
 

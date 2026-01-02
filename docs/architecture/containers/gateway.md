@@ -57,9 +57,12 @@ All requests require `Authorization: Bearer <token>`.
    - `X-Org-Id`: org UUID
    - `X-User-Id`: user UUID (resolved from `sub`)
    - `X-User-Role`: platform role (reader/writer/admin)
-4. Backend services trust these headers **only** because the ALB is internal and reachable only via API Gateway VPC Link (security groups deny all other ingress).
+4. Backend services may use these forwarded headers as **convenience**, but they must treat the **Bearer JWT** (validated by API Gateway and re-validated or verified by the backend) as the source of truth for identity/role. Do **not** treat forwarded identity headers as a standalone trust boundary, because backend services are also reachable from inside the VPC (workers, Lambdas).
 
-> **Hard requirement:** do not expose the ALB to the public internet. If the ALB must be internet-facing, backend services must validate JWTs themselves and treat forwarded identity headers as untrusted hints.
+> **Hard requirement:** do not expose the ALB to the public internet. If the ALB must be internet-facing, backend services must validate JWTs themselves (and apply rate limits/WAF).
+
+
+> **Not exposed:** task-scoped endpoints like `/v1/task/query` and `/v1/task/credentials` are **internal-only** and must not be routed through the public Gateway. They are called by workers/Lambdas using a task capability token (see `security_model.md`).
 
 ## Rate Limiting
 

@@ -6,7 +6,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 
 ## Concepts
 
-- **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_platform`, `ecs_udf`). `lambda` is reserved for trusted platform operators; untrusted user code must run as `ecs_udf`.
+- **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_platform`, `ecs_udf`). **Trust is determined by the operator** (platform-managed vs user/UDF bundle), not by the compute primitive. Treat `lambda` as untrusted unless the operator is platform-managed.
 - **Job** — a configured instance of an operator inside a DAG (`runtime` + `operator` + `config`).
 - **Dataset** — a user-facing, **published** output with:
   - `dataset_name` (human-readable string, unique per org) and

@@ -2,9 +2,14 @@
 
 Component boundaries: task payloads, results, and upstream events.
 
-> `/internal/*` endpoints are internal-only and are not exposed to end users. They are called only by platform components (worker wrapper, operator runtimes, sinks, Delivery Service).
+> `/internal/*` endpoints are internal-only and are not exposed to end users. They are called by platform-managed runtimes (ECS workers, Lambda) and platform services.
 >
-> Production AWS deployments require **mTLS** on `/internal/*` so only trusted components with the client certificate can call these endpoints.
+> **Transport:** TLS is required for all internal APIs.
+>
+> **Auth model:**
+> - **Task-scoped endpoints** (heartbeat/complete/events/buffer publish) are authenticated with a short-lived **task capability token** plus `{task_id, attempt, lease_token}` fencing.
+> - **Worker-only endpoints** (task claim) are callable only by trusted worker wrappers and are protected by network policy plus a worker identity mechanism (see below).
+> - **Privileged platform endpoints** (if any) should use a separate service identity mechanism (recommended: service JWT); **mTLS is optional hardening**, not a requirement.
 
 
 **Delivery semantics:** tasks and upstream events are **at-least-once**. Duplicates and out-of-order delivery are expected; correctness comes from attempt/lease gating plus idempotent output commits. See [task_lifecycle.md](task_lifecycle.md).
@@ -21,10 +26,12 @@ Task queue message contains only `task_id` (wake-up). The worker then claims the
 
 For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no task queue).
 
-> **Security boundary:** `runtime: lambda` is reserved for **trusted** platform operators only.
-> Do not execute untrusted user/UDF bundles in Lambda: `/internal/*` requires mTLS client auth and you cannot
-> withhold the client credential from user code in a single-process Lambda. Untrusted code must run as `ecs_udf`
-> behind the worker wrapper.
+> `runtime: lambda` may execute either platform operators or untrusted UDF bundles. Treat Lambda as **untrusted by default**: do not rely on hidden internal credentials.
+>
+> For task execution, the Dispatcher includes a per-attempt **task capability token** in the invocation payload. The Lambda uses that token to:
+> - read data via Query Service (`/v1/task/query`),
+> - obtain scoped S3 credentials (`/v1/task/credentials`), and
+> - report fenced heartbeat/completion/events to the Dispatcher.
 
 Invocation payload includes the **full task payload** (same shape as `/internal/task-fetch`) so the Lambda does not need to fetch task details before executing:
 
@@ -34,6 +41,7 @@ Invocation payload includes the **full task payload** (same shape as `/internal/
   "attempt": 1,
   "lease_token": "uuid",
   "lease_expires_at": "2025-12-31T12:00:00Z",
+  "capability_token": "jwt",
   "job": { "dag_name": "monad", "name": "block_follower" },
   "operator": "block_follower",
   "config": { "...": "..." },
@@ -62,14 +70,19 @@ Workers call Dispatcher for:
 
 Workers never have Postgres state credentials.
 
-Untrusted operator/UDF code must not be able to call `/internal/*`.
+**Untrusted code may call only task-scoped endpoints for its own attempt.**
+It must not be able to call privileged platform endpoints (admin APIs, cross-task mutations, queue publishing, secrets).
 
-`/internal/*` endpoints require **mTLS** client auth, and only trusted platform components receive the client certificate (e.g., the worker wrapper container). Untrusted UDF code must not receive the client credential.
+Authentication is split by endpoint type:
 
-The wrapper must not expose a proxy interface that would let untrusted code relay privileged requests.
+- **Task-scoped endpoints** (`/internal/heartbeat`, `/internal/task-complete`, `/internal/events`, `/internal/buffer-publish`) require:
+  - `X-Trace-Task-Capability: <capability_token>` (short-lived JWT), and
+  - `{task_id, attempt, lease_token}` in the request body (must match the token + the current lease).
 
-For `runtime: lambda`, the Lambda handler is treated as trusted platform code and may call `/internal/*` using mTLS.
-Do not use `runtime: lambda` to execute untrusted user bundles.
+- **Worker-only endpoints** (`/internal/task-claim`, `/internal/task-fetch`) are called only by trusted worker wrappers (ECS pollers).
+  They must be protected by network policy (security groups allow only worker services) and a worker identity mechanism (e.g., `X-Trace-Worker-Token` injected only into the wrapper container).
+
+For `runtime: lambda`, the Lambda receives the task capability token in the invocation payload and uses it directly. There is no wrapper boundary in Lambda; do not rely on hidden shared secrets in Lambda.
 
 
 Secrets (when required) are injected at task launch (ECS task definition `secrets`) and are available to operator code as environment variables. Untrusted tasks must not have Secrets Manager permissions.
@@ -100,7 +113,9 @@ The token is enforced by:
 - **Query Service** — for ad-hoc SQL reads across Postgres + S3; only the datasets in the token are attached as views.
 - **Dispatcher** — exchanges the token for short-lived STS credentials scoped to the allowed S3 prefixes (credential minting).
 
-The trusted **worker wrapper** performs any `/internal/*` calls (including credential minting) and injects the resulting STS creds into the untrusted process. UDF code does not call `/internal/*` directly.
+In ECS, a trusted **worker wrapper** typically performs task/lease calls and credential minting and then injects the resulting scoped credentials into the untrusted process.
+
+In `runtime: lambda`, the Lambda uses the capability token directly (there is no wrapper boundary).
 
 UDF code never connects to Postgres directly.
 
@@ -112,6 +127,7 @@ Workers must **claim** a task before executing operator/UDF code. Claiming acqui
 
 ```
 POST /internal/task-claim
+X-Trace-Worker-Token: <worker_token>
 ```
 
 Request:
@@ -131,6 +147,7 @@ Response (claimed):
   "attempt": 1,
   "lease_token": "uuid",
   "lease_expires_at": "2025-12-31T12:00:00Z",
+  "capability_token": "jwt",
   "task": {
     "task_id": "uuid",
     "attempt": 1,
@@ -156,6 +173,7 @@ Workers fetch task details by `task_id` (read-only from the worker’s perspecti
 
 ```
 GET /internal/task-fetch?task_id=<uuid>
+X-Trace-Worker-Token: <worker_token>
 ```
 
 If the task is canceled (e.g., during rollback), the Dispatcher may return `status: "Canceled"`.
@@ -164,6 +182,11 @@ In that case the wrapper exits without running operator code and reports the can
 ## Buffered dataset publish (Worker → Dispatcher)
 
 Buffered Postgres datasets are published by calling `POST /internal/buffer-publish`. This is attempt-fenced just like heartbeat/completion.
+
+```
+POST /internal/buffer-publish
+X-Trace-Task-Capability: <capability_token>
+```
 
 Request:
 
@@ -191,6 +214,7 @@ Workers extend their lease while executing.
 
 ```
 POST /internal/heartbeat
+X-Trace-Task-Capability: <capability_token>
 ```
 
 ```json
@@ -204,6 +228,11 @@ POST /internal/heartbeat
 Dispatcher rejects heartbeats for stale attempts or stale lease tokens.
 
 ## Task Completion (Worker → Dispatcher)
+
+```
+POST /internal/task-complete
+X-Trace-Task-Capability: <capability_token>
+```
 
 Task completion includes an `outputs` array so a single task can materialize multiple outputs. Outputs are referenced internally by `dataset_uuid` (and optionally `output_index`).
 
@@ -225,6 +254,11 @@ Task completion includes an `outputs` array so a single task can materialize mul
 ```
 
 ## Upstream Events (Worker → Dispatcher)
+
+```
+POST /internal/events
+X-Trace-Task-Capability: <capability_token>
+```
 
 Jobs can produce multiple outputs. DAG wiring in YAML is by `{job, output_index}` edges, but at runtime the Dispatcher routes by the upstream output identity (`dataset_uuid`).
 

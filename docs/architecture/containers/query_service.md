@@ -53,6 +53,8 @@ X-Trace-Task-Capability: <capability_token>
 Content-Type: application/json
 ```
 
+> Task-scoped endpoints (`/v1/task/*`) are **internal-only** and are not routed through the public Gateway.
+
 The request/response shape is the same as `/v1/query`, but dataset exposure is strictly limited to the dataset versions enumerated in the capability token.
 
 ### Request

@@ -80,6 +80,8 @@ POST /v1/task/credentials
 X-Trace-Task-Capability: <capability_token>
 ```
 
+> This endpoint is **internal-only**: it is reachable only from within the VPC (workers/Lambdas) and must not be routed through the public Gateway.
+
 - The capability token is issued per `(task_id, attempt)` and defines allowed input/output/scratch prefixes.
 - Dispatcher calls `sts:AssumeRole` with a session policy derived from the token.
 - Returned credentials are short-lived and allow only S3 access within the encoded prefixes.

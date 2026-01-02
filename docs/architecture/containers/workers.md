@@ -50,8 +50,10 @@ flowchart LR
 
 > Secrets are injected at task launch (ECS task definition `secrets`) and are available to the operator as environment variables. Platform operators do not fetch Secrets Manager directly at runtime.
 >
-> Internal Dispatcher endpoints (`/internal/*`) are protected by mTLS. Only the **wrapper** container receives the client certificate; untrusted code must not.
-> The wrapper is responsible for all `/internal/*` calls (claim/heartbeat/complete, credential minting, and buffered dataset publish).
+> The **wrapper** is the trusted boundary for worker execution:
+> - It performs worker-only operations (queue ack/visibility management, task claim/fetch).
+> - It holds any worker-only auth material (e.g., a worker token) that must not be visible to untrusted code.
+> - It passes the per-attempt **task capability token** to operator/UDF code for task-scoped APIs (task query, credential minting, fenced completion/events).
 
 ### UDF Worker
 
@@ -97,14 +99,15 @@ To reduce operational surface area, v1 treats language/runtime packaging as an i
 | Runtime | Execution | Trust | Use Case |
 |---------|-----------|-------|----------|
 | `dispatcher` | In-process | trusted | Control-plane-only jobs |
-| `lambda` | AWS Lambda | trusted | Sources (cron/webhook/manual) and small operators (no user bundles) |
+| `lambda` | AWS Lambda | trusted or untrusted | Sources + short operators; UDFs are allowed when treated as untrusted and restricted via capability tokens |
 | `ecs_platform` | ECS task | trusted | Platform operators (ingest, compaction, integrity) |
 | `ecs_udf` | ECS task | untrusted | User-defined logic (alerts, transforms, queries) |
 
 Notes:
-- Do not run untrusted user code in Lambda; use `ecs_udf` behind the wrapper.
+- Trust is determined by the **operator** (platform-managed vs user/UDF bundle), not by the compute primitive. Treat `lambda` as **untrusted by default**.
+- `lambda` UDFs have no wrapper boundary: do not inject long-lived secrets. They must use the per-attempt task capability token for task-scoped APIs and obtain scoped object-store access via credential minting.
 - The operator implementation may be Rust, Python, or Node — that is a build/deployment detail, not a user-facing runtime enum.
-- `ecs_udf` is always treated as untrusted and must use Query Service + scoped object-store credentials.
+- `ecs_udf` is always treated as untrusted and must use Query Service + scoped object-store credentials (and must not have direct Postgres access).
 
 ## Execution Model
 
@@ -112,6 +115,9 @@ Notes:
 - **Lambda runtimes**:
   - **Sources**: invoked by EventBridge / API Gateway and emit upstream events.
   - **Reactive jobs**: invoked by Dispatcher with the full task payload and must report completion.
+
+Lambda UDF note:
+- When `runtime: lambda` executes untrusted user code, the invocation payload must include a task capability token. Completion/events are reported using that token (fenced by lease_token), not by any hidden internal credential.
 
 Notes:
 - v1 targets `linux/amd64` for ECS workers; additional architectures can be added as needed.
