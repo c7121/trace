@@ -163,7 +163,7 @@ sequenceDiagram
     DS->>PG: Query with row_filter
     DS->>DS: Process + write output
     DS->>DISP: Task complete
-    DISP->>INV: Record processed_by for DS job
+    DISP->>INV: Mark invalidation processed (after accepting fenced completion)
 ```
 
 
@@ -259,7 +259,7 @@ sequenceDiagram
     D->>W: Return task payload with invalidation context
     W->>W: Reprocess affected scope
     W->>D: Task complete
-    D->>INV: Record processed_by for job
+    D->>INV: Mark invalidation processed
 
 ```
 

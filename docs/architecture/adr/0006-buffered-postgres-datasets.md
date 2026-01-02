@@ -71,3 +71,12 @@ flowchart LR
 - Buffered Postgres dataset schema is managed by the platform and updated via deploy-time migrations (DAG update + controlled migration), not runtime “first writer creates table”.
 - Multi-writer datasets are supported: multiple producers can publish to the same buffer and rely on sink-side idempotency keys / unique constraints.
 - Buffers use a DLQ / dead-letter mechanism (SQS DLQ in AWS). Messages that exceed the max receive count require manual inspection and replay.
+
+## Idempotency requirements
+
+Buffered datasets must be correct under **at-least-once** publish and task retries.
+
+- **Row-level idempotency is required.** Each row must include a deterministic idempotency key (e.g., `dedupe_key`) or natural unique key that is stable across retries and does not include `attempt` or timestamps.
+- The sink enforces idempotency with `UNIQUE(...)` constraints and `ON CONFLICT DO NOTHING/UPDATE`.
+- Duplicates across task attempts are expected. Batch artifacts may be written per-attempt to avoid S3 key collisions; correctness comes from sink-side row dedupe.
+- **Tenant attribution is not trusted from payload.** The sink must assign `org_id` (and other attribution fields) from the trusted publish record / queue message produced by the Dispatcher and must not trust `org_id` values embedded inside batch rows.

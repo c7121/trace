@@ -43,10 +43,12 @@ Datasets or rows containing PII support visibility levels:
 
 ## PII Access Audit Log
 
+> `pii_access_log` lives in **Postgres data** for auditing. `user_id` is a **soft reference** to `Postgres state.users(id)` (no cross-DB foreign keys).
+
 ```sql
 CREATE TABLE pii_access_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id),
+    user_id UUID NOT NULL, -- soft ref: Postgres state users(id)
     dataset TEXT NOT NULL,
     column_name TEXT,
     record_id UUID,

@@ -2,13 +2,15 @@
 
 Canonical DDL for alerting tables.
 
+> These tables live in **Postgres data**. Columns like `org_id`/`user_id` and producer ids refer to entities in **Postgres state** and are **soft references** (no cross-DB foreign keys).
+
 ## alert_definitions
 
 ```sql
 CREATE TABLE alert_definitions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    user_id UUID NOT NULL REFERENCES users(id),
+    org_id UUID NOT NULL, -- soft ref: Postgres state orgs(id)
+    user_id UUID NOT NULL, -- soft ref: Postgres state users(id)
     name TEXT NOT NULL,
     condition JSONB NOT NULL,         -- UDF or expression (see below)
     channels JSONB NOT NULL,          -- email, sms, webhook configs
@@ -24,10 +26,10 @@ CREATE TABLE alert_definitions (
 ```sql
 CREATE TABLE alert_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
+    org_id UUID NOT NULL, -- soft ref: Postgres state orgs(id)
     alert_definition_id UUID REFERENCES alert_definitions(id), -- nullable for non-UDF/system alerts
-    producer_job_id UUID REFERENCES jobs(id),
-    producer_task_id UUID REFERENCES tasks(id),
+    producer_job_id UUID, -- soft ref: Postgres state jobs(id)
+    producer_task_id UUID, -- soft ref: Postgres state tasks(id)
     severity TEXT,                      -- e.g., 'info'|'warning'|'critical'
     chain_id BIGINT,
     block_number BIGINT,
@@ -49,7 +51,7 @@ CREATE TABLE alert_events (
 ```sql
 CREATE TABLE alert_deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id),
+    org_id UUID NOT NULL, -- soft ref: Postgres state orgs(id)
     alert_event_id UUID NOT NULL REFERENCES alert_events(id),
     channel TEXT NOT NULL,              -- 'email'|'sms'|'webhook'|'slack'|'pagerduty'
     status TEXT NOT NULL,               -- 'pending'|'sending'|'delivered'|'retrying'|'failed'|...

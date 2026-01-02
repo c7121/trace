@@ -72,6 +72,8 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 
 **Storage:** Postgres state holds orchestration metadata (multi-AZ, PITR). Postgres data and S3 are used for job data: Postgres data is typically used for hot/mutable datasets (e.g., recent chain ranges, alert tables), while S3 Parquet is used for cold/immutable datasets and exported results. The "hot" vs "cold" split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not a separate storage engine. DuckDB federates across both.
 
+See [db_boundaries.md](architecture/db_boundaries.md) for hard invariants and cross-database constraints.
+
 
 ### Deep Dives
 
@@ -81,6 +83,7 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 - Operations (targets, invariants, failure drills): [operations.md](standards/operations.md)
 - Orchestration internals: [dispatcher.md](architecture/containers/dispatcher.md)
 - Execution model: [workers.md](architecture/containers/workers.md)
+- Database boundaries: [db_boundaries.md](architecture/db_boundaries.md)
 - Query federation: [query_service.md](architecture/containers/query_service.md)
 - Scoped data access: [dispatcher.md#credential-minting](architecture/containers/dispatcher.md#credential-minting)
 - Outbound egress: [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md)

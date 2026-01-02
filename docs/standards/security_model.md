@@ -88,6 +88,7 @@ See [ADR 0002: Networking Posture](../architecture/adr/0002-networking.md).
 - No inbound connections to job containers.
 - **TLS required**: all internal and external traffic uses TLS 1.2+.
 - Internal platform APIs (`/internal/*`) require **mutual TLS** client auth and are reachable only from platform components with the client certificate (e.g., the worker wrapper). User/UDF code must not have the client credential.
+- `runtime: lambda` is reserved for **trusted** platform operators. Do not execute untrusted user/UDF bundles in Lambda: you cannot withhold the mTLS client credential from user code in a single-process Lambda.
 
 
 ## Internal Service Authentication
@@ -97,6 +98,7 @@ Internal control-plane endpoints (`/internal/*`) are protected by **mTLS** (mutu
 - **Server side**: Dispatcher (and other platform services exposing internal endpoints) terminate TLS and require a valid client certificate.
 - **Client side**: only trusted platform components receive the client certificate (e.g., the worker wrapper container, Delivery Service).
 - In ECS, implement this by running a **wrapper container** (trusted) alongside the **UDF container** (untrusted), and mounting the client cert only into the wrapper.
+- `runtime: lambda` operators are treated as trusted platform code and may call `/internal/*` using mTLS. Untrusted code must run as `ecs_udf` behind the wrapper.
 - **Untrusted UDF containers do not receive the client certificate**. Even if they can reach the service IP/port, they cannot authenticate to `/internal/*`.
 - The worker wrapper must not expose a local HTTP proxy that would let untrusted code relay privileged requests. Wrapper-to-UDF communication should be via process invocation (stdin/stdout) or a private file/pipe, not an HTTP port.
 

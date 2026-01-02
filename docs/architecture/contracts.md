@@ -19,7 +19,14 @@ Task queue message contains only `task_id` (wake-up). The worker then claims the
 
 ## Dispatcher → Lambda (runtime=lambda)
 
-For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no task queue). Invocation payload includes the **full task payload** (same shape as `/internal/task-fetch`) so the Lambda does not need to fetch task details before executing:
+For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no task queue).
+
+> **Security boundary:** `runtime: lambda` is reserved for **trusted** platform operators only.
+> Do not execute untrusted user/UDF bundles in Lambda: `/internal/*` requires mTLS client auth and you cannot
+> withhold the client credential from user code in a single-process Lambda. Untrusted code must run as `ecs_udf`
+> behind the worker wrapper.
+
+Invocation payload includes the **full task payload** (same shape as `/internal/task-fetch`) so the Lambda does not need to fetch task details before executing:
 
 ```json
 {
@@ -55,11 +62,15 @@ Workers call Dispatcher for:
 
 Workers never have Postgres state credentials.
 
-Operator/UDF code must not be able to call `/internal/*`.
+Untrusted operator/UDF code must not be able to call `/internal/*`.
 
 `/internal/*` endpoints require **mTLS** client auth, and only trusted platform components receive the client certificate (e.g., the worker wrapper container). Untrusted UDF code must not receive the client credential.
 
 The wrapper must not expose a proxy interface that would let untrusted code relay privileged requests.
+
+For `runtime: lambda`, the Lambda handler is treated as trusted platform code and may call `/internal/*` using mTLS.
+Do not use `runtime: lambda` to execute untrusted user bundles.
+
 
 Secrets (when required) are injected at task launch (ECS task definition `secrets`) and are available to operator code as environment variables. Untrusted tasks must not have Secrets Manager permissions.
 
@@ -88,6 +99,8 @@ The token is enforced by:
 
 - **Query Service** — for ad-hoc SQL reads across Postgres + S3; only the datasets in the token are attached as views.
 - **Dispatcher** — exchanges the token for short-lived STS credentials scoped to the allowed S3 prefixes (credential minting).
+
+The trusted **worker wrapper** performs any `/internal/*` calls (including credential minting) and injects the resulting STS creds into the untrusted process. UDF code does not call `/internal/*` directly.
 
 UDF code never connects to Postgres directly.
 
@@ -288,6 +301,7 @@ Queue message (example):
 ```json
 {
   "kind": "buffer_batch",
+  "org_id": "uuid",
   "dataset_uuid": "uuid",
   "dataset_version": "uuid",
   "batch_uri": "s3://trace-scratch/buffers/{dataset_uuid}/{task_id}/{attempt}/batch.jsonl",
@@ -299,6 +313,8 @@ Queue message (example):
 Notes:
 
 - Queue messages must remain small (<256KB). **Do not embed full records** in queue messages.
-- Idempotency is enforced by the sink using table unique keys and/or dedupe keys (see `write_mode: buffered` schema).
+- **Row-level idempotency is required.** Buffered dataset rows must include a deterministic idempotency key (e.g., `dedupe_key`) or a natural unique key that is stable across retries. The sink enforces this with `UNIQUE(...)` + `ON CONFLICT DO NOTHING/UPDATE`.
+- Duplicates across attempts are expected. Batch artifacts may be written per-attempt to avoid S3 key collisions; correctness comes from sink-side row dedupe, not from attempt numbers.
+- **Multi-tenant safety:** the sink must assign `org_id` from the trusted publish record / queue message and must not trust `org_id` values embedded inside batch rows.
 - Producers do not need direct access to the queue backend; the Dispatcher owns queue publishing via the outbox.
 

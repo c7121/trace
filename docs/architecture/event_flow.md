@@ -36,8 +36,11 @@ sequenceDiagram
     end
 
     opt buffered Postgres dataset output
-        W->>BufQ: Publish records
-        L->>BufQ: Publish records
+        W->>S: Write batch artifact to scratch
+        W->>D: POST /internal/buffer-publish {task_id, attempt, dataset_uuid, dataset_version, batch_uri}
+        L->>S: Write batch artifact to scratch
+        L->>D: POST /internal/buffer-publish {task_id, attempt, dataset_uuid, dataset_version, batch_uri}
+        D->>BufQ: Enqueue pointer message
         SinkW->>BufQ: Drain messages
         SinkW->>S: Write Postgres data
         SinkW->>D: POST /internal/events after commit

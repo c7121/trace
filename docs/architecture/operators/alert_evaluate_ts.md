@@ -6,7 +6,7 @@ Evaluate alert conditions against data (TypeScript implementation).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `lambda` |
+| **Runtime** | `ecs_udf` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
@@ -21,7 +21,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 | Input | Type | Description |
 |-------|------|-------------|
 | `cursor` | event | Cursor value from upstream dataset event (e.g., `block_number`) |
-| `alert_definitions` | storage | Postgres table of enabled alert definitions (read) |
+| `alert_definitions` | storage | Query Service view/table of enabled alert definitions (scoped read) |
 
 ## Outputs
 
@@ -40,7 +40,7 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 - Fetches alert definition (condition, thresholds)
 - Loads relevant data partition
 - Evaluates condition using user-defined logic
-- If triggered: publishes an alert record to the `alert_events` dataset buffer (deduped downstream by `dedupe_key`)
+- If triggered: writes alert record(s) to an object-store scratch batch artifact and requests publish to the `alert_events` buffered sink via `POST /internal/buffer-publish` (deduped downstream by `dedupe_key`)
 
 ## Condition Types Supported
 
@@ -53,16 +53,16 @@ Evaluates user-defined alert conditions against incoming or historical data. Typ
 
 ## Dependencies
 
-- Postgres read access to alert_definitions
-- Data storage read access (S3/Postgres)
-- SQS send access to the `alert_events` dataset buffer
+- Query Service read access to `alert_definitions` (scoped by org)
+- Scoped object storage access for reading inputs and writing scratch artifacts
+- Wrapper-mediated `POST /internal/buffer-publish` (no direct queue permissions)
 
 ## Example DAG Config
 
 ```yaml
 - name: alert_evaluate_ts
   activation: reactive
-  runtime: lambda
+  runtime: ecs_udf
   operator: alert_evaluate_ts
   execution_strategy: PerUpdate
   idle_timeout: 5m

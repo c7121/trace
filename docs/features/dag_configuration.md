@@ -6,7 +6,7 @@ Users create and edit DAG configurations via the API or UI. Each DAG is stored a
 
 ## Concepts
 
-- **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_platform`, `ecs_udf`).
+- **Operator** — the implementation (code) that runs in a runtime (`lambda`, `ecs_platform`, `ecs_udf`). `lambda` is reserved for trusted platform operators; untrusted user code must run as `ecs_udf`.
 - **Job** — a configured instance of an operator inside a DAG (`runtime` + `operator` + `config`).
 - **Dataset** — a user-facing, **published** output with:
   - `dataset_name` (human-readable string, unique per org) and
@@ -79,7 +79,7 @@ jobs:
   # Reactive: evaluate alerts on new blocks
   - name: alert_evaluate_rs
     activation: reactive
-    runtime: lambda
+    runtime: ecs_udf
     operator: alert_evaluate_rs
     execution_strategy: PerUpdate # cursor-based event input
     idle_timeout: 5m
