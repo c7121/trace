@@ -11,6 +11,11 @@ Component boundaries: task payloads, results, and upstream events.
 > - **Worker-only endpoints** (task claim) are callable only by trusted worker wrappers and are protected by network policy plus a worker identity mechanism (see below).
 > - **Privileged platform endpoints** (if any) should use a separate service identity mechanism (recommended: service JWT); **mTLS is optional hardening**, not a requirement.
 
+**Task capability token format (v1):**
+- The task capability token is a **JWT signed by the Dispatcher** (recommended: ES256).
+- Verifiers (Dispatcher `/v1/task/*`, Query Service `/v1/task/query`, sinks) validate signature and expiry using the Dispatcher’s internal **task-JWKS** document.
+- The task-JWKS endpoint is internal-only (e.g., `GET /internal/jwks/task`) and should be cached by verifiers; rotation uses `kid`.
+
 
 **Delivery semantics:** tasks and upstream events are **at-least-once**. Duplicates and out-of-order delivery are expected; correctness comes from attempt/lease gating plus idempotent output commits. See [task_lifecycle.md](task_lifecycle.md).
 
@@ -29,6 +34,11 @@ Task queue message contains only `task_id` (wake-up). The worker then claims the
 
 For jobs with `runtime: lambda`, the Dispatcher invokes the Lambda directly (no task queue).
 
+In AWS, `runtime: lambda` should refer to a **platform-managed UDF runner** Lambda (per environment), not user-deployed Lambdas.
+- The runner treats the bundle as untrusted code.
+- The runner’s execution role should be near-zero (no broad S3/SQS/Secrets Manager access).
+- The Dispatcher should supply an object-scoped **pre-signed S3 GET URL** for the bundle so the runner does not need S3 IAM permissions.
+
 > `runtime: lambda` may execute either platform operators or untrusted UDF bundles. Treat Lambda as **untrusted by default**: do not rely on hidden internal credentials.
 >
 > For task execution, the Dispatcher includes a per-attempt **task capability token** in the invocation payload. The Lambda uses that token to:
@@ -45,6 +55,7 @@ Invocation payload includes the **full task payload** (same shape as `/internal/
   "lease_token": "uuid",
   "lease_expires_at": "2025-12-31T12:00:00Z",
   "capability_token": "jwt",
+  "bundle_url": "https://s3.../udf/{bundle}.zip?X-Amz-...",
   "job": { "dag_name": "monad", "name": "block_follower" },
   "operator": "block_follower",
   "config": { "...": "..." },
@@ -86,6 +97,8 @@ Authentication is split by endpoint type:
   They must be protected by network policy (security groups allow only worker services) and a worker identity mechanism (e.g., `X-Trace-Worker-Token` injected only into the wrapper container).
 
 For `runtime: lambda`, the Lambda receives the task capability token in the invocation payload and uses it directly. There is no wrapper boundary in Lambda; do not rely on hidden shared secrets in Lambda.
+
+AWS note: ECS/Fargate tasks do not support per-container IAM roles. If you execute untrusted UDF code in ECS, you must ensure it does not share AWS API permissions (SQS, queue ack, etc.) with the wrapper/poller.
 
 
 Secrets (when required) are injected at task launch (ECS task definition `secrets`) and are available to operator code as environment variables. Untrusted tasks must not have Secrets Manager permissions.

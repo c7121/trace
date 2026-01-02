@@ -7,6 +7,12 @@ Trace uses **two worker profiles** with different trust assumptions:
 - **Platform workers** run trusted platform operators (block follower, ingest, compaction). They may use platform-managed secrets and may reach the RPC Egress Gateway.
 - **UDF workers** run untrusted user code (alerts, custom transforms). They do **not** have direct Postgres access and receive scoped data access via Query Service + short-lived credentials minted by the Dispatcher.
 
+> **AWS constraint (important):** ECS/Fargate does not support per-container IAM roles. All containers in a task share the task role and network.
+>
+> If a UDF worker wrapper/poller needs AWS API permissions (SQS, queue ack/visibility, ECS `RunTask`, etc.) and runs in the same ECS task as untrusted code, the untrusted code inherits those permissions.
+>
+> **v1 recommendation:** run untrusted UDF bundles on `runtime: lambda` (platform-managed runner) to keep the execution role near-zero. Support for `ecs_udf` in AWS requires a design where privileged polling/launch is separated from untrusted execution.
+
 ## Component View
 
 ### Platform Worker

@@ -38,6 +38,9 @@
 - The ECS worker wrapper and the Lambda UDF runner must implement enough of the Lambda Runtime API (or equivalent) to support common runtimes (one invocation per task; response/error reporting).
 - v1 requires `linux/amd64` artifacts for any native bundles (e.g., Rust `bootstrap`).
 - Bundles are executed as untrusted code. The platform passes only a per-attempt task capability token; do not inject long-lived internal secrets into the bundle.
+- **AWS ECS note:** ECS/Fargate does not support per-container IAM roles. If the wrapper and the UDF run in the same ECS task, the UDF inherits the task role.
+  - To maintain zero-trust, `ecs_udf` must not require AWS API permissions inside the same task as untrusted code.
+  - v1 recommendation: prefer the platform-managed `runtime: lambda` runner for untrusted bundles; treat `ecs_udf` as phase-2 unless a privilege-separating launcher architecture is implemented.
 - Node bundles must be deterministic and run without outbound internet access; `ethers` usage is for decoding/formatting over task-provided data.
 - The task payload must fully describe allowed inputs/outputs so the wrapper can scope data access:
   - Query Service attaches only dataset views enumerated in the task capability token.

@@ -66,6 +66,27 @@ Propagates upstream through DAG edges. When a queue trips its threshold (depth o
 - Mode: `pause` (stop task creation until queue drains)
 - Priority tiers: `normal`, `backfill` — shed `backfill` first when under pressure
 
+## Task capability token issuance
+
+Dispatcher issues a per-attempt **task capability token** (JWT) for untrusted execution. This token is used for:
+
+- Task-scoped lifecycle endpoints (`/v1/task/heartbeat`, `/v1/task/complete`, `/v1/task/events`, `/v1/task/buffer-publish`)
+- Task-scoped Query Service access (`/v1/task/query`)
+- Credential minting (`/v1/task/credentials`)
+
+**Recommended v1 signing:**
+- JWT algorithm: ES256
+- AWS profile: sign with an AWS KMS asymmetric key (`ECC_NIST_P256`)
+- Lite profile: sign with a local PEM keypair
+
+Dispatcher exposes an internal-only JWKS document so other services can verify tokens:
+
+```
+GET /internal/jwks/task
+```
+
+Verifiers (Query Service, sinks) should cache this JWKS and refresh on `kid` miss. Key rotation keeps old keys until all outstanding tokens have expired.
+
 ## Credential minting
 
 To keep UDF tasks near-zero-permission, the Dispatcher includes a **credential minting** component.

@@ -57,6 +57,10 @@ Content-Type: application/json
 
 The request/response shape is the same as `/v1/query`, but dataset exposure is strictly limited to the dataset versions enumerated in the capability token.
 
+**Verification:** Query Service validates the capability token as a JWT (signature + expiry).
+- It should cache the Dispatcher’s internal task-JWKS (e.g., `GET /internal/jwks/task`) and refresh on `kid` miss.
+- Query Service does not call Dispatcher per request for authorization; the token contents are the authorization.
+
 ### Request
 
 ```json

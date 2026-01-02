@@ -124,6 +124,79 @@ Some endpoints exist only because ECS workers poll the queue and must claim task
 
 > mTLS can be used as an optional hardening technique for trusted service-to-service calls, but it is **not required** for the v1 model and does not replace capability tokens for untrusted runtimes.
 
+
+
+## Locked v1 decisions
+
+This section exists to prevent drift between the written security model and the implementation.
+If you change any of these, update this document and any impacted ADRs/contracts.
+
+### User JWT verification (public API)
+
+**Decision:** API Gateway validates user JWTs, and every backend service validates them again.
+
+- API Gateway uses an OIDC/JWT authorizer for edge controls (reject invalid tokens early, apply rate limiting/WAF).
+- Backend services (Dispatcher, Query Service) **must** verify the JWT signature and validate claims (`iss`, `aud`, `exp`, `nbf`) and derive identity from claims.
+- Do **not** trust forwarded identity headers (`X-Org-Id`, `X-User-Id`, etc.) as an auth boundary.
+
+**Implementation recommendation (low ops):**
+- Maintain a tiny shared “trace-auth” middleware per language (Rust/Python/Node) that:
+  - caches IdP JWKS with a small TTL (e.g., 5–15 minutes),
+  - refreshes on `kid` miss,
+  - rejects unexpected algorithms (no `alg=none`),
+  - normalizes required claims (`org_id`, `role`, `sub`).
+
+### Task capability tokens (untrusted execution)
+
+**Decision:** task-scoped APIs use a per-attempt **capability token** (JWT) plus lease fencing. No hidden internal secrets are required inside untrusted runtimes.
+
+- Token minted by Dispatcher per `(task_id, attempt, org_id)`.
+- Token is presented on `/v1/task/*` endpoints and on Query Service `/v1/task/query`.
+- Requests are additionally fenced by `{task_id, attempt, lease_token}` in the request body.
+
+**Signing / verification (recommended default):**
+- JWT algorithm: **ES256**.
+- AWS profile: sign with an **AWS KMS asymmetric key** (`ECC_NIST_P256`).
+- Lite profile: sign with a local PEM keypair.
+- Dispatcher exposes a **task-JWKS** document (internal-only) that verifiers cache (Query Service, sinks).
+  - Rotation uses `kid`; keep old keys until max token TTL elapses.
+
+**Lifetime / refresh (minimize moving parts):**
+- Set `exp` to **at most** `lease_expires_at + 5 minutes`.
+- Renew the token opportunistically on `POST /v1/task/heartbeat` by returning:
+  - updated `lease_expires_at`, and
+  - a refreshed capability token.
+- Query Service must not call Dispatcher per query; it validates signature + expiry and enforces dataset/prefix limits from the token.
+
+### Worker identity for `/internal/task-claim` (queue pollers)
+
+**Decision:** only trusted worker wrappers may call `/internal/task-claim` and `/internal/task-fetch`.
+
+- Protect by **security groups** (only worker services can reach these endpoints) **and** a worker identity check.
+- Recommended worker identity: an environment-scoped **worker token** stored in Secrets Manager and injected only into the trusted wrapper container via ECS secret injection.
+- Rotation: Dispatcher accepts `{current, next}` worker tokens during rollout; remove old token after all workers redeploy.
+
+> Avoid mTLS as a v1 requirement here unless you already have a certificate issuance/rotation pipeline. Shared worker tokens + SGs are simpler and good enough when combined with lease fencing.
+
+### Lambda UDF runner (untrusted)
+
+**Decision:** `runtime: lambda` is a platform-managed runner that executes an **untrusted** bundle. Do not inject long-lived internal credentials.
+
+- The runner Lambda execution role should be **near-zero**: logs only + VPC networking (no S3/SQS/Secrets Manager).
+- Bundle download should use a **pre-signed S3 GET URL** (object-scoped) supplied by the Dispatcher.
+- All data access uses:
+  - capability token → Query Service (`/v1/task/query`), and
+  - capability token → Dispatcher credential minting (`/v1/task/credentials`) → scoped STS credentials for S3 prefixes.
+
+### ECS UDF note (AWS reality)
+
+**Decision:** treat ECS UDF execution as a phase-2 feature unless you isolate privileges.
+
+- ECS/Fargate does **not** support per-container IAM roles. All containers in a task share the task role and network.
+- Therefore, do **not** run untrusted UDF code in the same ECS task as a component that needs AWS API permissions (SQS, ECS RunTask, etc.).
+- v1 recommendation for zero-trust: run untrusted UDFs on **Lambda**. If you need ECS UDFs, implement them via a separate trusted launcher/poller that starts UDF tasks with a near-zero role.
+
+
 ## Resource Limits
 
 - **CPU/memory**: hard caps in ECS task definition; job cannot exceed.
