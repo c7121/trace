@@ -12,7 +12,7 @@ A general-purpose ETL orchestration system designed for:
 - **Source jobs** — Long-running services with `activation: source` (e.g., blockchain followers)
 - **Config-as-code** — DAGs defined in YAML, version controlled
 
-See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
+See [plan.md](plan/plan.md) for the recommended build order and [backlog.md](plan/backlog.md) for deferred items.
 
 ### Design Principles
 
@@ -54,7 +54,7 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 | Source | Job with `activation: source` — maintains connections, emits events |
 | Asset | Output of a job — Parquet file, table rows |
 | Partition | A subset of an asset (e.g., blocks 0-10000) |
-| Runtime | Execution environment: `lambda`, `ecs_rust`, `ecs_python`, `ecs_udf_ts`, `ecs_udf_python`, `ecs_udf_rust`, `dispatcher` |
+| Runtime | Execution environment: `lambda`, `ecs_platform`, `dispatcher` (v1); `ecs_udf` is deferred to v2 |
 
 ---
 
@@ -63,7 +63,7 @@ See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
 Canonical C4 diagrams live in [c4.md](architecture/c4.md):
 
 - **C4 L1 (System Context)**
-- **C4 L2 (Container View)** — includes Platform Workers vs UDF Workers, Dispatcher credential minting, Delivery Service, and egress gateways
+- **C4 L2 (Container View)** — includes Platform Workers and the Lambda UDF runner (v1), Dispatcher credential minting, Delivery Service, and egress gateways
 
 This `docs/readme.md` keeps the architecture overview concise; use the C4 page for diagrams and component boundaries.
 
@@ -71,6 +71,8 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 ### Storage
 
 **Storage:** Postgres state holds orchestration metadata (multi-AZ, PITR). Postgres data and S3 are used for job data: Postgres data is typically used for hot/mutable datasets (e.g., recent chain ranges, alert tables), while S3 Parquet is used for cold/immutable datasets and exported results. The "hot" vs "cold" split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not a separate storage engine. DuckDB federates across both.
+
+See [db_boundaries.md](architecture/db_boundaries.md) for hard invariants and cross-database constraints.
 
 
 ### Deep Dives
@@ -81,34 +83,36 @@ This `docs/readme.md` keeps the architecture overview concise; use the C4 page f
 - Operations (targets, invariants, failure drills): [operations.md](standards/operations.md)
 - Orchestration internals: [dispatcher.md](architecture/containers/dispatcher.md)
 - Execution model: [workers.md](architecture/containers/workers.md)
+- Database boundaries: [db_boundaries.md](architecture/db_boundaries.md)
 - Query federation: [query_service.md](architecture/containers/query_service.md)
 - Scoped data access: [dispatcher.md#credential-minting](architecture/containers/dispatcher.md#credential-minting)
 - Outbound egress: [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md)
-- API/task/event schemas: [contracts.md](architecture/contracts.md)
+- User API surface: [user_api_contracts.md](architecture/user_api_contracts.md)
+- Task/event schemas: [contracts.md](architecture/contracts.md)
 
 
 ## Documentation Map
 
 | Area | Documents |
 |------|-----------|
-| Architecture | [C4 model](architecture/c4.md), [contracts](architecture/contracts.md), [task lifecycle](architecture/task_lifecycle.md), [event flow](architecture/event_flow.md), [data versioning](architecture/data_versioning.md), [ADRs](architecture/adr/) |
-| Containers | [dispatcher](architecture/containers/dispatcher.md), [workers](architecture/containers/workers.md), [query service](architecture/containers/query_service.md), [delivery service](architecture/containers/delivery_service.md), [rpc egress gateway](architecture/containers/rpc_egress_gateway.md) |
-| Data model | [ERD](architecture/data_model/erd.md), [orchestration](architecture/data_model/orchestration.md), [alerting](architecture/data_model/alerting.md) |
+| Architecture | [architecture index](architecture/README.md), [ADRs](adr/) |
+| Containers | [containers](architecture/containers/) |
+| Data model | [data model](architecture/data_model/) |
 | Operators | [operator catalog](architecture/operators/README.md) |
-| Features | [DAG config](features/dag_configuration.md), [ingestion](features/ingestion.md), [alerting](features/alerting.md), [UDFs](features/udf.md) |
+| Specs | [spec index](specs/README.md) |
 | Deploy | [deployment profiles](deploy/deployment_profiles.md), [infrastructure](deploy/infrastructure.md), [monitoring](deploy/monitoring.md) |
-| Standards | [security model](standards/security_model.md), [operations](standards/operations.md), [docs hygiene](standards/docs_hygiene.md) |
-| Use cases | [use case index](use_cases/README.md) |
-| Planning | [backlog](plan/backlog.md), [Trace Lite plan](plan/trace_lite.md), [PRD](prd/prd.md) |
+| Standards | [standards](standards/) |
+| Use cases | [operator recipes](architecture/operators/README.md#recipes) |
+| Planning | [planning](plan/) |
 
 When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
 
 ## Security
 
-- **Trust split**: Platform Workers run trusted operators; UDF Workers run untrusted user code.
+- **Trust split**: Platform Workers run trusted operators; untrusted user code executes only via the platform-managed Lambda UDF runner (v1).
 - **Secrets**: stored in AWS Secrets Manager and injected into ECS/Lambda at launch; untrusted code does not call Secrets Manager.
 - **Egress**: job containers have no direct internet egress. External calls go only through platform egress services (Delivery Service, RPC Egress Gateway).
-- **Roles**: dispatcher, platform workers, udf workers, query service, delivery service, rpc egress gateway.
+- **Roles**: dispatcher, platform workers, lambda udf runner, query service, delivery service, rpc egress gateway.
 
 The full isolation model and threat assumptions live in [security_model.md](standards/security_model.md).
 

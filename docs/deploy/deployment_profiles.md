@@ -50,7 +50,7 @@ These invariants are required in **all** profiles:
 
 The only allowed flow is:
 
-1) write durable intent (task row / buffer record row)
+1) write durable intent (task row / buffer publish row)
 2) write an outbox row describing the enqueue
 3) commit
 4) outbox publisher later calls `QueueDriver.publish(...)`
@@ -64,7 +64,7 @@ Publisher implementation note:
 
 ## One queue abstraction
 
-All internal queue use cases use the same QueueDriver interface (task wake-ups, buffered datasets, delivery work).
+All internal queue use cases use the same QueueDriver interface (task wake-ups, buffered datasets).
 
 ### QueueDriver operations
 
@@ -100,9 +100,8 @@ Poison handling:
 
 Keep payloads small and typed:
 
-- Task wake-up: `{"kind":"task_wakeup","task_id":"<uuid>"}`
-- Buffered record: `{"kind":"buffer_record","dataset_uuid":"<uuid>","record_id":"<uuid>"}`
-- Delivery work: `{"kind":"delivery","delivery_id":"<uuid>"}`
+- Task wake-up: `{"task_id":"<uuid>"}`
+- Buffered batch: `{"dataset_uuid":"<uuid>","dataset_version":"<uuid>","batch_uri":"s3://...","record_count":123}`
 
 ## pgqueue backend (Trace Lite)
 

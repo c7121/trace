@@ -1,12 +1,12 @@
 # cryo_ingest
 
-Archive historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo).
+Bootstrap historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo).
 
 ## Overview
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_rust` |
+| **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerPartition |
 | **Idle Timeout** | `0` (batch) |
@@ -14,7 +14,13 @@ Archive historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo
 
 ## Description
 
-Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC providers and writes to S3 as Parquet files. Used for backfills and archival.
+### Parallelism and RPC throughput
+
+- Use `scaling.max_concurrency` to cap in-flight partitions for this job.
+- Use `config.rpc_pool` to select an RPC pool managed by the RPC Egress Gateway. Pools may include multiple provider URLs/keys; keys must not appear in DAG YAML.
+
+
+Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC providers and writes to S3 as Parquet files. Used for bootstrap sync and archival.
 
 ## Inputs
 
@@ -36,7 +42,7 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ## Execution
 
 - **Threshold**: When hot storage reaches N blocks
-- **Manual**: Backfill requests (manual source emits events)
+- **Manual**: Bootstrap range requests (manual source emits events)
 - **Cron**: Scheduled archival runs (cron source emits events)
 
 ## Behavior
@@ -46,34 +52,38 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 
 ## Scaling
 
-Each cryo worker is configured with its own RPC API key. To run concurrent backfills:
-- Define a `worker_pools` entry with N slots (each slot maps `MONAD_RPC_KEY` → a distinct secret name)
-- Each slot can include multiple `secret_env` entries if the operator needs more than one secret.
-- Configure the job with `scaling.worker_pool` and `scaling.max_concurrency: N`
-- Dispatcher leases one slot per running task; effective concurrency is `min(max_concurrency, pool size)`
+Concurrency is controlled via `scaling.max_concurrency`.
+
+RPC credentials are **not** modeled as per-task or per-slot secrets in DAG YAML. Instead:
+
+- The job selects `config.rpc_pool`.
+- The **RPC Egress Gateway** owns key pooling, rotation, and rate limiting for that pool.
+- Workers authenticate only to the RPC Egress Gateway, not directly to external RPC providers.
+
+This removes the need for `worker_pools` and avoids per-slot task definition sprawl.
+
 
 ## Dependencies
 
-- RPC provider credentials (each worker configured with its own secret)
-- S3 write access to cold bucket
+- An `rpc_pool` configured in the RPC Egress Gateway (provider endpoints + API keys live there, not in DAG YAML).
+- S3 write access to the cold bucket for replace-style outputs.
 
 ## Example DAG Config
 
 ```yaml
-- name: cryo_backfill
+- name: cryo_bootstrap
   activation: reactive
-  runtime: ecs_rust
+  runtime: ecs_platform
   operator: cryo_ingest
   execution_strategy: PerPartition
   idle_timeout: 0
   inputs:
-    - from: { job: backfill_request, output: 0 }
+    - from: { job: range_request, output: 0 }
   config:
     chain_id: 10143
     datasets: [blocks, transactions, logs]
     rpc_pool: monad
   scaling:
-    worker_pool: monad_rpc_keys
     max_concurrency: 20   # dispatcher limits parallel jobs
   outputs: 3
   update_strategy: replace

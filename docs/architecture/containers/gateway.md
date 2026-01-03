@@ -6,8 +6,8 @@ Entry point for all external API traffic. Routes requests to backend services.
 
 | Property | Value |
 |----------|-------|
-| **Type** | API Gateway / ALB |
-| **Deployment** | AWS API Gateway + ALB |
+| **Type** | API Gateway + internal ALB |
+| **Deployment** | API Gateway (JWT) with VPC Link to internal ALB |
 | **Auth** | Bearer token (JWT from IdP) |
 
 ## Architecture
@@ -17,57 +17,46 @@ flowchart LR
     users["Users"]
     apigw["API Gateway"]
     alb["ALB"]
-    
+
     subgraph Backend["Backend Services"]
         dispatcher["Dispatcher"]
         query["Query Service"]
     end
-    
+
     idp["IdP Cognito"]
-    
-    users -->|/v1/query| apigw
-    users -->|/v1/jobs, /v1/alerts, etc.| apigw
+
+    users -->|/v1/*| apigw
     apigw -->|validate token| idp
     apigw -->|route| alb
     alb --> dispatcher
     alb --> query
 ```
 
-## Endpoints
+## Routing
 
-| Path | Backend | Purpose |
-|------|---------|---------|
-| `POST /v1/query` | Query Service | Interactive SQL queries |
-| `GET /v1/jobs/*` | Dispatcher | Job status, list |
-| `POST /v1/emit` | Dispatcher | Manual event emission |
-| `POST /v1/backfill` | Dispatcher | Trigger backfill |
-| `GET /v1/tasks/*` | Dispatcher | Task status |
-| `GET,POST,PUT,DELETE /v1/alerts/*` | Dispatcher | Alert CRUD |
-| `GET,POST,PUT,DELETE /v1/labels/*` | Dispatcher | Address label CRUD |
-| `GET,POST,PUT,DELETE /v1/queries/*` | Dispatcher | Saved query CRUD |
-| `POST /v1/dags` | Dispatcher | DAG deployment |
+- The Gateway routes **user** endpoints under `/v1/*` to backend services (Dispatcher and Query Service).
+- The Gateway MUST NOT expose task-scoped worker endpoints (`/v1/task/*`) or any `/internal/*` endpoints.
+
+> **Hard requirement:** the ALB must be internal-only (private subnets; no public listener). API Gateway reaches the ALB via VPC Link.
 
 ## Authentication
 
-All requests require `Authorization: Bearer <token>`.
+All user requests require `Authorization: Bearer <jwt>`.
 
-1. API Gateway validates JWT signature against IdP JWKS
-2. Extracts claims: `sub`, `org_id`, `email`, `role`
-3. Passes claims to backend via headers:
-   - `X-Org-Id`: org UUID
-   - `X-User-Id`: user UUID (resolved from `sub`)
-   - `X-User-Role`: platform role (reader/writer/admin)
-4. Backend services trust these headers (internal network only)
+- API Gateway validates the JWT signature/expiry against the IdP JWKS and applies edge controls (rate limiting, request validation).
+- API Gateway forwards the request to the internal ALB and preserves the `Authorization` header.
+- Backend services MUST validate the JWT again.
+
+**Claim mapping (canonical):**
+- Treat the IdP JWT as **authentication** only.
+- Use `sub` (and `iss`/`aud`) to look up the user in Postgres state.
+- Derive the effective role/permissions from Postgres state.
+
+**v1 tenancy:** Trace v1 deploys as a single-org instance. Requests do not select an org.
 
 ## Rate Limiting
 
-| Scope | Limit | Window |
-|-------|-------|--------|
-| Per-org | 1000 req | 1 minute |
-| Per-user | 100 req | 1 minute |
-| Query endpoint | 10 req | 1 minute |
-
-Enforced at API Gateway layer. Returns `429 Too Many Requests` when exceeded.
+Rate limiting is enforced at the API Gateway layer. Default limits and recommended starting values live in `docs/standards/operations.md`.
 
 ## CORS
 
@@ -75,6 +64,6 @@ Allowed origins configured per environment. Default: same-origin only.
 
 ## Related
 
-- [query_service.md](query_service.md) — query endpoint details
-- [contracts.md](../contracts.md) — dispatcher API contracts
-- [security_model.md](../../standards/security_model.md) — auth model
+- `docs/standards/security_model.md` — canonical auth model and trust boundaries
+- `docs/architecture/contracts.md` — worker/task contracts (internal-only)
+- `docs/architecture/containers/query_service.md` — query endpoint behavior

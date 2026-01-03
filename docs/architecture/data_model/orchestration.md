@@ -91,7 +91,7 @@ CREATE TABLE jobs (
     dag_name TEXT NOT NULL,
     dag_version_id UUID NOT NULL REFERENCES dag_versions(id),
     activation TEXT NOT NULL,           -- 'source', 'reactive'
-    runtime TEXT NOT NULL,              -- 'lambda', 'ecs_rust', 'ecs_python', 'dispatcher'
+    runtime TEXT NOT NULL,              -- 'lambda', 'ecs_platform', 'ecs_udf', 'dispatcher'
     operator TEXT NOT NULL,             -- 'block_follower', 'alert_evaluate', etc.
     source JSONB,                       -- { "kind": "cron", "schedule": "0 0 * * *" }
     bootstrap JSONB,                   -- source only: { "reset_outputs": true }
@@ -103,7 +103,7 @@ CREATE TABLE jobs (
     output_datasets TEXT[],             -- output dataset UUIDs by output index (string form)
     update_strategy TEXT NOT NULL,      -- 'append' | 'replace'
     unique_key TEXT[],                  -- required if update_strategy = 'append'
-    scaling JSONB,                      -- { "worker_pool": "monad_rpc_keys", "max_concurrency": 20 }
+    scaling JSONB,                      -- { "max_concurrency": 20 }
     timeout_seconds INT,
     heartbeat_timeout_seconds INT,
     max_attempts INT DEFAULT 3,
@@ -327,7 +327,7 @@ stateDiagram-v2
 
 **Retry behavior:** failed tasks retry up to `jobs.max_attempts`. `next_retry_at` schedules retries with backoff; retries reuse the same `task_id` and increment `tasks.attempt`.
 
-**Leasing:** `tasks.lease_expires_at` is extended by `/internal/heartbeat`. If the lease expires, the reaper marks the task failed and schedules a retry.
+**Leasing:** `tasks.lease_expires_at` is extended by `/v1/task/heartbeat`. If the lease expires, the reaper marks the task failed and schedules a retry.
 
 **Idempotent creation:** when `dedupe_key` is set, the Dispatcher enforces one task per `(job_id, dedupe_key)` even if an upstream event is delivered multiple times.
 
@@ -362,5 +362,5 @@ stateDiagram-v2
 ## Related
 
 - [Architecture Overview](../../readme.md) — system design and component diagrams
-- [DAG Configuration](../../features/dag_configuration.md) — YAML schema
+- [DAG Configuration](../../specs/dag_configuration.md) — YAML schema
 - [DAG Deployment](../dag_deployment.md) — deploy/sync flow
