@@ -161,11 +161,13 @@ mod tests {
         let queue = format!("pgqueue_test_{}", Uuid::new_v4());
         let pgq = PgQueue::new(pool);
 
+        let available_at = chrono::Utc::now() - chrono::Duration::seconds(5);
+
         let id1 = pgq
-            .publish(&queue, serde_json::json!({"n": 1}), chrono::Utc::now())
+            .publish(&queue, serde_json::json!({"n": 1}), available_at)
             .await?;
         let id2 = pgq
-            .publish(&queue, serde_json::json!({"n": 2}), chrono::Utc::now())
+            .publish(&queue, serde_json::json!({"n": 2}), available_at)
             .await?;
 
         let mut got = pgq.receive(&queue, 2, Duration::from_millis(200)).await?;
