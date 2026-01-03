@@ -1,5 +1,5 @@
 use crate::config::HarnessConfig;
-use crate::jwt::TaskCapability;
+use crate::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use anyhow::Context;
 use axum::{
     extract::State, http::HeaderMap, http::StatusCode, response::IntoResponse, routing::post, Json,
@@ -11,6 +11,7 @@ use serde_json::Value;
 use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
+use trace_core::{Queue as QueueTrait, Signer as SignerTrait};
 use uuid::Uuid;
 
 const OUTBOX_NAMESPACE: Uuid = Uuid::from_bytes([
@@ -21,7 +22,8 @@ const OUTBOX_NAMESPACE: Uuid = Uuid::from_bytes([
 struct AppState {
     pool: PgPool,
     cfg: HarnessConfig,
-    capability: TaskCapability,
+    capability: Arc<dyn SignerTrait>,
+    queue: Arc<dyn QueueTrait>,
 }
 
 pub struct DispatcherServer {
@@ -43,11 +45,24 @@ impl DispatcherServer {
             .with_context(|| format!("bind dispatcher to {bind}"))?;
         let addr = listener.local_addr().context("dispatcher local_addr")?;
 
-        let capability = TaskCapability::from_config(&cfg).context("init task capability")?;
+        let capability = TaskCapability::from_hs256_config(Hs256TaskCapabilityConfig {
+            issuer: cfg.task_capability_iss.clone(),
+            audience: cfg.task_capability_aud.clone(),
+            current_kid: cfg.task_capability_kid.clone(),
+            current_secret: cfg.task_capability_secret.clone(),
+            next_kid: cfg.task_capability_next_kid.clone(),
+            next_secret: cfg.task_capability_next_secret.clone(),
+            ttl: Duration::from_secs(cfg.task_capability_ttl_secs),
+            org_id: cfg.org_id,
+        })
+        .context("init task capability")?;
+
+        let queue = Arc::new(crate::pgqueue::PgQueue::new(pool.clone()));
         let state = Arc::new(AppState {
             pool,
             cfg,
-            capability,
+            capability: Arc::new(capability),
+            queue,
         });
         let app = build_router(state.clone());
 
@@ -278,7 +293,7 @@ async fn task_claim(
 
     let capability_token = state
         .capability
-        .issue(req.task_id, attempt)
+        .issue_task_capability(req.task_id, attempt)
         .map_err(ApiError::internal)?;
 
     Ok(Json(TaskClaimResponse {
@@ -315,7 +330,7 @@ async fn task_heartbeat(
     Json(req): Json<HeartbeatRequest>,
 ) -> ApiResult<Json<HeartbeatResponse>> {
     require_task_capability(
-        &state.capability,
+        state.capability.as_ref(),
         &headers,
         req.fence.task_id,
         req.fence.attempt,
@@ -373,7 +388,7 @@ async fn task_buffer_publish(
     Json(req): Json<BufferPublishRequest>,
 ) -> ApiResult<StatusCode> {
     require_task_capability(
-        &state.capability,
+        state.capability.as_ref(),
         &headers,
         req.fence.task_id,
         req.fence.attempt,
@@ -460,7 +475,7 @@ async fn task_complete(
     Json(req): Json<CompleteRequest>,
 ) -> ApiResult<StatusCode> {
     require_task_capability(
-        &state.capability,
+        state.capability.as_ref(),
         &headers,
         req.fence.task_id,
         req.fence.attempt,
@@ -598,7 +613,13 @@ async fn outbox_drain_loop(
             return Ok(());
         }
 
-        if let Err(err) = drain_outbox_once(&state.pool, state.cfg.outbox_batch_size).await {
+        if let Err(err) = drain_outbox_once(
+            &state.pool,
+            state.queue.as_ref(),
+            state.cfg.outbox_batch_size,
+        )
+        .await
+        {
             tracing::warn!(error = %err, "outbox drain error");
         }
 
@@ -609,7 +630,7 @@ async fn outbox_drain_loop(
     }
 }
 
-async fn drain_outbox_once(pool: &PgPool, max: i64) -> anyhow::Result<()> {
+async fn drain_outbox_once(pool: &PgPool, queue: &dyn QueueTrait, max: i64) -> anyhow::Result<()> {
     let mut tx = pool.begin().await.context("begin outbox drain tx")?;
 
     let rows = sqlx::query(
@@ -634,20 +655,10 @@ async fn drain_outbox_once(pool: &PgPool, max: i64) -> anyhow::Result<()> {
         let payload: Value = row.try_get("payload")?;
         let available_at: DateTime<Utc> = row.try_get("available_at")?;
 
-        let message_id = Uuid::new_v4();
-        sqlx::query(
-            r#"
-            INSERT INTO state.queue_messages (message_id, queue_name, payload, available_at)
-            VALUES ($1, $2, $3, $4)
-            "#,
-        )
-        .bind(message_id)
-        .bind(&topic)
-        .bind(payload)
-        .bind(available_at)
-        .execute(&mut *tx)
-        .await
-        .with_context(|| format!("publish outbox_id={outbox_id} to queue={topic}"))?;
+        let _message_id = queue
+            .publish(&topic, payload, available_at)
+            .await
+            .with_context(|| format!("publish outbox_id={outbox_id} to queue={topic}"))?;
 
         sqlx::query(
             r#"
@@ -804,7 +815,7 @@ impl IntoResponse for ApiError {
 }
 
 fn require_task_capability(
-    capability: &TaskCapability,
+    signer: &dyn SignerTrait,
     headers: &HeaderMap,
     task_id: Uuid,
     attempt: i64,
@@ -814,7 +825,7 @@ fn require_task_capability(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| ApiError::unauthorized("missing capability token"))?;
 
-    let claims = capability.verify(token).map_err(|err| {
+    let claims = signer.verify_task_capability(token).map_err(|err| {
         tracing::warn!(error = %err, "invalid capability token");
         ApiError::unauthorized("invalid capability token")
     })?;

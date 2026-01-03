@@ -2365,8 +2365,11 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "jsonwebtoken",
+ "reqwest",
  "serde",
  "serde_json",
+ "sqlx",
  "uuid",
 ]
 

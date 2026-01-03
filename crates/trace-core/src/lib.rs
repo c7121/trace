@@ -5,6 +5,8 @@ use serde_json::Value;
 use std::time::Duration;
 use uuid::Uuid;
 
+pub mod lite;
+
 #[derive(Debug, Clone)]
 pub struct QueueMessage {
     pub message_id: Uuid,
@@ -79,3 +81,11 @@ pub struct S3Grants {
     pub write_prefixes: Vec<String>,
 }
 
+impl S3Grants {
+    pub fn empty() -> Self {
+        Self {
+            read_prefixes: Vec::new(),
+            write_prefixes: Vec::new(),
+        }
+    }
+}

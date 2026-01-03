@@ -4,7 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+use trace_core::{ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -58,8 +59,9 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
         .connect(&cfg.state_database_url)
         .await
         .context("connect state db")?;
-    let pgq = PgQueue::new(pool);
-    let object_store = ObjectStore::new(&cfg.s3_endpoint).context("init object store")?;
+    let queue: Arc<dyn QueueTrait> = Arc::new(PgQueue::new(pool));
+    let object_store: Arc<dyn ObjectStoreTrait> =
+        Arc::new(ObjectStore::new(&cfg.s3_endpoint).context("init object store")?);
     let http = reqwest::Client::new();
 
     let poll_interval = Duration::from_millis(cfg.worker_poll_ms);
@@ -78,7 +80,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
                 tracing::info!("worker shutting down");
                 return Ok(());
             }
-            res = pgq.receive(&cfg.task_wakeup_queue, 1, visibility_timeout) => {
+            res = queue.receive(&cfg.task_wakeup_queue, 1, visibility_timeout) => {
                 let messages = res?;
                 if messages.is_empty() {
                     tokio::time::sleep(poll_interval).await;
@@ -86,7 +88,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
                 }
 
                 for msg in messages {
-                    if let Err(err) = handle_message(cfg, &pgq, &object_store, &http, msg, requeue_delay).await {
+                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &http, msg, requeue_delay).await {
                         tracing::warn!(error = %err, "worker message handling failed");
                     }
                 }
@@ -97,8 +99,8 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
 
 async fn handle_message(
     cfg: &HarnessConfig,
-    pgq: &PgQueue,
-    object_store: &ObjectStore,
+    queue: &dyn QueueTrait,
+    object_store: &dyn ObjectStoreTrait,
     http: &reqwest::Client,
     msg: crate::pgqueue::Message,
     requeue_delay: Duration,
@@ -108,7 +110,7 @@ async fn handle_message(
         Ok(v) => v,
         Err(err) => {
             tracing::warn!(error = %err, message_id = %message_id, "invalid wakeup payload; dropping");
-            pgq.ack(message_id).await?;
+            queue.ack(message_id).await?;
             return Ok(());
         }
     };
@@ -126,7 +128,7 @@ async fn handle_message(
             .context("POST /internal/task-claim")?;
 
         if resp.status() == reqwest::StatusCode::CONFLICT {
-            pgq.ack(message_id).await?;
+            queue.ack(message_id).await?;
             return Ok(());
         }
 
@@ -163,7 +165,7 @@ async fn handle_message(
             .context("POST /v1/task/buffer-publish")?;
 
         if resp.status() == reqwest::StatusCode::CONFLICT {
-            pgq.ack(message_id).await?;
+            queue.ack(message_id).await?;
             return Ok(());
         }
         resp.error_for_status().context("buffer-publish status")?;
@@ -187,12 +189,12 @@ async fn handle_message(
             .context("POST /v1/task/complete")?;
 
         if resp.status() == reqwest::StatusCode::CONFLICT {
-            pgq.ack(message_id).await?;
+            queue.ack(message_id).await?;
             return Ok(());
         }
         resp.error_for_status().context("complete status")?;
 
-        pgq.ack(message_id).await?;
+        queue.ack(message_id).await?;
         Ok(())
     }
     .await;
@@ -200,7 +202,7 @@ async fn handle_message(
     match res {
         Ok(()) => Ok(()),
         Err(err) => {
-            pgq.nack_or_requeue(message_id, requeue_delay).await?;
+            queue.nack_or_requeue(message_id, requeue_delay).await?;
             Err(err)
         }
     }
