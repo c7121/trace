@@ -1,4 +1,5 @@
 use clap::Parser;
+use uuid::Uuid;
 
 /// Harness configuration.
 ///
@@ -11,16 +12,120 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 pub struct HarnessConfig {
     /// Postgres state DB connection string.
-    #[arg(long, env = "STATE_DATABASE_URL", default_value = "postgres://trace:trace@localhost:5433/trace_state")]
+    #[arg(
+        long,
+        env = "STATE_DATABASE_URL",
+        default_value = "postgres://trace:trace@localhost:5433/trace_state"
+    )]
     pub state_database_url: String,
 
     /// Postgres data DB connection string.
-    #[arg(long, env = "DATA_DATABASE_URL", default_value = "postgres://trace:trace@localhost:5434/trace_data")]
+    #[arg(
+        long,
+        env = "DATA_DATABASE_URL",
+        default_value = "postgres://trace:trace@localhost:5434/trace_data"
+    )]
     pub data_database_url: String,
 
     /// Dispatcher bind address.
     #[arg(long, env = "DISPATCHER_BIND", default_value = "127.0.0.1:8080")]
     pub dispatcher_bind: String,
+
+    /// Dispatcher base URL (used by worker/sink HTTP clients).
+    #[arg(long, env = "DISPATCHER_URL", default_value = "http://127.0.0.1:8080")]
+    pub dispatcher_url: String,
+
+    /// Task lease duration in seconds.
+    #[arg(long, env = "LEASE_DURATION_SECS", default_value_t = 10)]
+    pub lease_duration_secs: u64,
+
+    /// Outbox poll interval in milliseconds.
+    #[arg(long, env = "OUTBOX_POLL_MS", default_value_t = 200)]
+    pub outbox_poll_ms: u64,
+
+    /// Lease reaper poll interval in milliseconds.
+    #[arg(long, env = "LEASE_REAPER_POLL_MS", default_value_t = 200)]
+    pub lease_reaper_poll_ms: u64,
+
+    /// Max outbox rows to drain per tick.
+    #[arg(long, env = "OUTBOX_BATCH_SIZE", default_value_t = 50)]
+    pub outbox_batch_size: i64,
+
+    /// Queue name for task wake-up messages.
+    #[arg(long, env = "TASK_WAKEUP_QUEUE", default_value = "task_wakeup")]
+    pub task_wakeup_queue: String,
+
+    /// Queue name for buffer pointer messages.
+    #[arg(long, env = "BUFFER_QUEUE", default_value = "buffer_queue")]
+    pub buffer_queue: String,
+
+    /// Queue name for poison buffer pointer messages.
+    #[arg(long, env = "BUFFER_QUEUE_DLQ", default_value = "buffer_queue_dlq")]
+    pub buffer_queue_dlq: String,
+
+    /// Org ID embedded into issued task capability tokens.
+    #[arg(
+        long,
+        env = "ORG_ID",
+        default_value = "00000000-0000-0000-0000-000000000001"
+    )]
+    pub org_id: Uuid,
+
+    /// Task capability token issuer.
+    #[arg(
+        long,
+        env = "TASK_CAPABILITY_ISS",
+        default_value = "trace-harness-dispatcher"
+    )]
+    pub task_capability_iss: String,
+
+    /// Task capability token audience.
+    #[arg(long, env = "TASK_CAPABILITY_AUD", default_value = "trace.task")]
+    pub task_capability_aud: String,
+
+    /// Task capability token key id (`kid`).
+    #[arg(long, env = "TASK_CAPABILITY_KID", default_value = "dev")]
+    pub task_capability_kid: String,
+
+    /// Task capability token HMAC secret (HS256; harness-only).
+    #[arg(
+        long,
+        env = "TASK_CAPABILITY_SECRET",
+        default_value = "trace-harness-dev-secret"
+    )]
+    pub task_capability_secret: String,
+
+    /// Task capability token TTL in seconds.
+    #[arg(long, env = "TASK_CAPABILITY_TTL_SECS", default_value_t = 300)]
+    pub task_capability_ttl_secs: u64,
+
+    /// Worker poll interval in milliseconds.
+    #[arg(long, env = "WORKER_POLL_MS", default_value_t = 200)]
+    pub worker_poll_ms: u64,
+
+    /// Worker queue visibility timeout in seconds.
+    #[arg(long, env = "WORKER_VISIBILITY_TIMEOUT_SECS", default_value_t = 30)]
+    pub worker_visibility_timeout_secs: u64,
+
+    /// Worker requeue delay on transient failures (milliseconds).
+    #[arg(long, env = "WORKER_REQUEUE_DELAY_MS", default_value_t = 500)]
+    pub worker_requeue_delay_ms: u64,
+
+    /// Sink poll interval in milliseconds.
+    #[arg(long, env = "SINK_POLL_MS", default_value_t = 200)]
+    pub sink_poll_ms: u64,
+
+    /// Sink queue visibility timeout in seconds.
+    #[arg(long, env = "SINK_VISIBILITY_TIMEOUT_SECS", default_value_t = 30)]
+    pub sink_visibility_timeout_secs: u64,
+
+    /// Sink requeue delay on parse/schema errors (milliseconds).
+    #[arg(long, env = "SINK_RETRY_DELAY_MS", default_value_t = 200)]
+    pub sink_retry_delay_ms: u64,
+
+    /// Max deliveries for poison buffer messages before DLQ.
+    #[arg(long, env = "SINK_MAX_DELIVERIES", default_value_t = 3)]
+    pub sink_max_deliveries: i32,
 
     /// MinIO/S3 endpoint (used later by the pointer-buffer artifacts).
     #[arg(long, env = "S3_ENDPOINT", default_value = "http://localhost:9000")]

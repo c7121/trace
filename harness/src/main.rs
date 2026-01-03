@@ -2,8 +2,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-mod config;
-mod migrate;
+use trace_harness::{config, dispatcher, migrate, sink, worker};
 
 #[derive(Parser, Debug)]
 #[command(name = "trace-harness")]
@@ -39,17 +38,8 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Migrate => migrate::run(&cfg).await,
-        Command::Dispatcher => {
-            tracing::info!("dispatcher: not implemented in skeleton (see harness/AGENT_TASKS.md)");
-            Ok(())
-        }
-        Command::Worker => {
-            tracing::info!("worker: not implemented in skeleton (see harness/AGENT_TASKS.md)");
-            Ok(())
-        }
-        Command::Sink => {
-            tracing::info!("sink: not implemented in skeleton (see harness/AGENT_TASKS.md)");
-            Ok(())
-        }
+        Command::Dispatcher => dispatcher::run(&cfg).await,
+        Command::Worker => worker::run(&cfg).await,
+        Command::Sink => sink::run(&cfg).await,
     }
 }

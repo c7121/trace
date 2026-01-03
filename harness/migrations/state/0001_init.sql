@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS state.queue_messages (
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS queue_messages_ready_idx
-ON state.queue_messages (queue_name, available_at)
-WHERE invisible_until IS NULL OR invisible_until <= now();
+CREATE INDEX IF NOT EXISTS queue_messages_queue_available_idx
+ON state.queue_messages (queue_name, available_at, created_at);
 
+CREATE INDEX IF NOT EXISTS queue_messages_queue_invisible_idx
+ON state.queue_messages (queue_name, invisible_until);

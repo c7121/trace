@@ -51,5 +51,6 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 trace tracepassword &&
       mc mb -p local/trace-harness || true &&
+      mc anonymous set public local/trace-harness || true &&
       exit 0
       "
