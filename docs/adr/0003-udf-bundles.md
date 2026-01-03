@@ -8,51 +8,59 @@
 - **ECS UDF execution is deferred to v2** because ECS/Fargate does not support per-container IAM roles; achieving zero trust requires a different launcher/credential isolation design.
 
 ## Decision
-- User-defined code (alert conditions, transforms, enrichments) is packaged and distributed as **AWS Lambda-style zip bundles** stored in S3.
-- v1 standardizes execution on **`linux/amd64`** so users build a single artifact target.
+- User-defined code (alerts, custom transforms/enrichments) is packaged and distributed as **AWS Lambda-style zip bundles** stored in object storage.
+- v1 standardizes native artifacts on **`linux/amd64`** (so users build a single target for Rust/custom runtimes and any native extensions).
+- The platform records **bundle metadata** at upload time (at minimum: `sha256`, `language`, and an optional default `entrypoint`).
+- At execution time, the Dispatcher selects an appropriate **language runner** based on the bundle metadata.
+
 Bundles are executed by Trace runtimes as follows:
-- **v1:** **Lambda UDF runtime (`runtime: lambda`)** via a platform-managed UDF runner Lambda.
-- **v2 (deferred):** ECS UDF execution (`ecs_udf`) with a separate launcher/credential isolation design (see Amendment).
+- **v1:** `runtime: lambda` via platform-managed language runners (Node, Python, Rust custom runtime).
+- **v2 (deferred):** `ecs_udf` once a zero-trust launcher/credential isolation design exists.
 
+## Bundle formats
 
-### Bundle Formats
+UDF bundles are immutable zip artifacts.
 
-- **Rust (custom runtime)**: zip contains a `bootstrap` executable at the archive root (Lambda custom runtime convention).
-- **Node (Lambda-style handler)**: zip contains handler code (and optional dependencies) using common Lambda packaging patterns (e.g., Serverless/SAM/esbuild outputs).
+- **Node.js (JavaScript/TypeScript)**
+  - Bundle contains JS handler code (and vendored dependencies).
+  - TypeScript is compiled to JavaScript and shipped as a Node bundle.
+- **Python**
+  - Bundle contains Python handler code (and vendored dependencies).
+- **Rust (Lambda custom runtime)**
+  - Bundle contains a `bootstrap` executable at the archive root (Lambda custom runtime convention).
 
 ## Context
-- GTM requires a clean path for users to run custom logic (Rust/Polars and Node/ethers) without compiling inside the platform.
+- We want a clean path for users to run custom logic without compiling inside the platform.
 - Reusing existing AWS Lambda bundling tooling improves developer ergonomics and reduces bespoke packaging work.
-- User jobs run with **no internet egress by default** and must access data only through platform primitives:
-  - **Query Service** for ad-hoc SQL reads (no direct Postgres access for UDFs)
-  - **Dispatcher credential minting** for short-lived, prefix-scoped S3 credentials (no broad IAM in UDF tasks)
-  (see ADR 0002 and [security_model.md](../standards/security_model.md)).
+- User jobs run with **no third-party internet egress by default** and must access data only through platform primitives:
+  - Query Service for task-scoped reads (no direct Postgres access for UDFs)
+  - Dispatcher credential minting for short-lived, prefix-scoped object-store credentials
 
 ## Why
-- **Tooling reuse**: users can leverage `cargo-lambda`, SAM, Serverless, and common build pipelines that already output Lambda-compatible zips.
-- **Operational simplicity**: the platform executes prebuilt artifacts; no in-cluster compilation, no dynamic dependency installs.
-- **Security**: bundles are immutable artifacts, suitable for signing and verification before execution.
-- **Portability**: Lambda-compatible zips are a well-understood “function bundle” interchange format.
+- Tooling reuse: users can leverage `cargo-lambda`, SAM, Serverless, `pip` vendoring, etc.
+- Operational simplicity: the platform executes prebuilt artifacts; no in-cluster compilation or dependency installs.
+- Security: bundles are immutable artifacts that can be pinned/verified.
+- Portability: a Lambda-style zip is a well-understood “function bundle” interchange format.
 
 ## Consequences
-- The ECS worker wrapper and the Lambda UDF runner must implement enough of the Lambda Runtime API (or equivalent) to support common runtimes (one invocation per task; response/error reporting).
-- v1 requires `linux/amd64` artifacts for any native bundles (e.g., Rust `bootstrap`).
-- Bundles are executed as untrusted code. The platform passes only a per-attempt task capability token; do not inject long-lived internal secrets into the bundle.
-- **AWS ECS note:** ECS/Fargate does not support per-container IAM roles. If the wrapper and the UDF run in the same ECS task, the UDF inherits the task role.
-  - To maintain zero-trust, `ecs_udf` must not require AWS API permissions inside the same task as untrusted code.
-  - v1 recommendation: prefer the platform-managed `runtime: lambda` runner for untrusted bundles; treat `ecs_udf` as phase-2 unless a privilege-separating launcher architecture is implemented.
-- Node bundles must be deterministic and run without outbound internet access; `ethers` usage is for decoding/formatting over task-provided data.
-- The task payload must fully describe allowed inputs/outputs so the wrapper can scope data access:
-  - Query Service attaches only dataset views enumerated in the task capability token.
-  - Dispatcher credential minting issues S3 credentials scoped to the task’s allowed prefixes.
+- UDFs are executed as **untrusted** code.
+  - The platform passes only a per-attempt **task capability token**; do not inject long-lived internal secrets into bundles.
+- Language runners are platform-managed and must not become a privileged escape hatch:
+  - The runner’s IAM role should be near-zero.
+  - The Dispatcher should pass a pre-signed URL for the bundle, so the runner does not need broad S3 access.
+- A single DAG may mix languages by referencing different bundles in different jobs.
+
+AWS ECS note:
+- ECS/Fargate does not support per-container IAM roles. If a privileged wrapper and an untrusted UDF share an ECS task, the UDF inherits the wrapper’s permissions.
+- To maintain zero trust, `ecs_udf` must prevent untrusted code from inheriting privileged AWS permissions.
 
 ## Trade-offs
-- Added wrapper complexity versus a bespoke “stdin/stdout” contract.
+- Added runner complexity versus a bespoke “stdin/stdout” contract.
 - Lambda compatibility constrains the invocation model; multi-invocation “warm loops” are possible but deferred (v1 uses one invocation per task).
 
-## v1 Policy
+## v1 policy
 
-- **Integrity**: bundles are immutable artifacts addressed by S3 location + **SHA-256 hash** pinned in the control-plane. The wrapper must verify the hash before execution.
-- **Signing**: signature verification is deferred (future work).
-- **Node dependencies**: Node bundles must vendor dependencies inside the zip (no `npm install` at runtime; no outbound network required).
-- **Architectures**: v1 supports `linux/amd64` only. `linux/arm64` runtimes are deferred.
+- **Integrity:** bundles are pinned by SHA-256 in the control plane and MUST be verified before execution.
+- **Signing:** bundle signing/verification is deferred.
+- **Dependencies:** dependencies MUST be vendored in the bundle (no `npm install` / `pip install` at runtime; no outbound network required).
+- **Architectures:** v1 supports `linux/amd64` only.

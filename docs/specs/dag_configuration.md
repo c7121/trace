@@ -150,6 +150,11 @@ udf:
   entrypoint: "trace.handler"
 ```
 
+Notes:
+- A single DAG may mix languages by referencing different bundles.
+- Bundle language (node/python/rust) is recorded at upload time; Dispatcher selects the appropriate Lambda runner.
+- For Rust custom runtime bundles, `entrypoint` is ignored (the bundle's `bootstrap` is executed).
+
 Constraints:
 - UDF jobs MUST NOT request `secrets`.
 - UDF jobs MUST read only via Query Service and write only via task-scoped APIs.

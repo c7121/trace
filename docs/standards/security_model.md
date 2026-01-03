@@ -71,9 +71,9 @@ Authorization rules:
 Task-scoped endpoints are callable by **untrusted** execution (the Lambda UDF runner). They are authenticated with a per-attempt **task capability token** (JWT) plus strict attempt fencing.
 
 Invariants:
-- The capability token is minted by Dispatcher per `(task_id, attempt)` and expires quickly.
+- The capability token is minted by Dispatcher per `(task_id, attempt)` and is time-limited (TTL must cover the task timeout, but it should not be long-lived).
 - Requests MUST include `{task_id, attempt, lease_token}` and MUST be rejected if the lease token does not match the current attempt.
-- Capability tokens grant **read/scoped access** only (Query Service reads, credential minting).
+- Capability tokens grant only **task-scoped** rights: fenced task calls (heartbeat/complete/events/buffer publish), Query Service reads, and scoped credential minting. They do not grant direct Postgres access or broad AWS permissions.
 
 ### Worker-only APIs (worker tokens)
 
@@ -122,3 +122,7 @@ Minimum audit requirements:
 
 - Token/key rotation paths must exist (JWKS `kid`, worker token rotation).
 - Compromise response should include: revoke/rotate keys, invalidate outstanding capability tokens, and disable affected bundle IDs.
+
+## Related
+
+- `docs/standards/security_hardening.md` — implementation checklist (non-normative)

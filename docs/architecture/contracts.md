@@ -285,7 +285,8 @@ YAML example:
 ```yaml
 inputs:
   - from: { dataset: alert_events }
-    where: "severity = 'critical'"
+    where:
+      severity: critical
 ```
 
 When a task materializes outputs, it emits **one event per output** (either batched or as separate requests).

@@ -12,7 +12,7 @@ A general-purpose ETL orchestration system designed for:
 - **Source jobs** — Long-running services with `activation: source` (e.g., blockchain followers)
 - **Config-as-code** — DAGs defined in YAML, version controlled
 
-See [backlog.md](plan/backlog.md) for the phased delivery roadmap.
+See [plan.md](plan/plan.md) for the recommended build order and [backlog.md](plan/backlog.md) for deferred items.
 
 ### Design Principles
 

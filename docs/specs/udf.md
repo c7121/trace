@@ -5,7 +5,7 @@ Owner: Platform
 Last updated: 2026-01-02
 
 ## Summary
-UDFs are user-supplied code bundles executed by the platform to implement alert conditions and (later) custom transforms/enrichments. UDFs are treated as **untrusted** and interact with the platform only through task-scoped APIs using capability tokens.
+UDFs are user-supplied code bundles executed by the platform to implement alert conditions and (later) custom transforms/enrichments. UDFs are treated as **untrusted** and interact with the platform only through task-scoped APIs authenticated by a per-attempt **task capability token**.
 
 ## Risk
 High
@@ -28,6 +28,7 @@ Constraints:
 - Allow UDFs to read inputs via Query Service and write outputs via task-scoped publish APIs.
 - Support a platform-managed Lambda runner for v1 (good isolation, low ops).
 - Keep the security model identical across AWS and Trace Lite profiles.
+- Allow a single DAG to mix languages (different jobs can use different UDF bundles).
 
 ## Non-goals
 - Allowing UDFs to make arbitrary outbound network calls.
@@ -36,15 +37,15 @@ Constraints:
 
 ## Public surface changes
 - Config semantics: `runtime: lambda` is allowed for UDF jobs and is executed via a platform-managed runner.
-- Persistence format: UDF bundle format (see ADR) and signed provenance requirements.
+- Persistence format: UDF bundle format and provenance requirements.
 
 ## Architecture (C4) — Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR
-  DISP[Dispatcher] -->|invoke + task tokens| RUN[Lambda UDF runner]
+  DISP[Dispatcher] -->|invoke + capability token| RUN[Lambda UDF runner]
   RUN -->|task query (capability token)| QS[Query Service]
-  RUN -->|buffer publish (worker token)| DISP
+  RUN -->|task-scoped APIs (capability token + lease fencing)| DISP
 ```
 
 ## Proposed design
@@ -52,15 +53,30 @@ flowchart LR
 ### Runtime model (v1)
 - `runtime: lambda` executes UDF bundles inside a **platform-managed Lambda runner**.
   - The runner fetches the bundle via a **pre-signed URL** minted by Dispatcher.
-  - The runner receives two task-scoped JWTs:
-    - **Capability token** (data-plane): Query Service reads, credential minting.
-    - **Worker token** (task-plane): heartbeat/complete/buffer publish.
+  - The runner receives a per-attempt **task capability token** plus `{task_id, attempt, lease_token}` in the invocation payload.
+  - The runner uses the capability token for:
+    - Query Service reads (`/v1/task/query`),
+    - scoped credential minting (`/v1/task/credentials`),
+    - fenced heartbeats/completions/events (`/v1/task/*`).
   - The runner Lambda execution role is near-zero (logs + networking only). It should not have broad S3/SQS/Secrets permissions.
-- `ecs_udf` is **deferred to v2** for untrusted code. ECS tasks share IAM creds across containers, so a secure design requires additional isolation work (see “ECS UDF (v2) hurdle”).
 
+> The **worker token** is not a task-scoped credential. It is reserved for trusted ECS worker wrappers calling `/internal/*` endpoints.
+> For `runtime: lambda` there is no wrapper boundary; Lambda must use the capability token only and must not call `/internal/*`.
+
+### Language support (v1)
+UDF bundles are Lambda-style zip artifacts. v1 supports three language families:
+
+- **Node.js (JavaScript/TypeScript)**
+  - TypeScript is compiled to JavaScript and runs on the Node runner.
+- **Python**
+- **Rust (Lambda custom runtime)**
+  - Bundle contains a `bootstrap` executable.
+
+A single DAG can run multiple languages by referencing different bundle IDs in different jobs.
+
+**Runner selection:** the Dispatcher chooses the appropriate runner implementation based on bundle metadata (language/runtime) stored at bundle upload time.
 
 ### Referencing bundles in DAG config
-
 A DAG job that runs user code MUST include an `udf` block:
 
 ```yaml
@@ -75,20 +91,19 @@ A DAG job that runs user code MUST include an `udf` block:
   unique_key: [dedupe_key]
   udf:
     bundle_id: "<bundle-id>"
-    entrypoint: "trace.handler"
+    entrypoint: "trace.handler"  # required for python/node; ignored for rust custom runtimes
 ```
 
 - `bundle_id` is the immutable identifier of a previously uploaded bundle.
-- `entrypoint` is the handler function inside the bundle (per ADR 0003).
-
-See `docs/specs/dag_configuration.md` for the job schema.
+- `entrypoint` is the handler function inside the bundle when the language runtime supports it.
 
 ### Bundle format and provenance
 - Bundle format and entrypoints are defined in `docs/adr/0003-udf-bundles.md`.
-- UDF bundles MUST be signed/validated and associated with an org + user for auditability. See `docs/standards/security_model.md`.
+- Bundles are immutable artifacts and MUST be pinned by a content hash (SHA-256).
+- Bundle upload associates the bundle with an org + user for auditability.
 
 ### Data access
-- UDFs read data via Query Service using the **capability token**. Query Service enforces dataset/version pinning and org scoping.
+- UDFs read data via Query Service using the capability token. Query Service enforces dataset/version pinning and org scoping.
 - If a UDF needs to read/write S3 artifacts directly, it requests scoped credentials via task-scoped APIs (short-lived, prefix-scoped).
 
 ### Output and idempotency
@@ -105,7 +120,7 @@ Before untrusted `ecs_udf` is supported, the design MUST prevent untrusted code 
 
 ## Contract requirements
 - UDFs MUST be treated as untrusted in all runtimes.
-- UDFs MUST authenticate only via task-scoped JWTs over TLS (no hidden shared secrets).
+- UDFs MUST authenticate only via the per-attempt capability token over TLS (no hidden shared secrets).
 - UDFs MUST NOT have direct Postgres connectivity.
 - The platform MUST provide clear failure reporting (stderr, structured error) without leaking secrets.
 

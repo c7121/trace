@@ -98,3 +98,19 @@ For each drill: inject the failure, then verify correctness (no missed data, no 
    - Expect: DLQ capture; sink continues; manual replay path exists.
 8. **Delivery retries**
    - Expect: at-least-once behavior; ledger prevents unbounded duplicate sends; failures are observable.
+
+## Default timings (v1)
+
+These defaults exist to prevent “it worked in dev” drift. They are starting points, not a promise.
+
+| Knob | Default | Notes |
+|------|---------|-------|
+| Task lease duration | 120s | Short enough to recover quickly; long enough to avoid heartbeat storms |
+| Heartbeat interval | 30s | Aim for ~4 heartbeats per lease period |
+| Capability token TTL | `timeout_seconds + 5m` (cap 24h) | Token lifetime must cover the task timeout; scope is per-task attempt |
+| Buffer DLQ max receives | 10 | After this, messages require manual inspection/replay |
+| Scratch/query export retention | 7d | Keep short; make it explicit |
+
+Invariants:
+- `capability_token_ttl` MUST be >= `timeout_seconds` (or tasks can fail late on auth).
+- Heartbeats MUST be frequent enough that 1–2 missed heartbeats does not immediately kill a healthy task.

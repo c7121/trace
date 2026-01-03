@@ -1,13 +1,16 @@
-# ADR 0007: Input Edge Filters (Read-Time Predicates)
+# ADR 0007: Input Edge Filters (Read-Time Filters)
 
 ## Status
 - Accepted (December 2025)
+
+### Amendment (January 2026)
+- `where` is a **structured filter map** (not an arbitrary SQL predicate string). This keeps the DAG YAML safely validatable and avoids Postgres/DuckDB dialect drift.
 
 ## Decision
 - Filtering is expressed as an annotation on the **input edge** (an `inputs` entry), not as a standalone DAG node.
 - `inputs` supports a long form:
   - `inputs: [{ from: { dataset: dataset_a } }]` (no filter)
-  - `inputs: [{ from: { dataset: dataset_a }, where: "..." }]` (filtered)
+  - `inputs: [{ from: { dataset: dataset_a }, where: { ... } }]` (filtered)
 - Dispatcher routes by the upstream output identity (internally `dataset_uuid`); filters are applied by the consumer at read time.
 - Cursor semantics are unchanged: on each upstream event, the consumer advances its cursor for the input edge **even if the filter matches zero rows**.
 
@@ -16,12 +19,31 @@
 - Keeps the Dispatcher simple (no query planning or predicate routing).
 - Makes routing explicit in DAG YAML (e.g., `critical → pagerduty`, `info/warning → slack`).
 
-## `where` Predicate Rules (v1)
-- Must be a **pure boolean predicate** (safe to append to a `WHERE` clause).
-- Allowed: `AND`/`OR`/`NOT`, parentheses, comparisons, `IN (...)` with literals, `IS NULL`, `LIKE`.
-- Disallowed: subqueries (`SELECT`, `EXISTS`, `IN (SELECT ...)`), statement separators (`;`), DDL/DML keywords, and non-deterministic functions (`now()`, `random()`, etc.).
+## `where` filter rules (v1)
+- `where` is a **map** of field → value.
+- Semantics are **AND** across keys.
+- Values are one of:
+  - scalar equality (`severity: "critical"`), or
+  - list membership (`severity: ["warning", "critical"]`), which is equivalent to `IN`.
+
+Constraints:
+- No arbitrary SQL strings.
+- Only allowlisted fields are permitted for each referenced dataset/operator.
+- Values must type-check (e.g., `chain_id` is an integer, `severity` is an enum).
+
+Example:
+
+```yaml
+inputs:
+  - from: { dataset: alert_events }
+    where:
+      severity: critical
+      chain_id: 1
+```
 
 ## Consequences
-- DAG validation must lint `where` and reject unsupported constructs.
-- Task details include the per-input `where` so operators can apply SQL pushdown (Postgres data) or query-engine filtering (DuckDB).
+- DAG validation must lint `where` and reject unsupported keys/types.
+- Task payloads include the structured `where` per input edge so operators can apply safe pushdown:
+  - Postgres: parameterized `WHERE` clauses,
+  - DuckDB: typed predicate filters.
 - When filters need reuse/audit/backpressure as a first-class signal, introduce a real intermediate dataset instead of an edge filter.

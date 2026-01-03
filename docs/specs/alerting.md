@@ -76,6 +76,36 @@ flowchart LR
   - performs the send,
   - records outcomes and retry metadata.
 
+### Alert event batch artifact format (v1)
+
+Alert evaluation publishes a pointer (`batch_uri`) to an object-store artifact. v1 uses **JSON Lines** (`.jsonl`): one JSON object per line, UTF-8.
+
+Record schema (v1):
+
+Required:
+- `alert_definition_id` (UUID)
+- `dedupe_key` (string) — deterministic, stable across retries
+- `event_time` (RFC3339 timestamp)
+
+Optional (recommended when available):
+- `severity` (`info`|`warning`|`critical`)
+- `chain_id` (int)
+- `block_number` (int)
+- `block_hash` (string)
+- `tx_hash` (string)
+- `source_dataset_uuid` (UUID)
+- `partition_key` (string)
+- `cursor_value` (string)
+- `payload` (object) — producer-defined details (the only extensible field)
+
+Rules:
+- Top-level unknown fields are rejected (use `payload` for extensions).
+- Tenant attribution is not trusted from payload; the sink assigns `org_id` and producer ids from the trusted publish record.
+
+Validation + refusal behavior:
+- The sink consumer MUST validate the batch artifact strictly. If any row fails to parse or violates the schema, the entire batch is rejected and the message is dead-lettered (no partial writes).
+- This is intentional: malformed alert outputs should fail loudly, not corrupt data silently.
+
 ### Idempotency and retries
 - `alert_events` MUST be idempotent via a deterministic `dedupe_key`. The table enforces `UNIQUE (org_id, dedupe_key)`. See `docs/architecture/data_model/alerting.md`.
 - `alert_deliveries` MUST be idempotent per channel via `UNIQUE (org_id, alert_event_id, channel)`.

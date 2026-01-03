@@ -2,10 +2,10 @@
 
 Generic UDF execution harness.
 
-This operator runs an untrusted user bundle and provides access only to task-scoped APIs:
-- Query Service reads (capability token)
-- Dispatcher task-plane calls (worker token): heartbeat/complete/buffer publish
-- Scoped object-store credentials minted per task (capability token)
+This operator runs an untrusted user bundle and provides access only to task-scoped APIs authenticated by the per-attempt **task capability token**:
+- Query Service reads (`/v1/task/query`)
+- Dispatcher fenced calls (`/v1/task/heartbeat`, `/v1/task/complete`, `/v1/task/events`, `/v1/task/buffer-publish`)
+- Scoped object-store credentials minted per task (`/v1/task/credentials`)
 
 It intentionally has no built-in domain logic. Domain-specific patterns (like alert evaluation) can be implemented as dedicated operators or as UDF code.
 
@@ -35,4 +35,4 @@ udf:
 ## Notes
 
 - UDF jobs MUST NOT request `secrets`.
-- See `docs/specs/udf.md` and ADR 0003 for bundle format and provenance.
+- UDFs are untrusted; they must not call `/internal/*` endpoints.

@@ -18,7 +18,7 @@ Operators are job implementations. v1 exposes a small runtime surface area; lang
 | [integrity_check](integrity_check.md) | ecs_platform | reactive | PerUpdate | Verify cold storage integrity |
 | [rpc_integrity_check](rpc_integrity_check.md) | lambda | reactive | PerUpdate | Cross-check RPC providers for divergence |
 | [alert_evaluate](alert_evaluate.md) | lambda | reactive | PerUpdate | Evaluate alerts (untrusted UDF) |
-| [alert_route](alert_route.md) | lambda | reactive | PerUpdate | Route alerts into delivery work items |
+| [alert_route](alert_route.md) | ecs_platform | reactive | PerUpdate | Route alerts into delivery work items |
 | [validator_stats](validator_stats.md) | lambda | source | — | Track validator performance over time |
 | [query](duckdb_query.md) | ecs_platform | reactive | PerUpdate | Batch query execution (DuckDB) |
 

@@ -4,7 +4,7 @@ Evaluate alert conditions against Trace data and emit `alert_events`.
 
 This operator executes **untrusted user-supplied code** (a UDF bundle) and is intentionally constrained:
 - reads only via Query Service (capability token)
-- writes only via task-scoped APIs (worker token)
+- emits events only via task-scoped APIs (`/v1/task/buffer-publish` using the same capability token + lease fencing)
 - no third-party network egress; outbound notifications are handled by Delivery Service via `alert_route`
 
 ## Overview
@@ -29,7 +29,9 @@ The task payload MUST include enough information to evaluate without direct data
 
 1. Load evaluation inputs using Query Service (`/v1/task/query`) authenticated by the **capability token**.
 2. Execute the user bundle’s evaluation logic over the inputs.
-3. For each triggered condition, emit an alert event row into the buffered dataset via `POST /v1/task/buffer-publish`.
+3. Write an **alert event batch artifact** (object storage) and publish it via `POST /v1/task/buffer-publish` to the buffered dataset `alert_events`.
+
+The batch artifact format and the required alert event schema are defined in `docs/specs/alerting.md`.
 
 ## Outputs
 
@@ -39,7 +41,8 @@ The task payload MUST include enough information to evaluate without direct data
 
 - Alert evaluation runs under **at-least-once** execution. Retries and duplicates are expected.
 - Each emitted row MUST include a deterministic `dedupe_key` that is stable across retries/reorg replays.
-- The sink enforces idempotency with `UNIQUE(dedupe_key)` (or equivalent) and upserts.
+- The sink enforces idempotency with `UNIQUE(org_id, dedupe_key)`.
+- The buffer sink MUST reject malformed batches (DLQ); this prevents silent corruption.
 
 ## Example DAG config
 
@@ -56,10 +59,9 @@ The task payload MUST include enough information to evaluate without direct data
   update_strategy: append
   unique_key: [dedupe_key]
   config:
-    # operator-specific config for selecting which alerts to evaluate (optional)
     max_lookback_seconds: 3600
 
-  # UDF bundle reference (see `docs/specs/udf.md`)
+  # UDF bundle reference
   udf:
     bundle_id: "<bundle-id>"
     entrypoint: "trace.handler"
@@ -68,4 +70,4 @@ The task payload MUST include enough information to evaluate without direct data
 ## Notes
 
 - The `udf` block is required for user-defined evaluation logic. Built-in evaluation engines are intentionally out of scope for v1.
-- See `docs/specs/alerting.md` for the alerting feature design and `docs/architecture/contracts.md` for task-scoped API contracts.
+- Untrusted code must never call `/internal/*` endpoints.
