@@ -68,7 +68,7 @@ The request/response shape is the same as `/v1/query`, but dataset exposure is s
   "sql": "SELECT * FROM transactions WHERE block_number > 1000000 LIMIT 100",
   "mode": "interactive",
   "format": "json",
-  "timeout_seconds": 30
+  "timeout_seconds": 60
 }
 ```
 
@@ -77,7 +77,7 @@ The request/response shape is the same as `/v1/query`, but dataset exposure is s
 | `sql` | string | required | SQL query (SELECT only) |
 | `mode` | string | `interactive` | `interactive` or `batch` |
 | `format` | string | `json` | Response format: `json`, `csv` (inline when small), `parquet` (exported) |
-| `timeout_seconds` | int | 30 | Max execution time (capped at 30s) |
+| `timeout_seconds` | int | (see operations) | Max execution time (clamped; see `docs/standards/operations.md`) |
 
 ### Responses
 
@@ -151,7 +151,7 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 {
   "error": "Query timeout exceeded",
   "code": "QUERY_TIMEOUT",
-  "detail": "Query did not complete within 30 seconds. Consider narrowing your query or using batch mode."
+  "detail": "Query did not complete within the configured timeout. Consider narrowing your query or using batch mode."
 }
 ```
 
@@ -160,7 +160,7 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 | Constraint | Value | Rationale |
 |------------|-------|-----------|
 | Statement type | SELECT only | Read-only access enforced |
-| Timeout | 30 seconds max | Prevent resource hogging |
+| Timeout | 60s (`/v1/query`), 300s (`/v1/task/query`) | Prevent resource hogging; long work uses batch |
 | Inline result limit | 10,000 rows | Larger results → S3 |
 | Inline byte limit | 10 MB | Prevent oversized responses; larger results → S3 |
 | Presigned URL expiry | 1 hour | User queries only; task callers use `output_location` + STS |
@@ -168,6 +168,28 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 ## Read-Only Enforcement
 
 DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at the DuckDB layer.
+
+## SQL sandboxing (required)
+
+Read-only mode is necessary but not sufficient. Query Service MUST also prevent SQL from accessing
+unintended data sources (filesystem/HTTP/arbitrary S3) or bypassing the authorized dataset catalog.
+
+v1 requirements:
+- Queries may reference only platform-attached relations for authorized datasets.
+  - `/v1/query`: published datasets only.
+  - `/v1/task/query`: dataset versions enumerated in the capability token only.
+- External access MUST be disabled for untrusted SQL:
+  - no filesystem reads/writes,
+  - no HTTP/URL reads,
+  - no user-supplied S3/URI reads,
+  - no `ATTACH` with user-supplied connection strings,
+  - no extension install/load (or enforce a strict allowlist of built-in extensions only).
+- Reject anything other than a single `SELECT` statement (no multi-statement batches).
+
+Verification (required):
+- Negative tests must fail closed: `read_csv('file://...')`, `read_parquet('http://...')`, `ATTACH ...`,
+  `INSTALL/LOAD ...`, and any non-authorized relation reference.
+- Log sandbox denials as structured events **without** logging raw SQL.
 
 ## Access Control
 
@@ -197,6 +219,27 @@ Pinning is per-query:
 For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../../adr/0009-atomic-cutover-and-query-pinning.md).
 
 
+
+## PII access auditing
+
+Query Service MUST emit `pii_access_log` entries when a query touches a dataset that has PII-classified columns.
+
+Constraints:
+- Do **not** store raw SQL in the audit log.
+- For arbitrary SQL, Query Service may not be able to reliably determine selected columns. In that case:
+  - record dataset-level access,
+  - set `column_name` to `NULL`.
+
+Suggested minimum fields:
+- `org_id` (deployment org)
+- `user_id` for `/v1/query`, or `task_id` for `/v1/task/query`
+- `dataset`
+- `record_id = query_id`
+- `action = 'read'`
+
+See `docs/architecture/data_model/pii.md`.
+
+
 ## Observability
 
 | Metric | Description |
@@ -213,7 +256,7 @@ For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../../ad
 
 - Concurrency cap: small fixed pool (e.g., 3-5 interactive queries). Beyond cap, requests queue briefly; if queue exceeds depth/age, force `mode: batch`.
 - Memory cap with spill: DuckDB spill-to-disk enabled; log spill events.
-- Timeouts: existing 30s interactive limit applies; long-running jobs go to batch.
+- Timeouts: follow `docs/standards/operations.md` (60s for `/v1/query`, 300s for `/v1/task/query`); long-running jobs go to batch.
 - Metrics: emit queue depth, queue age p95, spill count, OOM/circuit trips, forced-batch count.
 
 Logs include: query hash (not full SQL for PII), org_id, user_id, duration, row_count, error (if any).

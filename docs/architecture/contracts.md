@@ -17,6 +17,32 @@ Component boundaries: task payloads, results, and upstream events.
 - The task-JWKS endpoint is internal-only (e.g., `GET /internal/jwks/task`) and should be cached by verifiers; rotation uses `kid`.
 
 
+**Task capability token claims (v1, normative):**
+- Header:
+  - `kid` (required): key identifier for rotation.
+- Standard claims (required unless noted):
+  - `iss`: Dispatcher issuer identifier
+  - `aud`: `trace.task`
+  - `sub`: `task:{task_id}`
+  - `exp`: expiry (short-lived)
+  - `iat` (recommended)
+  - `jti` (optional; for future replay detection)
+- Custom claims (required):
+  - `org_id`: UUID (deployment org; v1 is single-org but the claim is still required)
+  - `task_id`: UUID
+  - `attempt`: int
+  - `datasets`: list of `{dataset_uuid, dataset_version}` grants for `/v1/task/query` (may be empty)
+  - `s3`: `{read_prefixes[], write_prefixes[]}` where prefixes are canonical `s3://bucket/prefix/` strings for `/v1/task/credentials` (may be empty in Lite)
+
+**Verifier rules (v1):**
+- MUST validate JWT signature and required claims (`kid`, `iss`, `aud`, `exp`).
+- MUST bind the request body `{task_id, attempt}` to the token claims.
+- Dispatcher task endpoints MUST additionally enforce `{lease_token}` fencing against the current lease.
+- Deny-by-default: if a required claim is missing or malformed, reject.
+
+> Token size note: keep capability tokens small. If scopes become large (many dataset grants/prefixes), switch to a `capability_id` claim and resolve the full capability from Postgres state.
+
+
 **Delivery semantics:** tasks and upstream events are **at-least-once**. Duplicates and out-of-order delivery are expected; correctness comes from attempt/lease gating plus idempotent output commits. See [task_lifecycle.md](task_lifecycle.md).
 
 > **Internal-only:** endpoints under `/v1/task/*` are reachable only from within the VPC (workers/Lambdas) and must not be routed through the public Gateway.

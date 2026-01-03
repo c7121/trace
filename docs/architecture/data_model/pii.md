@@ -36,27 +36,40 @@ Datasets or rows containing PII support visibility levels:
 
 ## Access Rules
 
-- All reads of PII columns are logged to `pii_access_log`
-- Jobs must be explicitly granted access to PII datasets
-- Jobs touching PII are tagged and subject to heightened audit/retention
-- Hard delete only (GDPR compliance)
+- All reads of PII-classified data through platform APIs are logged to `pii_access_log`.
+  - When the platform can reliably attribute column access, populate `column_name`.
+  - For arbitrary SQL (Query Service), log dataset-level access and leave `column_name` as `NULL`.
+- Jobs must be explicitly granted access to PII datasets.
+- Jobs touching PII are tagged and subject to heightened audit/retention.
+- Hard delete only (GDPR compliance).
 
 ## PII Access Audit Log
 
-> `pii_access_log` lives in **Postgres data** for auditing. `user_id` is a **soft reference** to `Postgres state.users(id)` (no cross-DB foreign keys).
+> `pii_access_log` lives in **Postgres data** for auditing. `org_id`/`user_id`/`task_id` are **soft references**
+> to entities in Postgres state (no cross-DB foreign keys).
+>
+> Exactly one principal is set per row: either `user_id` (for user API reads/writes) or `task_id` (for task-scoped reads/writes).
 
 ```sql
 CREATE TABLE pii_access_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- soft ref: Postgres state users(id)
+
+    org_id UUID NOT NULL, -- soft ref: Postgres state orgs(id)
+    user_id UUID,         -- soft ref: Postgres state users(id)
+    task_id UUID,         -- soft ref: Postgres state tasks(id)
+
     dataset TEXT NOT NULL,
     column_name TEXT,
     record_id UUID,
     action TEXT NOT NULL,  -- read, write, delete
-    accessed_at TIMESTAMPTZ DEFAULT now()
+    accessed_at TIMESTAMPTZ DEFAULT now(),
+
+    CHECK ((user_id IS NULL) <> (task_id IS NULL))
 );
 
+CREATE INDEX idx_pii_access_log_org ON pii_access_log(org_id);
 CREATE INDEX idx_pii_access_log_user ON pii_access_log(user_id);
+CREATE INDEX idx_pii_access_log_task ON pii_access_log(task_id);
 CREATE INDEX idx_pii_access_log_time ON pii_access_log(accessed_at);
 CREATE INDEX idx_pii_access_log_dataset ON pii_access_log(dataset);
 ```

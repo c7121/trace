@@ -107,6 +107,60 @@ X-Trace-Task-Capability: <capability_token>
 - Dispatcher calls `sts:AssumeRole` with a session policy derived from the token.
 - Returned credentials are short-lived and allow only S3 access within the encoded prefixes.
 
+
+### Scope derivation and canonicalization (required)
+
+Credential minting is a privilege boundary. The Dispatcher MUST derive the STS session policy from the
+capability token using **deny-by-default** rules.
+
+Rules (v1):
+- The token MUST encode allowed prefixes as canonical `s3://bucket/prefix/` strings.
+- Prefixes MUST be normalized before policy generation:
+  - scheme must be `s3`,
+  - bucket must be non-empty,
+  - prefix must be non-empty and must not contain `..`,
+  - wildcards (`*`, `?`) are forbidden,
+  - prefix must be treated as a directory prefix (effectively `prefix/*`), never as a “starts-with anything” pattern.
+- The resulting session policy MUST grant only the minimum required S3 actions within those prefixes.
+  - Prefer object-level access (`GetObject`/`PutObject`) over bucket-level actions.
+  - If `ListBucket` is required, constrain it with an `s3:prefix` condition to the allowed prefixes only.
+
+Defense-in-depth (recommended):
+- Enforce the same prefix constraints at the bucket policy layer so that even a buggy session policy cannot
+  read/write outside allowed prefixes.
+
+Example (illustrative) session policy shape:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::<bucket>/<read_prefix>*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": ["arn:aws:s3:::<bucket>/<write_prefix>*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::<bucket>"],
+      "Condition": {"StringLike": {"s3:prefix": ["<read_prefix>*", "<write_prefix>*"]}}
+    }
+  ]
+}
+```
+
+Verification (required):
+- Unit tests for prefix normalization/canonicalization.
+- Negative tests: `..`, empty prefixes, wildcard widening, wrong bucket.
+- (AWS profile) Integration test that minted credentials cannot read/write outside scope.
+
+
 **Networking:** Dispatcher must be able to reach AWS STS (prefer an STS VPC endpoint).
 
 ## Out of Scope

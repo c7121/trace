@@ -78,7 +78,7 @@ Behavior:
 
 #### `POST /v1/task/heartbeat` (untrusted)
 Requires:
-- `Authorization: Bearer <capability_token>`
+- `X-Trace-Task-Capability: <capability_token>`
 - Body contains `{task_id, attempt, lease_token}`
 Behavior:
 - Only current attempt + matching lease_token may extend lease.
@@ -106,8 +106,9 @@ Background loops:
 
 ### Task 3: Capability tokens (JWT) — Phase 2
 Start without JWT (just lease fencing), then add JWT:
-- Dispatcher issues a signed token containing `{task_id, attempt, exp}`.
-- `/v1/task/*` verifies signature + claims.
+- Dispatcher issues a signed token that matches the **capability token claim contract** in `docs/architecture/contracts.md`
+  (standard claims + required `{org_id, task_id, attempt}` and scopes).
+- `/v1/task/*` verifies signature + required claims (`iss/aud/exp/kid`) and binds `{task_id, attempt}` in the body to token claims.
 
 **Verification**
 - [ ] invalid token rejected

@@ -49,7 +49,9 @@ Exit criteria:
 Lock these decisions before you implement operators:
 
 - **Task auth model:** untrusted runtimes use **only** per-attempt capability tokens (+ lease fencing). No hidden shared secrets for Lambdas.
+- **Capability token contract:** `X-Trace-Task-Capability` header + the token claim schema in `docs/architecture/contracts.md` are **normative**. Do not implement ad-hoc variants.
 - **User auth:** JWT authenticates the user; org membership/role comes from Postgres state (no forwarded header trust).
+- **User API contracts:** before implementing any user endpoints beyond `/v1/query`, write an owned contract doc that enumerates routes + request/response schemas + authz invariants (default-deny).
 - **Input filters (`where`):** structured map only (ADR 0007).
 - **Buffered datasets:** pointer pattern + sink-side strict validation + row-level idempotency (ADR 0006).
 
@@ -113,6 +115,8 @@ Exit: duplicate publishes and task retries do not create duplicate rows.
 - Task-scoped reads through Query Service (`/v1/task/query`)
 - Scoped S3 credentials minted per task (`/v1/task/credentials`)
 - Enforce query timeouts and export thresholds
+- Implement and test the Query Service **SQL sandbox** (no filesystem/HTTP/URL reads, no extension loading, no user-supplied ATTACH/URIs)
+- Implement the minimum feasible **PII access audit** model for Query Service (dataset-level; no raw SQL stored)
 
 Exit: untrusted execution can read only allowed dataset versions and write only allowed prefixes.
 
