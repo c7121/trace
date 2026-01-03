@@ -12,24 +12,38 @@ use uuid::Uuid;
 pub struct TaskCapability {
     issuer: String,
     audience: String,
-    kid: String,
+    current_kid: String,
+    next_kid: Option<String>,
     ttl: Duration,
     org_id: Uuid,
-    encoding_key: EncodingKey,
-    decoding_key: DecodingKey,
+    current_encoding_key: EncodingKey,
+    current_decoding_key: DecodingKey,
+    next_decoding_key: Option<DecodingKey>,
 }
 
 impl TaskCapability {
     pub fn from_config(cfg: &HarnessConfig) -> anyhow::Result<Self> {
         let secret = cfg.task_capability_secret.as_bytes();
+        let next_kid = cfg.task_capability_next_kid.clone();
+        let next_secret = cfg.task_capability_next_secret.clone();
+        if next_kid.is_some() != next_secret.is_some() {
+            return Err(anyhow!(
+                "TASK_CAPABILITY_NEXT_KID and TASK_CAPABILITY_NEXT_SECRET must be set together"
+            ));
+        }
+
         Ok(Self {
             issuer: cfg.task_capability_iss.clone(),
             audience: cfg.task_capability_aud.clone(),
-            kid: cfg.task_capability_kid.clone(),
+            current_kid: cfg.task_capability_kid.clone(),
+            next_kid,
             ttl: Duration::from_secs(cfg.task_capability_ttl_secs),
             org_id: cfg.org_id,
-            encoding_key: EncodingKey::from_secret(secret),
-            decoding_key: DecodingKey::from_secret(secret),
+            current_encoding_key: EncodingKey::from_secret(secret),
+            current_decoding_key: DecodingKey::from_secret(secret),
+            next_decoding_key: next_secret
+                .as_deref()
+                .map(|s| DecodingKey::from_secret(s.as_bytes())),
         })
     }
 
@@ -54,21 +68,32 @@ impl TaskCapability {
         };
 
         let mut header = Header::new(Algorithm::HS256);
-        header.kid = Some(self.kid.clone());
-        encode(&header, &claims, &self.encoding_key).context("encode task capability token")
+        header.kid = Some(self.current_kid.clone());
+        encode(&header, &claims, &self.current_encoding_key).context("encode task capability token")
     }
 
     pub fn verify(&self, token: &str) -> anyhow::Result<TaskCapabilityClaims> {
         let header = decode_header(token).context("decode jwt header")?;
-        if header.kid.as_deref() != Some(&self.kid) {
+        let kid = header
+            .kid
+            .as_deref()
+            .ok_or_else(|| anyhow!("missing jwt kid"))?;
+
+        let decoding_key = if kid == self.current_kid {
+            &self.current_decoding_key
+        } else if self.next_kid.as_deref() == Some(kid) {
+            self.next_decoding_key
+                .as_ref()
+                .ok_or_else(|| anyhow!("next jwt key not configured"))?
+        } else {
             return Err(anyhow!("invalid jwt kid"));
-        }
+        };
 
         let mut validation = Validation::new(Algorithm::HS256);
         validation.set_issuer(std::slice::from_ref(&self.issuer));
         validation.set_audience(std::slice::from_ref(&self.audience));
 
-        let data = decode::<TaskCapabilityClaims>(token, &self.decoding_key, &validation)
+        let data = decode::<TaskCapabilityClaims>(token, decoding_key, &validation)
             .context("verify jwt")?;
         Ok(data.claims)
     }

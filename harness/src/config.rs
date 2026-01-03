@@ -95,6 +95,14 @@ pub struct HarnessConfig {
     )]
     pub task_capability_secret: String,
 
+    /// Next task capability token key id (`kid`) accepted during overlap window (optional).
+    #[arg(long, env = "TASK_CAPABILITY_NEXT_KID")]
+    pub task_capability_next_kid: Option<String>,
+
+    /// Next task capability token HMAC secret accepted during overlap window (optional).
+    #[arg(long, env = "TASK_CAPABILITY_NEXT_SECRET")]
+    pub task_capability_next_secret: Option<String>,
+
     /// Task capability token TTL in seconds.
     #[arg(long, env = "TASK_CAPABILITY_TTL_SECS", default_value_t = 300)]
     pub task_capability_ttl_secs: u64,

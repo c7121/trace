@@ -191,6 +191,155 @@ async fn wrong_capability_token_rejected() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn wrong_lease_token_rejected() -> anyhow::Result<()> {
+    let cfg = migrated_config().await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let server = DispatcherServer::start(
+        pool,
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
+        false,
+    )
+    .await?;
+
+    let base = format!("http://{}", server.addr);
+    let client = reqwest::Client::new();
+    let task_id = Uuid::new_v4();
+
+    let claim = client
+        .post(format!("{base}/internal/task-claim"))
+        .json(&serde_json::json!({ "task_id": task_id }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let attempt = claim["attempt"].as_i64().context("attempt")?;
+    let token = claim["capability_token"]
+        .as_str()
+        .context("capability_token")?;
+
+    let resp = client
+        .post(format!("{base}/v1/task/heartbeat"))
+        .header("X-Trace-Task-Capability", token)
+        .json(&serde_json::json!({
+            "task_id": task_id,
+            "attempt": attempt,
+            "lease_token": Uuid::new_v4(),
+        }))
+        .send()
+        .await?;
+
+    anyhow::ensure!(
+        resp.status() == reqwest::StatusCode::CONFLICT,
+        "expected 409, got {}",
+        resp.status()
+    );
+
+    server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn next_key_token_accepted_during_overlap() -> anyhow::Result<()> {
+    let mut cfg = migrated_config().await?;
+    cfg.task_capability_kid = "current".to_string();
+    cfg.task_capability_secret = "current-secret".to_string();
+    cfg.task_capability_next_kid = Some("next".to_string());
+    cfg.task_capability_next_secret = Some("next-secret".to_string());
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let server = DispatcherServer::start(
+        pool,
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
+        false,
+    )
+    .await?;
+
+    let base = format!("http://{}", server.addr);
+    let client = reqwest::Client::new();
+    let task_id = Uuid::new_v4();
+
+    let claim = client
+        .post(format!("{base}/internal/task-claim"))
+        .json(&serde_json::json!({ "task_id": task_id }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let attempt = claim["attempt"].as_i64().context("attempt")?;
+    let lease_token = claim["lease_token"].as_str().context("lease_token")?;
+
+    let now = chrono::Utc::now().timestamp();
+    let iat: usize = now.try_into().unwrap_or(0);
+    let exp: usize = (now + 60).try_into().unwrap_or(usize::MAX);
+    let claims = trace_harness::jwt::TaskCapabilityClaims {
+        iss: cfg.task_capability_iss.clone(),
+        aud: cfg.task_capability_aud.clone(),
+        sub: format!("task:{task_id}"),
+        exp,
+        iat,
+        org_id: cfg.org_id,
+        task_id,
+        attempt,
+        datasets: Vec::new(),
+        s3: trace_harness::jwt::S3Grants {
+            read_prefixes: Vec::new(),
+            write_prefixes: Vec::new(),
+        },
+    };
+
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    header.kid = cfg.task_capability_next_kid.clone();
+    let token = jsonwebtoken::encode(
+        &header,
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(
+            cfg.task_capability_next_secret
+                .as_deref()
+                .unwrap()
+                .as_bytes(),
+        ),
+    )?;
+
+    let resp = client
+        .post(format!("{base}/v1/task/heartbeat"))
+        .header("X-Trace-Task-Capability", token)
+        .json(&serde_json::json!({
+            "task_id": task_id,
+            "attempt": attempt,
+            "lease_token": lease_token,
+        }))
+        .send()
+        .await?;
+
+    anyhow::ensure!(
+        resp.status().is_success(),
+        "expected 200, got {}",
+        resp.status()
+    );
+
+    server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn stale_attempt_fencing_rejects_old_complete() -> anyhow::Result<()> {
     let mut cfg = migrated_config().await?;
     cfg.lease_duration_secs = 1;
