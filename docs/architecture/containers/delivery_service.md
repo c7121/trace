@@ -7,7 +7,7 @@ Delivery is intentionally centralized:
 - **Operators/UDFs never perform external side effects.**
 - Delivery Service is the only component with outbound internet egress for alerting.
 
-See also: `docs/features/alerting.md` and ADR 0004.
+See also: `docs/specs/alerting.md` and ADR 0004.
 
 ## Responsibilities
 

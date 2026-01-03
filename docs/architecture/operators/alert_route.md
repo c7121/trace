@@ -6,7 +6,7 @@ Create alert delivery work items for the platform Delivery Service.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `lambda` |
+| **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Idle Timeout** | `5m` |
@@ -34,12 +34,13 @@ External delivery is handled by a platform Delivery Service which leases `alert_
 
 ## Execution
 
-- **Dependency**: Runs when `alert_events` updates (new alert events)
-- **Manual**: Re-deliver failed alerts
+- Runs when `alert_events` updates (new alert events)
+- May be re-run for repair or replay; it must remain idempotent
 
 ## Behavior
 
-- Applies an optional filter (input edge `where`) to select which alerts to route.
+- Applies an optional input edge filter (`where`) to select which alert events to route.
+  - `where` is a **structured filter map**, not an arbitrary SQL predicate. See `docs/specs/dag_configuration.md`.
 - Applies staleness gating using the alert’s contextual time (e.g., `alert_events.event_time`) vs `config.max_delivery_age`.
 - Creates `alert_deliveries` rows idempotently (unique key `(org_id, alert_event_id, channel)`).
 - Does not attempt delivery, retry, or rate limit. Those are Delivery Service responsibilities.
@@ -64,17 +65,19 @@ External delivery is handled by a platform Delivery Service which leases `alert_
 ```yaml
 - name: route_critical
   activation: reactive
-  runtime: lambda
+  runtime: ecs_platform
   operator: alert_route
   execution_strategy: PerUpdate
   idle_timeout: 5m
   inputs:
     - from: { dataset: alert_events }
-      where: "severity = 'critical'"
+      where:
+        severity: critical
   outputs: 1
+  update_strategy: append
+  unique_key: [alert_event_id, channel]
   config:
     channel: pagerduty
     max_delivery_age: 7d
-  update_strategy: replace
   timeout_seconds: 60
 ```

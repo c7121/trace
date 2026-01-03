@@ -6,7 +6,7 @@ Aggregate an ordered stream of events into deterministic range manifests (EIP Ag
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_rust` |
+| **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Image** | `range_aggregator:latest` |
@@ -50,7 +50,7 @@ Each emitted manifest includes both:
 - `partition_key`: `"start-end"` (inclusive), and
 - explicit range fields: `start`, `end` (inclusive)
 
-See `docs/architecture/contracts.md` for the canonical `/internal/events` partitioned event shape.
+See `docs/architecture/contracts.md` for the canonical `/v1/task/events` partitioned event shape.
 
 ## Durable state
 
@@ -63,7 +63,7 @@ See `docs/architecture/data_model/orchestration.md` (`operator_state`) for the s
 ```yaml
 - name: block_range_aggregate
   activation: reactive
-  runtime: ecs_rust
+  runtime: ecs_platform
   operator: range_aggregator
   execution_strategy: PerUpdate
   inputs:

@@ -14,33 +14,36 @@ sequenceDiagram
     participant SinkW as Platform worker sink operator
     participant S as Storage - S3 or Postgres data
 
-    Src->>D: POST /internal/events {dataset_uuid, dataset_version, cursor or partition_key}
+    Src->>D: Emit upstream events (fenced; see contracts)
     D->>PG: Persist event and enqueue routing work
     D->>PG: Create downstream tasks dedupe
     alt runtime is lambda
         D->>L: Invoke with full task payload
         L->>S: Execute, write output to staging
-        L->>D: POST /internal/task-complete {task_id, attempt, lease_token, status, outputs}
+        L->>D: Report task completion (fenced; see contracts)
         D->>PG: Commit outputs and advance cursor or record partition
         D->>D: Emit and route dataset events after commit
     else runtime is ecs
         D->>TaskQ: Enqueue wake up {task_id}
         TaskQ->>W: Deliver {task_id}
-        W->>D: POST /internal/task-claim {task_id, worker_id}
+        W->>D: Claim task / acquire lease (see contracts)
         D->>PG: Acquire lease Queued -> Running
         D->>W: {attempt, lease_token, task payload}
         W->>S: Execute, write output to staging
-        W->>D: POST /internal/task-complete {task_id, attempt, lease_token, status, outputs}
+        W->>D: Report task completion (fenced; see contracts)
         D->>PG: Commit outputs and advance cursor or record partition
         D->>D: Emit and route dataset events after commit
     end
 
     opt buffered Postgres dataset output
-        W->>BufQ: Publish records
-        L->>BufQ: Publish records
+        W->>S: Write batch artifact to scratch
+        W->>D: Publish buffer batch pointer (fenced; see contracts)
+        L->>S: Write batch artifact to scratch
+        L->>D: Publish buffer batch pointer (fenced; see contracts)
+        D->>BufQ: Enqueue pointer message
         SinkW->>BufQ: Drain messages
         SinkW->>S: Write Postgres data
-        SinkW->>D: POST /internal/events after commit
+        SinkW->>D: Emit dataset events after commit (fenced; see contracts)
     end
 ```
 

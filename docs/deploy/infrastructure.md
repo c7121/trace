@@ -6,26 +6,38 @@ AWS architecture and Terraform structure.
 
 ```mermaid
 flowchart TB
-    %% NOTE: API Gateway is an AWS-managed edge service, not deployed into subnets.
-    %% If private integration is desired, use API Gateway VPC Link -> ALB/NLB.
+    %% API Gateway is an AWS-managed edge service.
+    %% In v1, API Gateway uses a private integration (VPC Link) to an internal ALB.
     subgraph Edge["AWS Edge / Managed"]
         APIGW[API Gateway]
     end
 
-    subgraph VPC["VPC"]
-        subgraph Public["Public Subnets"]
-            ALB[Application Load Balancer]
-        end
+    subgraph AWS_Services["AWS Services"]
+        EVENTBRIDGE[EventBridge Rules]
+        SQS_QUEUES[SQS Queues]
+        S3_BUCKET[S3 Data Bucket]
+        S3_SCRATCH[S3 Scratch Bucket]
+        ECR[ECR Repositories]
+        CW[CloudWatch]
+        SM[Secrets Manager]
+        VPCE["VPC Endpoints\nS3/SQS/STS/KMS/Logs"]
+    end
 
+    subgraph VPC["VPC"]
         subgraph Private["Private Subnets"]
+            ALB[Internal ALB]
+
             subgraph ECS["ECS Cluster"]
                 DISPATCHER_SVC[Dispatcher Service]
                 QUERY_SVC[Query Service]
-                RUST_WORKERS["Rust Workers - ecs_rust"]
-                PYTHON_WORKERS["Python Workers - ecs_python"]
-                UDF_WORKERS["UDF Workers - ecs_udf_*"]
+                PLATFORM_WORKERS["Platform Workers - ecs_platform"]
                 DELIVERY_SVC[Delivery Service]
                 RPC_EGRESS[RPC Egress Gateway]
+            end
+
+            subgraph LAMBDA_VPC["VPC-attached Lambdas"]
+                UDF_LAMBDA["Lambda UDF runner"]
+                SOURCE_LAMBDA["Source/trigger Lambdas"]
             end
 
             RDS_STATE["RDS Postgres - state"]
@@ -33,60 +45,44 @@ flowchart TB
         end
     end
 
-    subgraph Serverless["Serverless"]
-        EVENTBRIDGE[EventBridge Rules]
-        LAMBDA[Lambda Functions]
-    end
-    
-    subgraph AWS_Services["AWS Services"]
-        SQS_QUEUES[SQS Queues]
-        S3_BUCKET[S3 Data Bucket]
-        S3_SCRATCH[S3 Scratch Bucket]
-        ECR[ECR Repositories]
-        CW[CloudWatch]
-        SM[Secrets Manager]
-    end
-    
-    EVENTBRIDGE --> LAMBDA
-    APIGW --> LAMBDA
-    LAMBDA --> DISPATCHER_SVC
-    DISPATCHER_SVC -->|invoke runtime=lambda| LAMBDA
-    
+    APIGW -->|route| ALB
     ALB --> DISPATCHER_SVC
-    
+    ALB --> QUERY_SVC
+
+    EVENTBRIDGE --> SOURCE_LAMBDA
+    APIGW -->|webhooks (optional)| SOURCE_LAMBDA
+    SOURCE_LAMBDA --> DISPATCHER_SVC
+
+    DISPATCHER_SVC -->|invoke runtime=lambda| UDF_LAMBDA
+    UDF_LAMBDA --> DISPATCHER_SVC
+    UDF_LAMBDA --> QUERY_SVC
+
     DISPATCHER_SVC --> RDS_STATE
     DISPATCHER_SVC --> SQS_QUEUES
     DISPATCHER_SVC --> CW
-    
-    SQS_QUEUES --> RUST_WORKERS
-    SQS_QUEUES --> PYTHON_WORKERS
-    SQS_QUEUES --> UDF_WORKERS
-    
-    RUST_WORKERS --> DISPATCHER_SVC
-    PYTHON_WORKERS --> DISPATCHER_SVC
-    UDF_WORKERS --> DISPATCHER_SVC
-    
-    RUST_WORKERS -->|hot data| RDS_DATA
-    RUST_WORKERS --> S3_BUCKET
-    PYTHON_WORKERS -->|hot data| RDS_DATA
-    PYTHON_WORKERS --> S3_BUCKET
+
+    SQS_QUEUES --> PLATFORM_WORKERS
+
+    PLATFORM_WORKERS --> DISPATCHER_SVC
+
+    PLATFORM_WORKERS -->|hot data| RDS_DATA
+    PLATFORM_WORKERS --> S3_BUCKET
 
     QUERY_SVC -->|read-only| RDS_DATA
     QUERY_SVC --> S3_BUCKET
     QUERY_SVC --> S3_SCRATCH
 
-    UDF_WORKERS --> QUERY_SVC
-    UDF_WORKERS --> S3_BUCKET
-    UDF_WORKERS --> SQS_QUEUES
 
-    RUST_WORKERS --> RPC_EGRESS
-    PYTHON_WORKERS --> RPC_EGRESS
-    
+    PLATFORM_WORKERS --> RPC_EGRESS
+
     %% Secrets are injected at task launch via ECS task definition secrets.
     %% Untrusted UDF tasks do not have Secrets Manager permissions.
-    
+
     ECR --> ECS
 ```
+
+> Note: Untrusted ECS UDF execution (`ecs_udf`) is deferred to v2. In v1, untrusted UDFs execute via the platform-managed Lambda runner.
+
 
 ## Terraform Structure
 
@@ -107,6 +103,8 @@ flowchart TB
 
 ## Key Resources
 
+- **Ingress**: API Gateway validates user JWTs and routes to an **internal** ALB via VPC Link. Backend services must validate the user JWT and derive identity/role from it. Task-scoped endpoints (`/v1/task/*`) are internal-only and are not routed through the public Gateway. See `docs/architecture/containers/gateway.md` and `docs/standards/security_model.md`.
+- **Lambda**: any Lambda that must call internal services (Dispatcher, Query Service, sinks) MUST be **VPC-attached** in private subnets with **no NAT**. Required AWS APIs are reached via VPC endpoints.
 - **VPC**: Private/public subnets, VPC endpoints for S3/SQS (and other AWS APIs as needed)
 - **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)
 - **RDS**: Two clusters/instances:

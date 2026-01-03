@@ -26,9 +26,9 @@ Both levels coexist. Jobs declare which mode they use.
 
 It changes on deploy/rematerialize cutovers (definition changes), not on every incremental write.
 
-Postgres data-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/backfill or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
+Postgres data-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/bounded recompute or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
 
-Committed dataset versions are retained until an admin explicitly purges them (v1: manual GC). See [ADR 0009](adr/0009-atomic-cutover-and-query-pinning.md).
+Committed dataset versions are retained until an admin explicitly purges them (v1: manual GC). See [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).
 
 ### Partition Versions
 
@@ -87,7 +87,7 @@ For jobs operating on unpartitioned data (typically hot storage).
 2. Dispatcher creates task with invalidation context
 3. Job queries using `row_filter` (not full table scan)
 4. Job processes affected rows
-5. Invalidation marked processed for this job
+5. Dispatcher records the invalidation as processed for this job when it accepts fenced task completion
 
 ### Mode: `full`
 
@@ -115,7 +115,7 @@ How jobs write their output:
 
 1. **Write (worker)**: write Parquet objects to a unique, attempt-scoped **staging prefix** (includes `task_id` + `attempt`).
 2. **Finalize (worker)**: write a small `_manifest.json` and a `_SUCCESS` marker under the same prefix.
-3. **Commit (Dispatcher)**: on `/internal/task-complete`, verify the marker/manifest exists and atomically update scope metadata (e.g., `partition_versions`) for `(dataset_uuid, dataset_version, partition_key)` to point at the staging prefix.
+3. **Commit (Dispatcher)**: on `/v1/task/complete`, verify the marker/manifest exists and atomically update scope metadata (e.g., `partition_versions`) for `(dataset_uuid, dataset_version, partition_key)` to point at the staging prefix.
    - Commit is **attempt-fenced**: if the completion is rejected as stale (non-current attempt), no dataset pointers are updated.
 4. **Emit (Dispatcher)**: only after commit, emit the upstream event `{dataset_uuid, dataset_version, partition_key}`.
 
@@ -151,19 +151,19 @@ Guidance:
 sequenceDiagram
     participant BF as block_follower
     participant PG as Postgres data
-    participant INV as data_invalidations
     participant DISP as Dispatcher
+    participant INV as data_invalidations
     participant DS as Downstream Jobs
 
-    BF->>BF: Detect reorg: parent hash mismatch
-    BF->>PG: DELETE orphaned blocks 995-1005
-    BF->>PG: INSERT canonical blocks 995-1005
-    BF->>INV: INSERT invalidation row_range blocks 995-1005
-    DISP->>INV: Poll for unprocessed invalidations
-    DISP->>DS: Create tasks for downstream jobs with row_filter
-    DS->>PG: Query with row_filter: not full scan
-    DS->>DS: Process, write output append/replace
-    DS->>INV: Mark invalidation processed
+    BF->>BF: Detect reorg
+    BF->>PG: Rewrite blocks 995-1005
+    BF->>DISP: Emit invalidation row_range 995-1005
+    DISP->>INV: INSERT invalidation row_range 995-1005
+    DISP->>DS: Create tasks with row_filter
+    DS->>PG: Query with row_filter
+    DS->>DS: Process + write output
+    DS->>DISP: Task complete
+    DISP->>INV: Mark invalidation processed (after accepting fenced completion)
 ```
 
 
@@ -186,21 +186,27 @@ sequenceDiagram
 | **Data stale** | New input partition/rows since last run | Upstream event |
 | **Invalidation** | `data_invalidations` record | Dispatcher schedules scoped reprocessing |
 | **Definition change** | New `dag_version` → new `dataset_version` | Deploy/rematerialize + atomic cutover |
-| **Manual repair/backfill** | User/API initiated | Explicit backfill tasks (typically `replace`) |
+| **Manual repair/recompute** | User/API initiated | Emit bounded range work (typically `replace`) |
 
 Provenance fields like `config_hash` and `schema_hash` help audit what produced a partition materialization or cursor advancement.
 
-Backfill is an explicit repair mechanism (recompute specific partitions/ranges, typically `replace`). It is not the primary mechanism for deploy/rematerialize cutovers.
+Bounded recompute is an explicit repair mechanism (recompute specific partitions or a bounded range). It is not the primary mechanism for deploy/rematerialize cutovers.
+
+Historical bootstrap sync (empty → tip) is modeled the same way: generate a bounded range, split into partitions, and run batch operators in parallel under `scaling.max_concurrency`.
+
 
 
 ---
 
-## Alert Deduplication
+## Append idempotency and dedupe keys
 
-Alerts use `update_strategy: append` with a deterministic `unique_key` so reprocessing doesn't re-fire alerts while still behaving correctly across reorgs.
+For `update_strategy: append`, the platform assumes **at-least-once** execution and requires idempotent sinks.
 
-See [alerting.md](../features/alerting.md#deduplication) for the dedupe schema and behavior matrix.
+Invariants:
+- Each appended row MUST carry a deterministic `dedupe_key` that is stable across retries and replays.
+- The sink MUST enforce `UNIQUE(dedupe_key)` (or an equivalent constraint) and use upserts to avoid duplicates.
 
+This pattern is used by alerting (`alert_events`) and any other “event log” style datasets.
 ---
 
 ## Dispatcher Integration
@@ -233,30 +239,34 @@ Jobs declare their input edges in the DAG. When an invalidation is created for a
 2. Creates tasks with `invalidation_id` in context
 3. Jobs receive `row_filter` from the invalidation record
 4. Jobs process only affected rows
-5. Jobs mark invalidation as processed (appends job_id to `processed_by`)
+5. Dispatcher marks the invalidation as processed for this job when it accepts fenced task completion (workers do not write to `data_invalidations`)
 
 Because `replace` rewrites emit downstream invalidations for the rewritten scope/range, invalidations effectively cascade transitively through the DAG: downstream jobs don’t need awareness of “3 levels upstream” causes.
 
 ```mermaid
 sequenceDiagram
     participant S as Invalidation Source
-    participant INV as data_invalidations
     participant D as Dispatcher
+    participant INV as data_invalidations
     participant PG as Postgres state
     participant Q as SQS
     participant W as Worker
 
-    S->>INV: INSERT invalidation partition_key or row_filter
+    S->>D: Emit invalidation scope
+    D->>INV: INSERT invalidation
     loop poll
         D->>INV: SELECT unprocessed invalidations
     end
     D->>PG: Find dependent jobs
     D->>PG: Create tasks invalidation_id
     D->>Q: Enqueue tasks
-    Q->>W: Deliver task
-    W->>INV: Load invalidation context
+    Q->>W: Deliver task wake-up
+    W->>D: Claim task
+    D->>W: Return task payload with invalidation context
     W->>W: Reprocess affected scope
-    W->>INV: Mark processed_by/job_id
+    W->>D: Task complete
+    D->>INV: Mark invalidation processed
+
 ```
 
 ---
@@ -269,6 +279,6 @@ sequenceDiagram
 | Cold storage (S3) | Partition-level tracking (`partition_versions`) within a `dataset_version` |
 | Hot storage (Postgres data) | Cursor-based high-water mark (`dataset_cursors`) within a `dataset_version` |
 | Reorg handling | Row-range invalidations, scoped reprocessing |
-| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../features/alerting.md#deduplication)) |
-| Definition changes | New `dataset_version` generation; optional manual repair backfills |
+| Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../specs/alerting.md#deduplication)) |
+| Definition changes | New `dataset_version` generation; optional manual bounded recompute |
 | Efficiency | Never full-table scan; use partition or row_filter |

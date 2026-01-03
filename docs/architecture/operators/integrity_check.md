@@ -6,7 +6,7 @@ Defense-in-depth verification and repair against canonical chain state.
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_rust` |
+| **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerUpdate |
 | **Image** | `integrity_check:latest` |
@@ -66,7 +66,7 @@ This operator targets **finalized data only**. It does not check hot storage (Po
 ```yaml
 - name: integrity_check
   activation: reactive
-  runtime: ecs_rust
+  runtime: ecs_platform
   operator: integrity_check
   execution_strategy: PerUpdate
   inputs:

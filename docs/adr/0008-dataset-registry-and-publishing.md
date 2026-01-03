@@ -16,7 +16,7 @@
   - internal edges do not require user-defined dataset naming
 - A top-level `publish:` section registers a specific `{job, output_index}` as a user-visible dataset:
   - Publishing is **metadata-only** (registry update/aliasing)
-  - Publishing does **not** change execution/backfill/rematerialization behavior
+  - Publishing does **not** change execution/bootstrap/rematerialization behavior
 - The dataset registry links published datasets back to their producer (`dag_name`, `job_name`, `output_index`) for navigation and “single producer” enforcement.
   - Exception: some published datasets are **buffered sink datasets** (e.g., `alert_events`) intended to be **multi-writer** within a DAG; producer provenance is tracked per record (e.g., `producer_job_id`) rather than by a single owning job output.
 - A dataset’s materialization lifecycle is owned by its producing DAG. Other DAGs can read/subscribe (shared reads) but do not “drive” the producer dataset’s materialization.

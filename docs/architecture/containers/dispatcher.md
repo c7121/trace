@@ -64,7 +64,28 @@ Propagates upstream through DAG edges. When a queue trips its threshold (depth o
 
 - Per-job thresholds: `max_queue_depth`, `max_queue_age`
 - Mode: `pause` (stop task creation until queue drains)
-- Priority tiers: `normal`, `backfill` — shed `backfill` first when under pressure
+- Priority tiers: `normal`, `bulk` — shed `bulk` first when under pressure (bulk = bootstrap/catch-up workloads)
+
+## Task capability token issuance
+
+Dispatcher issues a per-attempt **task capability token** (JWT) for untrusted execution. This token is used for:
+
+- Task-scoped lifecycle endpoints (`/v1/task/heartbeat`, `/v1/task/complete`, `/v1/task/events`, `/v1/task/buffer-publish`)
+- Task-scoped Query Service access (`/v1/task/query`)
+- Credential minting (`/v1/task/credentials`)
+
+**Recommended v1 signing:**
+- JWT algorithm: ES256
+- AWS profile: sign with an AWS KMS asymmetric key (`ECC_NIST_P256`)
+- Lite profile: sign with a local PEM keypair
+
+Dispatcher exposes an internal-only JWKS document so other services can verify tokens:
+
+```
+GET /internal/jwks/task
+```
+
+Verifiers (Query Service, sinks) should cache this JWKS and refresh on `kid` miss. Key rotation keeps old keys until all outstanding tokens have expired.
 
 ## Credential minting
 
@@ -80,9 +101,65 @@ POST /v1/task/credentials
 X-Trace-Task-Capability: <capability_token>
 ```
 
+> This endpoint is **internal-only**: it is reachable only from within the VPC (workers/Lambdas) and must not be routed through the public Gateway.
+
 - The capability token is issued per `(task_id, attempt)` and defines allowed input/output/scratch prefixes.
 - Dispatcher calls `sts:AssumeRole` with a session policy derived from the token.
 - Returned credentials are short-lived and allow only S3 access within the encoded prefixes.
+
+
+### Scope derivation and canonicalization (required)
+
+Credential minting is a privilege boundary. The Dispatcher MUST derive the STS session policy from the
+capability token using **deny-by-default** rules.
+
+Rules (v1):
+- The token MUST encode allowed prefixes as canonical `s3://bucket/prefix/` strings.
+- Prefixes MUST be normalized before policy generation:
+  - scheme must be `s3`,
+  - bucket must be non-empty,
+  - prefix must be non-empty and must not contain `..`,
+  - wildcards (`*`, `?`) are forbidden,
+  - prefix must be treated as a directory prefix (effectively `prefix/*`), never as a “starts-with anything” pattern.
+- The resulting session policy MUST grant only the minimum required S3 actions within those prefixes.
+  - Prefer object-level access (`GetObject`/`PutObject`) over bucket-level actions.
+  - If `ListBucket` is required, constrain it with an `s3:prefix` condition to the allowed prefixes only.
+
+Defense-in-depth (recommended):
+- Enforce the same prefix constraints at the bucket policy layer so that even a buggy session policy cannot
+  read/write outside allowed prefixes.
+
+Example (illustrative) session policy shape:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::<bucket>/<read_prefix>*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": ["arn:aws:s3:::<bucket>/<write_prefix>*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::<bucket>"],
+      "Condition": {"StringLike": {"s3:prefix": ["<read_prefix>*", "<write_prefix>*"]}}
+    }
+  ]
+}
+```
+
+Verification (required):
+- Unit tests for prefix normalization/canonicalization.
+- Negative tests: `..`, empty prefixes, wildcard widening, wrong bucket.
+- (AWS profile) Integration test that minted credentials cannot read/write outside scope.
+
 
 **Networking:** Dispatcher must be able to reach AWS STS (prefer an STS VPC endpoint).
 

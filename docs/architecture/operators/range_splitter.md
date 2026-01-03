@@ -6,12 +6,15 @@ Split a range manifest into per-unit events (inverse of `range_aggregator`).
 
 | Property | Value |
 |----------|-------|
-| **Runtime** | `ecs_rust` |
+| **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerPartition |
 | **Image** | `range_splitter:latest` |
 
 ## Description
+
+**Note:** `config.chunk_size` controls partition granularity. Smaller chunks increase parallelism (and overhead); use `scaling.max_concurrency` on downstream batch jobs to cap throughput.
+
 
 Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010000"`) and emits a stream of finer-grained events (e.g., per-block or per-subrange). This is useful when you need parallelism/fan-out downstream while keeping upstream aggregation explicit.
 
@@ -41,7 +44,7 @@ Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010
 ```yaml
 - name: block_range_split
   activation: reactive
-  runtime: ecs_rust
+  runtime: ecs_platform
   operator: range_splitter
   execution_strategy: PerPartition
   inputs:
