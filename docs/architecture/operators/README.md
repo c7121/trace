@@ -11,7 +11,7 @@ Operators are job implementations. v1 exposes a small runtime surface area; lang
 | [udf](udf.md) | lambda | reactive | — | Generic UDF execution harness |
 | [block_follower](block_follower.md) | ecs_platform | source | — | Follow chain tip, write to hot storage |
 | [liveliness_monitor](liveliness_monitor.md) | lambda | source | — | Detect chain stalls and emit liveliness events |
-| [cryo_ingest](cryo_ingest.md) | ecs_platform | reactive | PerPartition | Backfill historical data to S3 |
+| [cryo_ingest](cryo_ingest.md) | ecs_platform | reactive | PerPartition | Bootstrap historical sync to S3 |
 | [range_aggregator](range_aggregator.md) | ecs_platform | reactive | PerUpdate | Aggregate ordered events into ranges |
 | [range_splitter](range_splitter.md) | ecs_platform | reactive | PerPartition | Split ranges into smaller ranges/events |
 | [parquet_compact](parquet_compact.md) | ecs_platform | reactive | PerPartition | Compact hot to cold Parquet |

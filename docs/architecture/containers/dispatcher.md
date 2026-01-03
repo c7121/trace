@@ -64,7 +64,7 @@ Propagates upstream through DAG edges. When a queue trips its threshold (depth o
 
 - Per-job thresholds: `max_queue_depth`, `max_queue_age`
 - Mode: `pause` (stop task creation until queue drains)
-- Priority tiers: `normal`, `backfill` — shed `backfill` first when under pressure
+- Priority tiers: `normal`, `bulk` — shed `bulk` first when under pressure (bulk = bootstrap/catch-up workloads)
 
 ## Task capability token issuance
 

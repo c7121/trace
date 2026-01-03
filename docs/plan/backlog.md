@@ -12,7 +12,7 @@ Non-phase-specific items deferred from v1.
 ## Orchestration
 
 - Aggregator/fan-in virtual operator (requires correlation state).
-- Rich backfill/repair UX beyond the minimal API (once defined).
+- Rich bounded recompute UX beyond the minimal API (once defined).
 
 ## Data lineage
 

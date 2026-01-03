@@ -13,7 +13,7 @@ Low
 ## Problem statement
 We need standard, pluggable ingestion patterns for:
 - following chain head with reorg handling,
-- performing historical backfills,
+- performing historical bootstrap sync (empty → tip) and bounded catch-up,
 - ingesting offchain reference data,
 while keeping ingestion logic outside the core platform and preserving idempotency under retries.
 
@@ -69,10 +69,19 @@ Ingestion operators MUST:
 - Hardcode ingestion into the platform.
   - Why not: locks in specific tools; increases core surface area.
 
+## Bootstrap sync (historical ingestion)
+
+Trace does not have a special “backfill” primitive. Historical sync is modeled as normal jobs over a bounded range:
+
+- A range manifest (e.g., `start_block..end_block`) is emitted by an external system or a source operator.
+- `range_splitter` fans out the range into partitions (`chunk_size`).
+- Batch operators (e.g., `cryo_ingest`) process partitions in parallel, capped by `scaling.max_concurrency` if set.
+- Heavy RPC throughput is scaled by configuring an `rpc_pool` with multiple provider endpoints/keys in the RPC Egress Gateway (do not embed API keys in DAG YAML).
+
 ## Acceptance criteria
 - Tests:
   - Realtime ingestion survives retries without duplicate rows (idempotent append).
-  - Backfill ingestion produces deterministic output paths/manifests (replace semantics).
+  - Bootstrap (historical) ingestion produces deterministic output paths/manifests (replace semantics).
 - Observable behavior:
   - Lag metrics (head minus cursor) and reorg counters are visible for source operators.
 

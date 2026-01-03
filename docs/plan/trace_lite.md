@@ -123,7 +123,7 @@ Lite should ship one demo that is fast by default, and optionally supports “fu
 
 **Query examples**
 - “tip” query: recent blocks / tx count
-- “backfill” query: aggregate across the bounded history range
+- bounded-history query: aggregate across the bounded history range
 
 **Output**
 - hot tables in Postgres data

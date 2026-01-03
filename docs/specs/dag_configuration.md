@@ -113,6 +113,7 @@ publish:
 | `source` | source | Source config: `kind`, `schedule`/`webhook_path`, etc. |
 | `bootstrap` | source | Optional one-time bootstrap actions (v1: `reset_outputs`) |
 | `secrets` | | Logical secret names required by the operator |
+| `scaling.max_concurrency` | | Optional cap on concurrently Running tasks for this job (limits parallelism) |
 | `timeout_seconds` | | Hard execution timeout (platform-enforced) |
 | `config` | | Operator-specific config |
 | `udf` | | UDF bundle reference (required for `operator: udf` and any operator that executes user bundles) |

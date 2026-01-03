@@ -13,6 +13,9 @@ Split a range manifest into per-unit events (inverse of `range_aggregator`).
 
 ## Description
 
+**Note:** `config.chunk_size` controls partition granularity. Smaller chunks increase parallelism (and overhead); use `scaling.max_concurrency` on downstream batch jobs to cap throughput.
+
+
 Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010000"`) and emits a stream of finer-grained events (e.g., per-block or per-subrange). This is useful when you need parallelism/fan-out downstream while keeping upstream aggregation explicit.
 
 ## Inputs

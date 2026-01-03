@@ -26,7 +26,7 @@ Both levels coexist. Jobs declare which mode they use.
 
 It changes on deploy/rematerialize cutovers (definition changes), not on every incremental write.
 
-Postgres data-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/backfill or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
+Postgres data-backed datasets are **live** in v1 (stable table/view names). Repair/rollback is handled via reprocessing/bounded recompute or explicit reset (`bootstrap.reset_outputs`), rather than retaining historical physical tables per `dataset_version`.
 
 Committed dataset versions are retained until an admin explicitly purges them (v1: manual GC). See [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).
 
@@ -186,11 +186,14 @@ sequenceDiagram
 | **Data stale** | New input partition/rows since last run | Upstream event |
 | **Invalidation** | `data_invalidations` record | Dispatcher schedules scoped reprocessing |
 | **Definition change** | New `dag_version` → new `dataset_version` | Deploy/rematerialize + atomic cutover |
-| **Manual repair/backfill** | User/API initiated | Explicit backfill tasks (typically `replace`) |
+| **Manual repair/recompute** | User/API initiated | Emit bounded range work (typically `replace`) |
 
 Provenance fields like `config_hash` and `schema_hash` help audit what produced a partition materialization or cursor advancement.
 
-Backfill is an explicit repair mechanism (recompute specific partitions/ranges, typically `replace`). It is not the primary mechanism for deploy/rematerialize cutovers.
+Bounded recompute is an explicit repair mechanism (recompute specific partitions or a bounded range). It is not the primary mechanism for deploy/rematerialize cutovers.
+
+Historical bootstrap sync (empty → tip) is modeled the same way: generate a bounded range, split into partitions, and run batch operators in parallel under `scaling.max_concurrency`.
+
 
 
 ---
@@ -277,5 +280,5 @@ sequenceDiagram
 | Hot storage (Postgres data) | Cursor-based high-water mark (`dataset_cursors`) within a `dataset_version` |
 | Reorg handling | Row-range invalidations, scoped reprocessing |
 | Alert deduplication | `append` + deterministic `unique_key` (see [alerting.md](../specs/alerting.md#deduplication)) |
-| Definition changes | New `dataset_version` generation; optional manual repair backfills |
+| Definition changes | New `dataset_version` generation; optional manual bounded recompute |
 | Efficiency | Never full-table scan; use partition or row_filter |

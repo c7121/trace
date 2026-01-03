@@ -1,6 +1,6 @@
 # cryo_ingest
 
-Archive historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo).
+Bootstrap historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo).
 
 ## Overview
 
@@ -14,7 +14,13 @@ Archive historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo
 
 ## Description
 
-Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC providers and writes to S3 as Parquet files. Used for backfills and archival.
+### Parallelism and RPC throughput
+
+- Use `scaling.max_concurrency` to cap in-flight partitions for this job.
+- Use `config.rpc_pool` to select an RPC pool managed by the RPC Egress Gateway. Pools may include multiple provider URLs/keys; keys must not appear in DAG YAML.
+
+
+Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC providers and writes to S3 as Parquet files. Used for bootstrap sync and archival.
 
 ## Inputs
 
@@ -36,7 +42,7 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ## Execution
 
 - **Threshold**: When hot storage reaches N blocks
-- **Manual**: Backfill requests (manual source emits events)
+- **Manual**: Bootstrap range requests (manual source emits events)
 - **Cron**: Scheduled archival runs (cron source emits events)
 
 ## Behavior
@@ -72,7 +78,7 @@ This removes the need for `worker_pools` and avoids per-slot task definition spr
   execution_strategy: PerPartition
   idle_timeout: 0
   inputs:
-    - from: { job: backfill_request, output: 0 }
+    - from: { job: range_request, output: 0 }
   config:
     chain_id: 10143
     datasets: [blocks, transactions, logs]

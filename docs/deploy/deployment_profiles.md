@@ -64,7 +64,7 @@ Publisher implementation note:
 
 ## One queue abstraction
 
-All internal queue use cases use the same QueueDriver interface (task wake-ups, buffered datasets, delivery work).
+All internal queue use cases use the same QueueDriver interface (task wake-ups, buffered datasets).
 
 ### QueueDriver operations
 
@@ -100,9 +100,8 @@ Poison handling:
 
 Keep payloads small and typed:
 
-- Task wake-up: `{"kind":"task_wakeup","task_id":"<uuid>"}`
-- Buffered batch: `{"kind":"buffer_batch","dataset_uuid":"<uuid>","dataset_version":"<uuid>","batch_uri":"s3://...","record_count":123}`
-- Delivery work: `{"kind":"delivery","delivery_id":"<uuid>"}`
+- Task wake-up: `{"task_id":"<uuid>"}`
+- Buffered batch: `{"dataset_uuid":"<uuid>","dataset_version":"<uuid>","batch_uri":"s3://...","record_count":123}`
 
 ## pgqueue backend (Trace Lite)
 
