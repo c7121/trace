@@ -5,6 +5,8 @@ This file is written for an implementation agent (e.g., Codex) to build the cont
 
 The goal is to prove the **core platform invariants** under failure/duplicates, *not* to build all features.
 
+> **Next milestones:** once the harness passes, stop expanding it and follow `docs/plan/plan.md` for the implementation sequence and STOP points.
+
 ## Idiomatic Rust expectations
 
 - Use `tokio` for async, `axum` for HTTP, `sqlx` for Postgres.

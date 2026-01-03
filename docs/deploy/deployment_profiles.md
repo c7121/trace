@@ -228,4 +228,4 @@ The Dispatcher core remains unchanged; only the trigger adapter differs.
 
 ## Trace Lite build plan
 
-The build plan and demo scope are defined in `docs/plan/trace_lite.md`.
+The build plan (Lite + AWS sequencing) is defined in `docs/plan/plan.md`.
