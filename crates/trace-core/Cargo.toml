@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+aws = []
+
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"

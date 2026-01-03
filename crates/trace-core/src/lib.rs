@@ -7,6 +7,9 @@ use uuid::Uuid;
 
 pub mod lite;
 
+#[cfg(feature = "aws")]
+pub mod aws;
+
 #[derive(Debug, Clone)]
 pub struct QueueMessage {
     pub message_id: Uuid,
