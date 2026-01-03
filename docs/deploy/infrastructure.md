@@ -12,6 +12,17 @@ flowchart TB
         APIGW[API Gateway]
     end
 
+    subgraph AWS_Services["AWS Services"]
+        EVENTBRIDGE[EventBridge Rules]
+        SQS_QUEUES[SQS Queues]
+        S3_BUCKET[S3 Data Bucket]
+        S3_SCRATCH[S3 Scratch Bucket]
+        ECR[ECR Repositories]
+        CW[CloudWatch]
+        SM[Secrets Manager]
+        VPCE["VPC Endpoints\nS3/SQS/STS/KMS/Logs"]
+    end
+
     subgraph VPC["VPC"]
         subgraph Private["Private Subnets"]
             ALB[Internal ALB]
@@ -24,33 +35,27 @@ flowchart TB
                 RPC_EGRESS[RPC Egress Gateway]
             end
 
+            subgraph LAMBDA_VPC["VPC-attached Lambdas"]
+                UDF_LAMBDA["Lambda UDF runner"]
+                SOURCE_LAMBDA["Source/trigger Lambdas"]
+            end
+
             RDS_STATE["RDS Postgres - state"]
             RDS_DATA["RDS Postgres - data"]
         end
-    end
-
-    subgraph Serverless["Serverless"]
-        EVENTBRIDGE[EventBridge Rules]
-        LAMBDA[Lambda Functions]
-    end
-
-    subgraph AWS_Services["AWS Services"]
-        SQS_QUEUES[SQS Queues]
-        S3_BUCKET[S3 Data Bucket]
-        S3_SCRATCH[S3 Scratch Bucket]
-        ECR[ECR Repositories]
-        CW[CloudWatch]
-        SM[Secrets Manager]
     end
 
     APIGW -->|route| ALB
     ALB --> DISPATCHER_SVC
     ALB --> QUERY_SVC
 
-    EVENTBRIDGE --> LAMBDA
-    APIGW --> LAMBDA
-    LAMBDA --> DISPATCHER_SVC
-    DISPATCHER_SVC -->|invoke runtime=lambda| LAMBDA
+    EVENTBRIDGE --> SOURCE_LAMBDA
+    APIGW -->|webhooks (optional)| SOURCE_LAMBDA
+    SOURCE_LAMBDA --> DISPATCHER_SVC
+
+    DISPATCHER_SVC -->|invoke runtime=lambda| UDF_LAMBDA
+    UDF_LAMBDA --> DISPATCHER_SVC
+    UDF_LAMBDA --> QUERY_SVC
 
     DISPATCHER_SVC --> RDS_STATE
     DISPATCHER_SVC --> SQS_QUEUES
@@ -99,6 +104,7 @@ flowchart TB
 ## Key Resources
 
 - **Ingress**: API Gateway validates user JWTs and routes to an **internal** ALB via VPC Link. Backend services must validate the user JWT and derive identity/role from it. Task-scoped endpoints (`/v1/task/*`) are internal-only and are not routed through the public Gateway. See `docs/architecture/containers/gateway.md` and `docs/standards/security_model.md`.
+- **Lambda**: any Lambda that must call internal services (Dispatcher, Query Service, sinks) MUST be **VPC-attached** in private subnets with **no NAT**. Required AWS APIs are reached via VPC endpoints.
 - **VPC**: Private/public subnets, VPC endpoints for S3/SQS (and other AWS APIs as needed)
 - **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)
 - **RDS**: Two clusters/instances:

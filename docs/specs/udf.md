@@ -52,6 +52,8 @@ flowchart LR
 
 ### Runtime model (v1)
 - `runtime: lambda` executes UDF bundles inside a **platform-managed Lambda runner**.
+  - The runner is **VPC-attached** in private subnets (no NAT) so it can reach internal-only services (Dispatcher/Query Service) without exposing them publicly.
+  - Required AWS APIs (S3 for pre-signed bundle fetch, STS/KMS if used) are reached via VPC endpoints.
   - The runner fetches the bundle via a **pre-signed URL** minted by Dispatcher.
   - The runner receives a per-attempt **task capability token** plus `{task_id, attempt, lease_token}` in the invocation payload.
   - The runner uses the capability token for:

@@ -50,20 +50,13 @@ All user requests require `Authorization: Bearer <jwt>`.
 **Claim mapping (canonical):**
 - Treat the IdP JWT as **authentication** only.
 - Use `sub` (and `iss`/`aud`) to look up the user in Postgres state.
-- Derive org membership and effective role/permissions from Postgres state.
+- Derive the effective role/permissions from Postgres state.
 
-Org selection:
-- The request may include an `org` selection hint (e.g., header `X-Trace-Org` or a request parameter), but the backend MUST verify membership in Postgres state before using it.
+**v1 tenancy:** Trace v1 deploys as a single-org instance. Requests do not select an org.
 
 ## Rate Limiting
 
-| Scope | Limit | Window |
-|------|-------|--------|
-| Per-org | 1000 req | 1 minute |
-| Per-user | 100 req | 1 minute |
-| Query endpoint | 10 req | 1 minute |
-
-Enforced at API Gateway layer. Returns `429 Too Many Requests` when exceeded.
+Rate limiting is enforced at the API Gateway layer. Default limits and recommended starting values live in `docs/standards/operations.md`.
 
 ## CORS
 

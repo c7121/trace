@@ -65,13 +65,13 @@ This removes the need for `worker_pools` and avoids per-slot task definition spr
 
 ## Dependencies
 
-- RPC provider credentials (each worker configured with its own secret)
-- S3 write access to cold bucket
+- An `rpc_pool` configured in the RPC Egress Gateway (provider endpoints + API keys live there, not in DAG YAML).
+- S3 write access to the cold bucket for replace-style outputs.
 
 ## Example DAG Config
 
 ```yaml
-- name: cryo_backfill
+- name: cryo_bootstrap
   activation: reactive
   runtime: ecs_platform
   operator: cryo_ingest

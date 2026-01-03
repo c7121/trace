@@ -32,7 +32,7 @@ Follow chain tip in real-time and maintain canonical blocks/logs in **hot storag
 
 ## Semantics
 
-- Tracks the canonical chain tip and backfills gaps when the head jumps forward.
+- Tracks the canonical chain tip and fills gaps when the head jumps forward.
 - On reorg, rewrites the affected `block_number` range in hot Postgres and emits a row-range invalidation to the Dispatcher (attempt-fenced) so downstream jobs can rematerialize only what changed. See [data_versioning.md](../data_versioning.md#reorg-handling).
 
 - **Reset (optional):** if deployed with `bootstrap.reset_outputs: true`, the job performs a one-time bootstrap reset: truncate owned hot tables and restart from `start_block`. This is an explicit rebuild mechanism and is not triggered by normal restarts.

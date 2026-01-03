@@ -21,7 +21,7 @@ while keeping ingestion logic outside the core platform and preserving idempoten
 - Treat ingestion as operators configured in DAG YAML, not special-case code.
 - Support both:
   - realtime chain-tip ingestion, and
-  - bounded historical range ingestion (backfills).
+  - bounded historical range ingestion (bootstrap sync).
 - Ensure ingestion outputs are compatible with the platform’s versioning/invalidation model.
 
 ## Non-goals
@@ -71,7 +71,7 @@ Ingestion operators MUST:
 
 ## Bootstrap sync (historical ingestion)
 
-Trace does not have a special “backfill” primitive. Historical sync is modeled as normal jobs over a bounded range:
+Trace does not have a special historical-ingestion primitive. Bootstrap sync is modeled as normal jobs over a bounded range:
 
 - A range manifest (e.g., `start_block..end_block`) is emitted by an external system or a source operator.
 - `range_splitter` fans out the range into partitions (`chunk_size`).

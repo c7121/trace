@@ -121,6 +121,9 @@ These defaults exist to prevent “it worked in dev” drift. They are starting 
 | Staging output retention | 7d | Uncommitted attempt outputs may be GC’d; never delete committed outputs |
 | Delivery max attempts | 12 | After this, mark delivery terminal-failed and alert |
 | Delivery backoff | exponential (5s → 30m) + jitter | Per-destination retry policy; avoid retry storms |
+| User API rate limit (per user) | 100 req/min | Enforced at API Gateway; backends still validate JWTs |
+| User API rate limit (per org) | 1000 req/min | v1 is single-org but keep the knob for future expansion |
+| Query rate limit (per user) | 10 req/min | `/v1/query` is expensive; prefer export for large work |
 
 Invariants:
 - `capability_token_ttl` MUST be >= `timeout_seconds` (or tasks can fail late on auth).

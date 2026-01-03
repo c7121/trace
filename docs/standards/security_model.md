@@ -11,7 +11,7 @@ This document is the canonical security artifact for Trace v1. It defines the **
 **In scope (v1):**
 - AWS deployment profile (API Gateway, private services, RDS, S3, SQS)
 - Untrusted user code execution via `runtime: lambda` UDF runner
-- Single-tenant deployment (schema supports future multi-tenant expansion)
+- Single-tenant, single-org deployment (schemas include `org_id` for future multi-org expansion)
 
 **Not in scope (v1):**
 - On-prem / BYO network perimeter assumptions
@@ -59,12 +59,10 @@ Recommended (non-authoritative) claims:
 
 Authorization rules:
 - `sub` maps to `users.external_id`.
-- Org membership and role are resolved from `org_role_memberships` + `org_roles` in Postgres state.
-- Requests MAY include `X-Trace-Org: <org_id>` as an org selection hint.
-- The backend MUST verify membership and compute effective role from Postgres state.
-- If no org is provided:
-  - if the user belongs to exactly one org, the backend MAY default to it
-  - otherwise return 400 requiring org selection
+- **v1 tenancy:** Trace v1 deploys as a single-org instance. Requests do not select an org.
+- The backend resolves the single `org_id` from deployment configuration (or the single row in `orgs`).
+- Effective role/permissions are resolved from `org_role_memberships` + `org_roles` for that `org_id`.
+- If the user is not a member of the deployment org, the request MUST be rejected.
 
 ### Task-scoped APIs (capability tokens)
 
