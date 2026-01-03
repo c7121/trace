@@ -28,6 +28,7 @@ UDF bundles are immutable zip artifacts.
   - Bundle contains Python handler code (and vendored dependencies).
 - **Rust (Lambda custom runtime)**
   - Bundle contains a `bootstrap` executable at the archive root (Lambda custom runtime convention).
+  - Recommended tooling: `cargo-lambda` (or equivalent) to produce the zip; the platform expects the standard AWS custom runtime layout.
 
 ## Context
 - We want a clean path for users to run custom logic without compiling inside the platform.

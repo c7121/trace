@@ -71,6 +71,7 @@ UDF bundles are Lambda-style zip artifacts. v1 supports three language families:
 - **Python**
 - **Rust (Lambda custom runtime)**
   - Bundle contains a `bootstrap` executable.
+  - Recommended tooling: use `cargo-lambda` (or equivalent AWS Lambda Rust tooling) to build a custom runtime zip that places `bootstrap` at the archive root.
 
 A single DAG can run multiple languages by referencing different bundle IDs in different jobs.
 

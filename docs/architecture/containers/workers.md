@@ -28,8 +28,8 @@ flowchart LR
     bufferq["Buffer queue"]:::infra
     dispatcher["Dispatcher"]:::component
     postgres["Postgres data"]:::database
-    s3["Object storage (datasets)"]:::database
-    scratch["Object storage (scratch)"]:::database
+    s3["Object storage - datasets"]:::database
+    scratch["Object storage - scratch"]:::database
     rpcgw["RPC Egress Gateway"]:::component
 
     queue -->|task_id wake-up| wrapper
@@ -74,8 +74,8 @@ flowchart LR
     bufferq["Buffer queue"]:::infra
     dispatcher["Dispatcher"]:::component
     qs["Query Service"]:::component
-    s3["Object storage (datasets)"]:::database
-    scratch["Object storage (scratch)"]:::database
+    s3["Object storage - datasets"]:::database
+    scratch["Object storage - scratch"]:::database
 
     queue -->|task_id wake-up| wrapper
     wrapper -->|claim task + lease| dispatcher

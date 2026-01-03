@@ -47,12 +47,12 @@ flowchart LR
   API -->|writes| PD[(Postgres data)]
 
   subgraph Exec[Execution]
-    EVAL[alert_evaluate (untrusted UDF)] -->|batch pointer publish| DISP[Dispatcher /v1/task/buffer-publish]
+    EVAL["alert_evaluate - untrusted UDF"] -->|batch pointer publish| DISP["Dispatcher /v1/task/buffer-publish"]
     DISP -->|enqueues| Q[SQS buffer queue]
-    Q -->|consume| SINK[Buffer sink consumer (trusted)]
+    Q -->|consume| SINK["Buffer sink consumer - trusted"]
     SINK -->|upsert| AE[(Postgres data: alert_events)]
 
-    ROUTE[alert_route (trusted)] -->|read| AE
+    ROUTE["alert_route - trusted"] -->|read| AE
     ROUTE -->|upsert| AD[(Postgres data: alert_deliveries)]
     DELIV[Delivery Service] -->|lease + send + update| AD
   end
@@ -97,6 +97,8 @@ Optional (recommended when available):
 - `partition_key` (string)
 - `cursor_value` (string)
 - `payload` (object) — producer-defined details (the only extensible field)
+
+Note: the platform normalizes common chain context fields (`chain_id`, `block_number`, `block_hash`, `tx_hash`) into dedicated columns for indexing. Producers MAY also copy these values into `payload` for convenience; the sink does not validate or interpret `payload` beyond being a JSON object.
 
 Rules:
 - Top-level unknown fields are rejected (use `payload` for extensions).
