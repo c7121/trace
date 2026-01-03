@@ -1,0 +1,55 @@
+services:
+  pg_state:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: trace
+      POSTGRES_PASSWORD: trace
+      POSTGRES_DB: trace_state
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trace -d trace_state"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  pg_data:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: trace
+      POSTGRES_PASSWORD: trace
+      POSTGRES_DB: trace_data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trace -d trace_data"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: trace
+      MINIO_ROOT_PASSWORD: tracepassword
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  minio_setup:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 trace tracepassword &&
+      mc mb -p local/trace-harness || true &&
+      exit 0
+      "

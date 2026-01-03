@@ -11,6 +11,10 @@ This directory is sequencing guidance. It is intentionally **not normative**; th
 
 ### 1) Contract-freeze “happy path” harness (MUST)
 
+Implementation lives in `harness/`.
+See `harness/README.md` and `harness/AGENT_TASKS.md`.
+
+
 Goal: prove the core contracts are implementable and correct under at-least-once delivery **before** you build feature code.
 
 **Recommendation:** implement this first against the **Trace Lite** profile (Postgres + MinIO + pgqueue). It gives you a deterministic harness for retries/duplicates without AWS integration churn. Once the harness passes, swap the adapters for AWS (SQS/S3/RDS).
