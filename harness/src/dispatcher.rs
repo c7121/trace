@@ -379,14 +379,36 @@ async fn task_buffer_publish(
         req.fence.attempt,
     )?;
 
-    ensure_task_fence(
-        &state.pool,
-        req.fence.task_id,
-        req.fence.attempt,
-        req.fence.lease_token,
-        FenceMode::RequireUnexpiredLease,
+    // IMPORTANT: fencing + side-effect writes must be *atomic*.
+    // If we fence-check and then enqueue in separate statements without a lock,
+    // a lease reaper / concurrent claimer can bump the attempt between the two.
+    // For "append-only" sinks this is usually benign, but for other dataset types
+    // it can become a correctness bug (stale attempt wins).
+    let mut tx = state.pool.begin().await.map_err(ApiError::internal)?;
+
+    let ok = sqlx::query(
+        r#"
+        SELECT 1
+        FROM state.tasks
+        WHERE task_id = $1
+          AND attempt = $2
+          AND lease_token = $3
+          AND status = 'running'
+          AND lease_expires_at > now()
+        FOR UPDATE
+        "#,
     )
-    .await?;
+    .bind(req.fence.task_id)
+    .bind(req.fence.attempt)
+    .bind(req.fence.lease_token)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::internal)?
+    .is_some();
+
+    if !ok {
+        return Err(ApiError::conflict("stale task fence"));
+    }
 
     let outbox_id =
         outbox_id_for_buffer_publish(req.fence.task_id, req.fence.attempt, &req.batch_uri);
@@ -409,10 +431,11 @@ async fn task_buffer_publish(
     .bind(outbox_id)
     .bind(&state.cfg.buffer_queue)
     .bind(payload)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await
     .map_err(ApiError::internal)?;
 
+    tx.commit().await.map_err(ApiError::internal)?;
     Ok(StatusCode::OK)
 }
 
@@ -552,48 +575,6 @@ async fn task_complete(
 
     tx.commit().await.map_err(ApiError::internal)?;
     Ok(StatusCode::OK)
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FenceMode {
-    RequireUnexpiredLease,
-}
-
-async fn ensure_task_fence(
-    pool: &PgPool,
-    task_id: Uuid,
-    attempt: i64,
-    lease_token: Uuid,
-    mode: FenceMode,
-) -> ApiResult<()> {
-    match mode {
-        FenceMode::RequireUnexpiredLease => {
-            let ok = sqlx::query(
-                r#"
-                SELECT 1
-                FROM state.tasks
-                WHERE task_id = $1
-                  AND attempt = $2
-                  AND lease_token = $3
-                  AND status = 'running'
-                  AND lease_expires_at > now()
-                "#,
-            )
-            .bind(task_id)
-            .bind(attempt)
-            .bind(lease_token)
-            .fetch_optional(pool)
-            .await
-            .map_err(ApiError::internal)?
-            .is_some();
-
-            if !ok {
-                return Err(ApiError::conflict("stale task fence"));
-            }
-
-            Ok(())
-        }
-    }
 }
 
 fn outbox_id_for_buffer_publish(task_id: Uuid, attempt: i64, batch_uri: &str) -> Uuid {

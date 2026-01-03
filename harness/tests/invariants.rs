@@ -262,6 +262,152 @@ async fn stale_attempt_fencing_rejects_old_complete() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn stale_attempt_fencing_rejects_old_buffer_publish() -> anyhow::Result<()> {
+    let mut cfg = migrated_config().await?;
+    cfg.lease_duration_secs = 1;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let server = DispatcherServer::start(
+        pool.clone(),
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
+        false,
+    )
+    .await?;
+
+    let base = format!("http://{}", server.addr);
+    let client = reqwest::Client::new();
+    let task_id = Uuid::new_v4();
+
+    let claim1 = client
+        .post(format!("{base}/internal/task-claim"))
+        .json(&serde_json::json!({ "task_id": task_id }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+    let attempt1 = claim1["attempt"].as_i64().context("attempt1")?;
+    let lease1 = claim1["lease_token"].as_str().context("lease1")?;
+    let token1 = claim1["capability_token"].as_str().context("token1")?;
+
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+
+    let claim2 = client
+        .post(format!("{base}/internal/task-claim"))
+        .json(&serde_json::json!({ "task_id": task_id }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+    let attempt2 = claim2["attempt"].as_i64().context("attempt2")?;
+    anyhow::ensure!(attempt2 == attempt1 + 1, "expected attempt bump");
+
+    let resp = client
+        .post(format!("{base}/v1/task/buffer-publish"))
+        .header("X-Trace-Task-Capability", token1)
+        .json(&serde_json::json!({
+            "task_id": task_id,
+            "attempt": attempt1,
+            "lease_token": lease1,
+            "batch_uri": format!("s3://{}/batches/{task_id}/{attempt1}.jsonl", cfg.s3_bucket),
+            "content_type": "application/jsonl",
+            "batch_size_bytes": 1,
+            "dedupe_scope": "test",
+        }))
+        .send()
+        .await?;
+
+    anyhow::ensure!(
+        resp.status() == reqwest::StatusCode::CONFLICT,
+        "expected 409, got {}",
+        resp.status()
+    );
+
+    server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn buffer_publish_is_idempotent_for_same_attempt_and_uri() -> anyhow::Result<()> {
+    let cfg = migrated_config().await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let server = DispatcherServer::start(
+        pool.clone(),
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
+        false,
+    )
+    .await?;
+
+    let base = format!("http://{}", server.addr);
+    let client = reqwest::Client::new();
+    let task_id = Uuid::new_v4();
+
+    let claim = client
+        .post(format!("{base}/internal/task-claim"))
+        .json(&serde_json::json!({ "task_id": task_id }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+    let attempt = claim["attempt"].as_i64().context("attempt")?;
+    let lease = claim["lease_token"].as_str().context("lease_token")?;
+    let token = claim["capability_token"].as_str().context("capability_token")?;
+
+    let batch_uri = format!("s3://{}/batches/{task_id}/{attempt}.jsonl", cfg.s3_bucket);
+    for _ in 0..2 {
+        client
+            .post(format!("{base}/v1/task/buffer-publish"))
+            .header("X-Trace-Task-Capability", token)
+            .json(&serde_json::json!({
+                "task_id": task_id,
+                "attempt": attempt,
+                "lease_token": lease,
+                "batch_uri": batch_uri.clone(),
+                "content_type": "application/jsonl",
+                "batch_size_bytes": 1,
+                "dedupe_scope": "test",
+            }))
+            .send()
+            .await?
+            .error_for_status()?;
+    }
+
+    let count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*)
+        FROM state.outbox
+        WHERE topic = $1
+          AND payload->>'batch_uri' = $2
+        "#,
+    )
+    .bind(&cfg.buffer_queue)
+    .bind(&batch_uri)
+    .fetch_one(&pool)
+    .await?;
+
+    anyhow::ensure!(count == 1, "expected 1 outbox row, got {count}");
+
+    server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn dispatcher_restart_recovers_outbox() -> anyhow::Result<()> {
     let cfg = migrated_config().await?;
     let pool = PgPoolOptions::new()

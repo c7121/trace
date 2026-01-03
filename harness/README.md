@@ -38,6 +38,12 @@ cargo run -- worker
 cargo run -- sink
 ```
 
+Enqueue a task wakeup message (so the worker has something to do):
+
+```bash
+cargo run -- enqueue
+```
+
 Run integration tests (after the above is working):
 
 ```bash

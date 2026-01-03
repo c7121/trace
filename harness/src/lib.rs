@@ -1,5 +1,6 @@
 pub mod config;
 pub mod dispatcher;
+pub mod enqueue;
 pub mod jwt;
 pub mod migrate;
 pub mod pgqueue;

@@ -2,7 +2,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use trace_harness::{config, dispatcher, migrate, sink, worker};
+use trace_harness::{config, dispatcher, enqueue, migrate, sink, worker};
 
 #[derive(Parser, Debug)]
 #[command(name = "trace-harness")]
@@ -25,6 +25,13 @@ enum Command {
 
     /// Run the buffered sink consumer (stub in skeleton).
     Sink,
+
+    /// Enqueue a task wakeup message (manual testing helper).
+    Enqueue {
+        /// Task id to enqueue (optional; generated if omitted).
+        #[arg(long)]
+        task_id: Option<uuid::Uuid>,
+    },
 }
 
 #[tokio::main]
@@ -41,5 +48,6 @@ async fn main() -> anyhow::Result<()> {
         Command::Dispatcher => dispatcher::run(&cfg).await,
         Command::Worker => worker::run(&cfg).await,
         Command::Sink => sink::run(&cfg).await,
+        Command::Enqueue { task_id } => enqueue::run(&cfg, task_id).await,
     }
 }
