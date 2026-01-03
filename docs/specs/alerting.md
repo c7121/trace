@@ -32,7 +32,7 @@ Constraints:
 ## Public surface changes
 Public surface includes API endpoints, schemas, config semantics, and persistence formats.
 
-- Endpoints/RPC: Alert CRUD + delivery status endpoints (defined elsewhere); task buffer publish for `alert_events` (see `docs/architecture/contracts.md`).
+- Endpoints/RPC: Alert CRUD + delivery status endpoints (see `docs/architecture/user_api_contracts.md`); task buffer publish for `alert_events` (see `docs/architecture/contracts.md`).
 - Events/schemas: `alert_events` buffered dataset batch format (see `docs/adr/0006-buffered-postgres-datasets.md`).
 - CLI: None.
 - Config semantics: DAG jobs `alert_evaluate` and `alert_route` (see `docs/specs/dag_configuration.md` and operator docs).
@@ -43,7 +43,7 @@ Public surface includes API endpoints, schemas, config semantics, and persistenc
 
 ```mermaid
 flowchart LR
-  U[User] -->|CRUD alert definitions| API[User API]
+  U[User] -->|CRUD alert definitions| API[User API contracts]
   API -->|writes| PD[(Postgres data)]
 
   subgraph Exec[Execution]

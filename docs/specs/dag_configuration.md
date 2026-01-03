@@ -47,7 +47,7 @@ Constraints:
 
 ```mermaid
 flowchart LR
-  U[User] -->|upload DAG YAML| API[User API]
+  U[User] -->|upload DAG YAML| API[User API contracts]
   API -->|validate + store| DISP[Dispatcher]
   DISP -->|persist| PS[(Postgres state: dag_versions)]
   DISP -->|enqueue tasks| Q[SQS task queues]

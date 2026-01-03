@@ -38,6 +38,7 @@ Constraints:
 ## Public surface changes
 - Config semantics: `runtime: lambda` is allowed for UDF jobs and is executed via a platform-managed runner.
 - Persistence format: UDF bundle format and provenance requirements.
+- User API: bundle upload and metadata routes are enumerated in `docs/architecture/user_api_contracts.md`.
 
 ## Architecture (C4) — Mermaid-in-Markdown only
 

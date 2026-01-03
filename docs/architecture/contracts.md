@@ -2,6 +2,8 @@
 
 Component boundaries: task payloads, results, and upstream events.
 
+User-facing `/v1/*` endpoints reachable via the Gateway are enumerated in [`user_api_contracts.md`](user_api_contracts.md). This document focuses on task-scoped and worker-only contracts.
+
 > `/internal/*` endpoints are internal-only and are not exposed to end users. They are callable only by **trusted** platform components (worker wrappers and platform services). Untrusted runtimes (UDF code, including `runtime: lambda`) must not call `/internal/*`.
 >
 > **Transport:** TLS is required for all internal APIs.

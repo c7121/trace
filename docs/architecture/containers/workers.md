@@ -1,15 +1,15 @@
 # Workers
 
-Executors. Two worker profiles (platform and UDF).
+Executors. Platform workers (ECS) plus untrusted UDF execution (v1: Lambda runner).
 
-Trace uses **two worker profiles** with different trust assumptions:
+Trace uses **two execution profiles** with different trust assumptions:
 
-- **Platform workers** run trusted platform operators (block follower, ingest, compaction). They may use platform-managed secrets and may reach the RPC Egress Gateway.
-- **UDF workers** run untrusted user code (alerts, custom transforms). They do **not** have direct Postgres access and receive scoped data access via Query Service + short-lived credentials minted by the Dispatcher.
+- **Platform workers (`ecs_platform`)** run trusted platform operators (block follower, ingest, compaction). They may use platform-managed secrets and may reach the RPC Egress Gateway.
+- **Untrusted UDF execution (`runtime: lambda`, v1)** runs user bundles in a platform-managed Lambda runner. It has no Postgres credentials and interacts with the platform only through task-scoped APIs.
 
 > **AWS constraint (important):** ECS/Fargate does not support per-container IAM roles. All containers in a task share the task role and network.
 >
-> If a UDF worker wrapper/poller needs AWS API permissions (SQS, queue ack/visibility, ECS `RunTask`, etc.) and runs in the same ECS task as untrusted code, the untrusted code inherits those permissions.
+> If an ECS UDF wrapper/poller needs AWS API permissions (SQS, queue ack/visibility, ECS `RunTask`, etc.) and runs in the same ECS task as untrusted code, the untrusted code inherits those permissions.
 >
 > **v1 recommendation:** run untrusted UDF bundles on `runtime: lambda` (platform-managed runner) to keep the execution role near-zero. Support for `ecs_udf` in AWS requires a design where privileged polling/launch is separated from untrusted execution.
 
@@ -61,11 +61,43 @@ flowchart LR
 > - It holds any worker-only auth material (e.g., a worker token) that must not be visible to untrusted code.
 > - It passes the per-attempt **task capability token** to operator/UDF code for task-scoped APIs (task query, credential minting, fenced completion/events).
 
-### UDF Worker
+### Lambda UDF runner (v1)
+
+In v1, untrusted execution uses a platform-managed Lambda runner invoked directly by the Dispatcher (no task queue wake-up, no worker-only claim endpoint).
 
 ```mermaid
 flowchart LR
-    subgraph Worker["UDF Worker Task"]
+    dispatcher["Dispatcher"]:::component
+    lambda["Lambda UDF runner - untrusted"]:::component
+    qs["Query Service"]:::component
+    s3["Object storage - datasets"]:::database
+    scratch["Object storage - scratch"]:::database
+
+    dispatcher -->|invoke runtime=lambda with task payload + capability token| lambda
+    lambda -->|/v1/task/query| qs
+    lambda -->|/v1/task/heartbeat and /v1/task/complete| dispatcher
+    lambda -->|/v1/task/credentials| dispatcher
+    lambda -->|scoped read/write| s3
+    lambda -->|write batch artifact| scratch
+    lambda -->|/v1/task/buffer-publish| dispatcher
+
+    classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
+    classDef infra fill:#e8e8ff,stroke:#6666aa,color:#000;
+    classDef database fill:#fff6d6,stroke:#c58b00,color:#000;
+```
+
+Notes:
+- Lambda UDFs do not have a wrapper boundary. Do not rely on hidden shared secrets.
+- Lambda UDFs MUST use the per-attempt task capability token for all task-scoped APIs.
+
+### ECS UDF worker task (deferred to v2)
+
+This is the conceptual ECS shape for untrusted execution once a zero-trust isolation design exists for AWS.
+It is not scheduled in v1.
+
+```mermaid
+flowchart LR
+    subgraph Worker["ECS UDF worker task - v2"]
         wrapper["Worker Wrapper"]:::component
         udf["User Code"]:::component
     end

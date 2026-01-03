@@ -51,7 +51,7 @@ Lock these decisions before you implement operators:
 - **Task auth model:** untrusted runtimes use **only** per-attempt capability tokens (+ lease fencing). No hidden shared secrets for Lambdas.
 - **Capability token contract:** `X-Trace-Task-Capability` header + the token claim schema in `docs/architecture/contracts.md` are **normative**. Do not implement ad-hoc variants.
 - **User auth:** JWT authenticates the user; org membership/role comes from Postgres state (no forwarded header trust).
-- **User API contracts:** before implementing any user endpoints beyond `/v1/query`, write an owned contract doc that enumerates routes + request/response schemas + authz invariants (default-deny).
+- **User API contracts:** keep `docs/architecture/user_api_contracts.md` as the single owned inventory of `/v1/*` routes and their authz invariants. Do not implement or expose any user endpoint not listed there (default-deny).
 - **Input filters (`where`):** structured map only (ADR 0007).
 - **Buffered datasets:** pointer pattern + sink-side strict validation + row-level idempotency (ADR 0006).
 
