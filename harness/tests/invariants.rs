@@ -367,7 +367,9 @@ async fn buffer_publish_is_idempotent_for_same_attempt_and_uri() -> anyhow::Resu
         .await?;
     let attempt = claim["attempt"].as_i64().context("attempt")?;
     let lease = claim["lease_token"].as_str().context("lease_token")?;
-    let token = claim["capability_token"].as_str().context("capability_token")?;
+    let token = claim["capability_token"]
+        .as_str()
+        .context("capability_token")?;
 
     let batch_uri = format!("s3://{}/batches/{task_id}/{attempt}.jsonl", cfg.s3_bucket);
     for _ in 0..2 {
