@@ -1,0 +1,206 @@
+use crate::s3::parse_s3_uri;
+use anyhow::{anyhow, Context};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait};
+use uuid::Uuid;
+
+fn default_payload() -> Value {
+    Value::Object(Map::new())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FakeBundle {
+    alert_definition_id: Uuid,
+    dedupe_key: String,
+    chain_id: i64,
+    block_number: i64,
+    block_hash: String,
+    tx_hash: String,
+
+    #[serde(default = "default_payload")]
+    payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AlertEventRow {
+    alert_definition_id: Uuid,
+    dedupe_key: String,
+    event_time: DateTime<Utc>,
+    chain_id: i64,
+    block_number: i64,
+    block_hash: String,
+    tx_hash: String,
+    payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct BufferPublishRequest {
+    task_id: Uuid,
+    attempt: i64,
+    lease_token: Uuid,
+    batch_uri: String,
+    content_type: String,
+    batch_size_bytes: i64,
+    dedupe_scope: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CompleteRequest {
+    task_id: Uuid,
+    attempt: i64,
+    lease_token: Uuid,
+    outcome: &'static str,
+}
+
+#[derive(Clone)]
+pub struct FakeRunner {
+    dispatcher_url: String,
+    bucket: String,
+    object_store: std::sync::Arc<dyn ObjectStoreTrait>,
+    http: reqwest::Client,
+}
+
+impl FakeRunner {
+    pub fn new(
+        dispatcher_url: String,
+        bucket: String,
+        object_store: std::sync::Arc<dyn ObjectStoreTrait>,
+    ) -> Self {
+        Self {
+            dispatcher_url,
+            bucket,
+            object_store,
+            http: reqwest::Client::new(),
+        }
+    }
+
+    pub async fn run(&self, invocation: &UdfInvocationPayload) -> anyhow::Result<()> {
+        let bundle_bytes = self
+            .fetch_bundle_bytes(&invocation.bundle_url)
+            .await
+            .context("fetch bundle bytes")?;
+        let bundle: FakeBundle =
+            serde_json::from_slice(&bundle_bytes).context("decode fake bundle json")?;
+
+        if !bundle.payload.is_object() {
+            return Err(anyhow!("bundle payload must be a JSON object"));
+        }
+
+        let row = AlertEventRow {
+            alert_definition_id: bundle.alert_definition_id,
+            dedupe_key: bundle.dedupe_key,
+            event_time: Utc::now(),
+            chain_id: bundle.chain_id,
+            block_number: bundle.block_number,
+            block_hash: bundle.block_hash,
+            tx_hash: bundle.tx_hash,
+            payload: bundle.payload,
+        };
+
+        let key = format!("batches/{}/{}/udf.jsonl", invocation.task_id, invocation.attempt);
+        let batch_uri = format!("s3://{}/{}", self.bucket, key);
+        let mut bytes = serde_json::to_vec(&row).context("encode alert event row")?;
+        bytes.push(b'\n');
+
+        self.object_store
+            .put_bytes(&self.bucket, &key, bytes.clone(), "application/jsonl")
+            .await
+            .context("upload batch")?;
+
+        self.buffer_publish(invocation, &batch_uri, bytes.len())
+            .await
+            .context("buffer publish")?;
+
+        self.complete(invocation).await.context("complete")?;
+        Ok(())
+    }
+
+    async fn fetch_bundle_bytes(&self, url: &str) -> anyhow::Result<Vec<u8>> {
+        if url.starts_with("s3://") {
+            let (bucket, key) = parse_s3_uri(url)?;
+            return self.object_store.get_bytes(&bucket, &key).await;
+        }
+
+        let resp = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .with_context(|| format!("GET {url}"))?;
+        let resp = resp.error_for_status().context("GET bundle status")?;
+        Ok(resp.bytes().await.context("GET bundle bytes")?.to_vec())
+    }
+
+    async fn buffer_publish(
+        &self,
+        invocation: &UdfInvocationPayload,
+        batch_uri: &str,
+        batch_size_bytes: usize,
+    ) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/v1/task/buffer-publish",
+            self.dispatcher_url.trim_end_matches('/')
+        );
+
+        let req = BufferPublishRequest {
+            task_id: invocation.task_id,
+            attempt: invocation.attempt,
+            lease_token: invocation.lease_token,
+            batch_uri: batch_uri.to_string(),
+            content_type: "application/jsonl".to_string(),
+            batch_size_bytes: batch_size_bytes.try_into().unwrap_or(i64::MAX),
+            dedupe_scope: "udf".to_string(),
+        };
+
+        let resp = self
+            .http
+            .post(url)
+            .header("X-Trace-Task-Capability", &invocation.capability_token)
+            .json(&req)
+            .send()
+            .await
+            .context("POST /v1/task/buffer-publish")?;
+
+        if resp.status() == reqwest::StatusCode::CONFLICT {
+            return Ok(());
+        }
+
+        resp.error_for_status()
+            .context("buffer-publish status")?;
+        Ok(())
+    }
+
+    async fn complete(&self, invocation: &UdfInvocationPayload) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/v1/task/complete",
+            self.dispatcher_url.trim_end_matches('/')
+        );
+
+        let req = CompleteRequest {
+            task_id: invocation.task_id,
+            attempt: invocation.attempt,
+            lease_token: invocation.lease_token,
+            outcome: "success",
+        };
+
+        let resp = self
+            .http
+            .post(url)
+            .header("X-Trace-Task-Capability", &invocation.capability_token)
+            .json(&req)
+            .send()
+            .await
+            .context("POST /v1/task/complete")?;
+
+        if resp.status() == reqwest::StatusCode::CONFLICT {
+            return Ok(());
+        }
+
+        resp.error_for_status().context("complete status")?;
+        Ok(())
+    }
+}
