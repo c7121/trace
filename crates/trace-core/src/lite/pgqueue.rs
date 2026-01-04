@@ -24,7 +24,7 @@ impl PgQueue {
         queue: &str,
         payload: Value,
         available_at: DateTime<Utc>,
-    ) -> anyhow::Result<Uuid> {
+    ) -> anyhow::Result<String> {
         let message_id = Uuid::new_v4();
         sqlx::query(
             r#"
@@ -40,7 +40,7 @@ impl PgQueue {
         .await
         .with_context(|| format!("pgqueue publish to queue={queue}"))?;
 
-        Ok(message_id)
+        Ok(message_id.to_string())
     }
 
     pub async fn receive(
@@ -79,8 +79,11 @@ impl PgQueue {
 
         let mut messages = Vec::with_capacity(rows.len());
         for row in rows {
+            let message_id: Uuid = row.try_get("message_id")?;
+            let message_id = message_id.to_string();
             messages.push(Message {
-                message_id: row.try_get("message_id")?,
+                ack_token: message_id.clone(),
+                message_id,
                 queue_name: row.try_get("queue_name")?,
                 payload: row.try_get("payload")?,
                 deliveries: row.try_get("deliveries")?,
@@ -90,7 +93,8 @@ impl PgQueue {
         Ok(messages)
     }
 
-    pub async fn ack(&self, message_id: Uuid) -> anyhow::Result<()> {
+    pub async fn ack(&self, ack_token: &str) -> anyhow::Result<()> {
+        let message_id = Uuid::parse_str(ack_token).context("parse ack_token as uuid")?;
         sqlx::query(
             r#"
             DELETE FROM state.queue_messages
@@ -105,7 +109,8 @@ impl PgQueue {
         Ok(())
     }
 
-    pub async fn nack_or_requeue(&self, message_id: Uuid, delay: Duration) -> anyhow::Result<()> {
+    pub async fn nack_or_requeue(&self, ack_token: &str, delay: Duration) -> anyhow::Result<()> {
+        let message_id = Uuid::parse_str(ack_token).context("parse ack_token as uuid")?;
         let delay_millis = duration_millis(delay);
         sqlx::query(
             r#"
@@ -132,7 +137,7 @@ impl Queue for PgQueue {
         queue: &str,
         payload: Value,
         available_at: DateTime<Utc>,
-    ) -> anyhow::Result<Uuid> {
+    ) -> anyhow::Result<String> {
         self.publish(queue, payload, available_at).await
     }
 
@@ -145,12 +150,12 @@ impl Queue for PgQueue {
         self.receive(queue, max, visibility_timeout).await
     }
 
-    async fn ack(&self, message_id: Uuid) -> anyhow::Result<()> {
-        self.ack(message_id).await
+    async fn ack(&self, ack_token: &str) -> anyhow::Result<()> {
+        self.ack(ack_token).await
     }
 
-    async fn nack_or_requeue(&self, message_id: Uuid, delay: Duration) -> anyhow::Result<()> {
-        self.nack_or_requeue(message_id, delay).await
+    async fn nack_or_requeue(&self, ack_token: &str, delay: Duration) -> anyhow::Result<()> {
+        self.nack_or_requeue(ack_token, delay).await
     }
 }
 

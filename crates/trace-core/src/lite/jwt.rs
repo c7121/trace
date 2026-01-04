@@ -1,11 +1,10 @@
-use crate::{S3Grants, Signer, TaskCapabilityClaims};
+use crate::{Signer, TaskCapabilityClaims, TaskCapabilityIssueRequest};
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use jsonwebtoken::{
     decode, decode_header, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
 use std::time::Duration;
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct Hs256TaskCapabilityConfig {
@@ -16,7 +15,6 @@ pub struct Hs256TaskCapabilityConfig {
     pub next_kid: Option<String>,
     pub next_secret: Option<String>,
     pub ttl: Duration,
-    pub org_id: Uuid,
 }
 
 #[derive(Clone)]
@@ -26,7 +24,6 @@ pub struct TaskCapability {
     current_kid: String,
     next_kid: Option<String>,
     ttl: Duration,
-    org_id: Uuid,
     current_encoding_key: EncodingKey,
     current_decoding_key: DecodingKey,
     next_decoding_key: Option<DecodingKey>,
@@ -47,7 +44,6 @@ impl TaskCapability {
             current_kid: cfg.current_kid,
             next_kid: cfg.next_kid,
             ttl: cfg.ttl,
-            org_id: cfg.org_id,
             current_encoding_key: EncodingKey::from_secret(secret),
             current_decoding_key: DecodingKey::from_secret(secret),
             next_decoding_key: cfg
@@ -57,24 +53,25 @@ impl TaskCapability {
         })
     }
 
-    pub fn issue(&self, task_id: Uuid, attempt: i64) -> anyhow::Result<String> {
+    pub fn issue(&self, req: &TaskCapabilityIssueRequest) -> anyhow::Result<String> {
         let now = Utc::now().timestamp();
         let iat: usize = now.try_into().unwrap_or(0);
         let exp: usize = (now + self.ttl.as_secs().try_into().unwrap_or(i64::MAX))
             .try_into()
             .unwrap_or(usize::MAX);
 
+        let task_id = req.task_id;
         let claims = TaskCapabilityClaims {
             iss: self.issuer.clone(),
             aud: self.audience.clone(),
             sub: format!("task:{task_id}"),
             exp,
             iat,
-            org_id: self.org_id,
-            task_id,
-            attempt,
-            datasets: Vec::new(),
-            s3: S3Grants::empty(),
+            org_id: req.org_id,
+            task_id: req.task_id,
+            attempt: req.attempt,
+            datasets: req.datasets.clone(),
+            s3: req.s3.clone(),
         };
 
         let mut header = Header::new(Algorithm::HS256);
@@ -110,8 +107,8 @@ impl TaskCapability {
 }
 
 impl Signer for TaskCapability {
-    fn issue_task_capability(&self, task_id: Uuid, attempt: i64) -> anyhow::Result<String> {
-        self.issue(task_id, attempt)
+    fn issue_task_capability(&self, req: &TaskCapabilityIssueRequest) -> anyhow::Result<String> {
+        self.issue(req)
     }
 
     fn verify_task_capability(&self, token: &str) -> anyhow::Result<TaskCapabilityClaims> {

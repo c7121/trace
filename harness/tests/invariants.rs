@@ -634,7 +634,7 @@ async fn dispatcher_restart_recovers_outbox() -> anyhow::Result<()> {
             .receive(&cfg.buffer_queue, 10, Duration::from_secs(1))
             .await?;
         if let Some(msg) = got.first() {
-            pgq.ack(msg.message_id).await?;
+            pgq.ack(&msg.ack_token).await?;
             break;
         }
         if tokio::time::Instant::now() > deadline {
@@ -700,7 +700,7 @@ async fn worker_crash_triggers_retry() -> anyhow::Result<()> {
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Uuid>().ok());
 
-        pgq.ack(msg.message_id).await?;
+        pgq.ack(&msg.ack_token).await?;
 
         if got_task_id == Some(task_id) {
             break;
@@ -738,7 +738,7 @@ async fn worker_crash_triggers_retry() -> anyhow::Result<()> {
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Uuid>().ok());
 
-        pgq.ack(msg.message_id).await?;
+        pgq.ack(&msg.ack_token).await?;
 
         if got_task_id == Some(task_id) {
             break;
@@ -820,7 +820,7 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
             .receive(&cfg.buffer_queue_dlq, 1, Duration::from_secs(30))
             .await?;
         if !got.is_empty() {
-            pgq.ack(got[0].message_id).await?;
+            pgq.ack(&got[0].ack_token).await?;
             break;
         }
         if tokio::time::Instant::now() > deadline {

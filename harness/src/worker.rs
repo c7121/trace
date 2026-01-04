@@ -105,12 +105,13 @@ async fn handle_message(
     msg: crate::pgqueue::Message,
     requeue_delay: Duration,
 ) -> anyhow::Result<()> {
-    let message_id = msg.message_id;
+    let message_id = msg.message_id.clone();
+    let ack_token = msg.ack_token.clone();
     let wakeup: TaskWakeup = match serde_json::from_value(msg.payload.clone()) {
         Ok(v) => v,
         Err(err) => {
             tracing::warn!(error = %err, message_id = %message_id, "invalid wakeup payload; dropping");
-            queue.ack(message_id).await?;
+            queue.ack(&ack_token).await?;
             return Ok(());
         }
     };
@@ -128,7 +129,7 @@ async fn handle_message(
             .context("POST /internal/task-claim")?;
 
         if resp.status() == reqwest::StatusCode::CONFLICT {
-            queue.ack(message_id).await?;
+            queue.ack(&ack_token).await?;
             return Ok(());
         }
 
@@ -165,7 +166,7 @@ async fn handle_message(
             .context("POST /v1/task/buffer-publish")?;
 
         if resp.status() == reqwest::StatusCode::CONFLICT {
-            queue.ack(message_id).await?;
+            queue.ack(&ack_token).await?;
             return Ok(());
         }
         resp.error_for_status().context("buffer-publish status")?;
@@ -189,12 +190,12 @@ async fn handle_message(
             .context("POST /v1/task/complete")?;
 
         if resp.status() == reqwest::StatusCode::CONFLICT {
-            queue.ack(message_id).await?;
+            queue.ack(&ack_token).await?;
             return Ok(());
         }
         resp.error_for_status().context("complete status")?;
 
-        queue.ack(message_id).await?;
+        queue.ack(&ack_token).await?;
         Ok(())
     }
     .await;
@@ -202,7 +203,7 @@ async fn handle_message(
     match res {
         Ok(()) => Ok(()),
         Err(err) => {
-            queue.nack_or_requeue(message_id, requeue_delay).await?;
+            queue.nack_or_requeue(&ack_token, requeue_delay).await?;
             Err(err)
         }
     }

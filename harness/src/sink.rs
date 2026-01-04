@@ -81,7 +81,7 @@ async fn handle_message(
     msg: crate::pgqueue::Message,
     retry_delay: Duration,
 ) -> anyhow::Result<()> {
-    let message_id = msg.message_id;
+    let ack_token = msg.ack_token.clone();
     let deliveries = msg.deliveries;
 
     let res: anyhow::Result<()> = async {
@@ -103,7 +103,7 @@ async fn handle_message(
         let rows = parse_jsonl(&bytes)?;
         insert_alert_events(data_pool, rows).await?;
 
-        queue.ack(message_id).await?;
+        queue.ack(&ack_token).await?;
         Ok(())
     }
     .await;
@@ -119,11 +119,11 @@ async fn handle_message(
                 let _ = queue
                     .publish(&cfg.buffer_queue_dlq, dlq_payload, Utc::now())
                     .await?;
-                queue.ack(message_id).await?;
+                queue.ack(&ack_token).await?;
                 return Ok(());
             }
 
-            queue.nack_or_requeue(message_id, retry_delay).await?;
+            queue.nack_or_requeue(&ack_token, retry_delay).await?;
             Err(err)
         }
     }

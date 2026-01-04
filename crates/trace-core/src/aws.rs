@@ -1,10 +1,12 @@
-use crate::{ObjectStore as ObjectStoreTrait, Queue as QueueTrait, QueueMessage, Signer, TaskCapabilityClaims};
+use crate::{
+    ObjectStore as ObjectStoreTrait, Queue as QueueTrait, QueueMessage, Signer,
+    TaskCapabilityClaims, TaskCapabilityIssueRequest,
+};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::time::Duration;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
 pub struct SqsQueue;
@@ -16,7 +18,7 @@ impl QueueTrait for SqsQueue {
         _queue: &str,
         _payload: Value,
         _available_at: DateTime<Utc>,
-    ) -> anyhow::Result<Uuid> {
+    ) -> anyhow::Result<String> {
         Err(anyhow!("aws SqsQueue is stubbed (compile-only)"))
     }
 
@@ -29,11 +31,11 @@ impl QueueTrait for SqsQueue {
         Err(anyhow!("aws SqsQueue is stubbed (compile-only)"))
     }
 
-    async fn ack(&self, _message_id: Uuid) -> anyhow::Result<()> {
+    async fn ack(&self, _ack_token: &str) -> anyhow::Result<()> {
         Err(anyhow!("aws SqsQueue is stubbed (compile-only)"))
     }
 
-    async fn nack_or_requeue(&self, _message_id: Uuid, _delay: Duration) -> anyhow::Result<()> {
+    async fn nack_or_requeue(&self, _ack_token: &str, _delay: Duration) -> anyhow::Result<()> {
         Err(anyhow!("aws SqsQueue is stubbed (compile-only)"))
     }
 }
@@ -62,7 +64,7 @@ impl ObjectStoreTrait for S3ObjectStore {
 pub struct KmsSigner;
 
 impl Signer for KmsSigner {
-    fn issue_task_capability(&self, _task_id: Uuid, _attempt: i64) -> anyhow::Result<String> {
+    fn issue_task_capability(&self, _req: &TaskCapabilityIssueRequest) -> anyhow::Result<String> {
         Err(anyhow!("aws KmsSigner is stubbed (compile-only)"))
     }
 

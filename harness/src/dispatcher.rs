@@ -11,7 +11,7 @@ use serde_json::Value;
 use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
-use trace_core::{Queue as QueueTrait, Signer as SignerTrait};
+use trace_core::{Queue as QueueTrait, S3Grants, Signer as SignerTrait, TaskCapabilityIssueRequest};
 use uuid::Uuid;
 
 const OUTBOX_NAMESPACE: Uuid = Uuid::from_bytes([
@@ -53,7 +53,6 @@ impl DispatcherServer {
             next_kid: cfg.task_capability_next_kid.clone(),
             next_secret: cfg.task_capability_next_secret.clone(),
             ttl: Duration::from_secs(cfg.task_capability_ttl_secs),
-            org_id: cfg.org_id,
         })
         .context("init task capability")?;
 
@@ -291,9 +290,17 @@ async fn task_claim(
 
     tx.commit().await.map_err(ApiError::internal)?;
 
+    let capability_req = TaskCapabilityIssueRequest {
+        org_id: state.cfg.org_id,
+        task_id: req.task_id,
+        attempt,
+        datasets: Vec::new(),
+        s3: S3Grants::empty(),
+    };
+
     let capability_token = state
         .capability
-        .issue_task_capability(req.task_id, attempt)
+        .issue_task_capability(&capability_req)
         .map_err(ApiError::internal)?;
 
     Ok(Json(TaskClaimResponse {

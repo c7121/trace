@@ -12,7 +12,18 @@ pub mod aws;
 
 #[derive(Debug, Clone)]
 pub struct QueueMessage {
-    pub message_id: Uuid,
+    /// Opaque token used to acknowledge or requeue the message.
+    ///
+    /// - PgQueue: UUID string
+    /// - SQS: ReceiptHandle
+    pub ack_token: String,
+
+    /// Provider message id (for tracing).
+    ///
+    /// - PgQueue: UUID string
+    /// - SQS: MessageId
+    pub message_id: String,
+
     pub queue_name: String,
     pub payload: Value,
     pub deliveries: i32,
@@ -25,7 +36,7 @@ pub trait Queue: Send + Sync {
         queue: &str,
         payload: Value,
         available_at: DateTime<Utc>,
-    ) -> anyhow::Result<Uuid>;
+    ) -> anyhow::Result<String>;
 
     async fn receive(
         &self,
@@ -34,9 +45,9 @@ pub trait Queue: Send + Sync {
         visibility_timeout: Duration,
     ) -> anyhow::Result<Vec<QueueMessage>>;
 
-    async fn ack(&self, message_id: Uuid) -> anyhow::Result<()>;
+    async fn ack(&self, ack_token: &str) -> anyhow::Result<()>;
 
-    async fn nack_or_requeue(&self, message_id: Uuid, delay: Duration) -> anyhow::Result<()>;
+    async fn nack_or_requeue(&self, ack_token: &str, delay: Duration) -> anyhow::Result<()>;
 }
 
 #[async_trait]
@@ -52,8 +63,22 @@ pub trait ObjectStore: Send + Sync {
     async fn get_bytes(&self, bucket: &str, key: &str) -> anyhow::Result<Vec<u8>>;
 }
 
+#[derive(Debug, Clone)]
+pub struct TaskCapabilityIssueRequest {
+    pub org_id: Uuid,
+    pub task_id: Uuid,
+    pub attempt: i64,
+    pub datasets: Vec<DatasetGrant>,
+    pub s3: S3Grants,
+}
+
 pub trait Signer: Send + Sync {
-    fn issue_task_capability(&self, task_id: Uuid, attempt: i64) -> anyhow::Result<String>;
+    /// Issue a task-scoped capability token (JWT).
+    ///
+    /// The signer is responsible for setting `iss`, `aud`, `sub`, `iat`, `exp`.
+    fn issue_task_capability(&self, req: &TaskCapabilityIssueRequest) -> anyhow::Result<String>;
+
+    /// Verify and decode a task capability token.
     fn verify_task_capability(&self, token: &str) -> anyhow::Result<TaskCapabilityClaims>;
 }
 
