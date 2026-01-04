@@ -259,3 +259,48 @@ async fn audit_emitted_after_success() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn dataset_grant_required() -> anyhow::Result<()> {
+    let (cfg, _pool, app) = setup().await?;
+
+    let task_id = Uuid::new_v4();
+    let attempt = 1;
+    let dataset_id = Uuid::new_v4();
+    let token = issue_token(&cfg, task_id, attempt, &[])?;
+
+    let req = TaskQueryRequest {
+        task_id,
+        attempt,
+        dataset_id,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+
+    let (status, _body) = send_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn dataset_grant_must_match_request() -> anyhow::Result<()> {
+    let (cfg, _pool, app) = setup().await?;
+
+    let task_id = Uuid::new_v4();
+    let attempt = 1;
+    let dataset_id = Uuid::new_v4();
+    let other_dataset_id = Uuid::new_v4();
+    let token = issue_token(&cfg, task_id, attempt, &[other_dataset_id])?;
+
+    let req = TaskQueryRequest {
+        task_id,
+        attempt,
+        dataset_id,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+
+    let (status, _body) = send_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    Ok(())
+}
