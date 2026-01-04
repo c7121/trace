@@ -1,6 +1,8 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::Row;
 use tower::util::ServiceExt;
 use trace_core::{S3Grants, TaskCapabilityIssueRequest};
 use trace_core::Signer as _;
@@ -51,11 +53,26 @@ async fn send_query(
     Ok((status, body))
 }
 
-#[tokio::test]
-async fn auth_required_missing_token() -> anyhow::Result<()> {
+async fn setup() -> anyhow::Result<(QueryServiceConfig, sqlx::PgPool, axum::Router)> {
     let cfg = QueryServiceConfig::from_env()?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.data_database_url)
+        .await?;
+
+    sqlx::migrate!("../../harness/migrations/data")
+        .run(&pool)
+        .await?;
+
     let state = build_state(cfg.clone()).await?;
     let app = router(state);
+    Ok((cfg, pool, app))
+}
+
+#[tokio::test]
+async fn auth_required_missing_token() -> anyhow::Result<()> {
+    let (_cfg, _pool, app) = setup().await?;
 
     let req = TaskQueryRequest {
         task_id: Uuid::new_v4(),
@@ -72,9 +89,7 @@ async fn auth_required_missing_token() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn wrong_token_rejected() -> anyhow::Result<()> {
-    let cfg = QueryServiceConfig::from_env()?;
-    let state = build_state(cfg.clone()).await?;
-    let app = router(state);
+    let (cfg, _pool, app) = setup().await?;
 
     let task_id = Uuid::new_v4();
     let token = issue_token(&cfg, Uuid::new_v4(), 1)?;
@@ -94,9 +109,7 @@ async fn wrong_token_rejected() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
-    let cfg = QueryServiceConfig::from_env()?;
-    let state = build_state(cfg.clone()).await?;
-    let app = router(state);
+    let (cfg, _pool, app) = setup().await?;
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
@@ -123,9 +136,7 @@ async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn allows_url_literal_and_executes_selects() -> anyhow::Result<()> {
-    let cfg = QueryServiceConfig::from_env()?;
-    let state = build_state(cfg.clone()).await?;
-    let app = router(state);
+    let (cfg, _pool, app) = setup().await?;
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
@@ -171,5 +182,50 @@ async fn allows_url_literal_and_executes_selects() -> anyhow::Result<()> {
     assert_eq!(body["rows"].as_array().unwrap().len(), 5);
     assert_eq!(body["rows"][0][0].as_i64(), Some(1));
     assert_eq!(body["rows"][0][1].as_str(), Some("alert-1"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit_emitted_after_success() -> anyhow::Result<()> {
+    let (cfg, pool, app) = setup().await?;
+
+    let task_id = Uuid::new_v4();
+    let attempt = 1;
+    let dataset_id = Uuid::new_v4();
+    let token = issue_token(&cfg, task_id, attempt)?;
+
+    let req = TaskQueryRequest {
+        task_id,
+        attempt,
+        dataset_id,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+    let (status, _body) = send_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::OK);
+
+    let row = sqlx::query(
+        r#"
+        SELECT org_id, dataset_id, result_row_count, columns_accessed
+        FROM data.query_audit
+        WHERE task_id = $1
+        ORDER BY query_time DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(task_id)
+    .fetch_one(&pool)
+    .await?;
+
+    let org_id: Uuid = row.try_get("org_id")?;
+    let logged_dataset_id: Uuid = row.try_get("dataset_id")?;
+    let result_row_count: i64 = row.try_get("result_row_count")?;
+    let columns_accessed: Option<serde_json::Value> = row.try_get("columns_accessed")?;
+
+    assert_eq!(org_id, Uuid::parse_str("00000000-0000-0000-0000-000000000001")?);
+    assert_eq!(logged_dataset_id, dataset_id);
+    assert_eq!(result_row_count, 1);
+    assert!(columns_accessed.is_none());
+
     Ok(())
 }

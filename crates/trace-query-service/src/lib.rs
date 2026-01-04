@@ -122,8 +122,14 @@ async fn task_query(
         results.rows.truncate(limit);
     }
 
-    // Audit logging is added in a follow-up commit (Milestone 5).
-    let _ = (claims.org_id, req.dataset_id);
+    insert_query_audit(
+        &state.data_pool,
+        claims.org_id,
+        req.task_id,
+        req.dataset_id,
+        results.rows.len() as i64,
+    )
+    .await?;
 
     Ok(Json(TaskQueryResponse {
         columns: columns_to_response(&results),
@@ -169,6 +175,38 @@ fn require_task_capability(
     }
 
     Ok(claims)
+}
+
+async fn insert_query_audit(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    task_id: Uuid,
+    dataset_id: Uuid,
+    result_row_count: i64,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        INSERT INTO data.query_audit (
+          org_id,
+          task_id,
+          dataset_id,
+          columns_accessed,
+          result_row_count
+        ) VALUES ($1, $2, $3, NULL, $4)
+        "#,
+    )
+    .bind(org_id)
+    .bind(task_id)
+    .bind(dataset_id)
+    .bind(result_row_count)
+    .execute(pool)
+    .await
+    .map_err(|err| {
+        tracing::warn!(error = %err, "audit insert failed");
+        ApiError::internal("audit insert failed")
+    })?;
+
+    Ok(())
 }
 
 #[derive(Debug)]
