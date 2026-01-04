@@ -21,4 +21,4 @@ trace-core = { path = "../trace-core" }
 
 [dev-dependencies]
 http-body-util = "0.1"
-tower = "0.4"
+tower = { version = "0.5", features = ["util"] }

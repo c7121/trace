@@ -68,7 +68,7 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TaskQueryRequest {
     pub task_id: Uuid,
     pub attempt: i64,
@@ -213,4 +213,3 @@ impl IntoResponse for ApiError {
         (self.status, body).into_response()
     }
 }
-

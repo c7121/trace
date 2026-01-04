@@ -97,20 +97,25 @@ fn apply_hardening(conn: &Connection) -> anyhow::Result<()> {
 
 fn run_query(conn: &Connection, sql: &str, max_rows: usize) -> anyhow::Result<QueryResultSet> {
     let mut stmt = conn.prepare(sql).context("prepare")?;
-    let column_count = stmt.column_count();
+    let mut rows = Vec::new();
+    let mut result_rows = stmt.query([]).context("query")?;
 
+    // NOTE: DuckDB statement schema is only available after execution.
+    let stmt_ref = result_rows
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("missing statement metadata"))?;
+
+    let column_count = stmt_ref.column_count();
     let mut columns = Vec::with_capacity(column_count);
     for idx in 0..column_count {
-        let name = stmt
+        let name = stmt_ref
             .column_name(idx)
             .map(|s| s.to_string())
             .unwrap_or_else(|_| format!("col_{idx}"));
-        let decl = format!("{:?}", stmt.column_type(idx));
+        let decl = format!("{:?}", stmt_ref.column_type(idx));
         columns.push(QueryColumn { name, r#type: decl });
     }
 
-    let mut rows = Vec::new();
-    let mut result_rows = stmt.query([]).context("query")?;
     while let Some(row) = result_rows.next().context("next row")? {
         let mut out = Vec::with_capacity(column_count);
         for idx in 0..column_count {
