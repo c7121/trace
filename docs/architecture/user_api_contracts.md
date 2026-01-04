@@ -25,12 +25,7 @@ Claim mapping for the user JWT is defined in: `docs/standards/security_model.md`
 
 ### Query
 
-- `POST /v1/query` — interactive query execution.
-  - Owned by: Query Service
-  - Spec: `docs/architecture/containers/query_service.md`
-  - Notes:
-    - Must only expose **published** datasets (dataset registry; ADR 0008).
-    - Must enforce SQL fail-closed gating (spec: `docs/specs/query_sql_gating.md`).
+No user-facing query routes are implemented yet.
 
 ### Datasets (discovery)
 
@@ -74,3 +69,11 @@ The following are intentionally **not** user-facing:
 
 - `/v1/task/*` — runner/UDF-only task-scoped APIs (capability token gated).
 - `/internal/*` — internal-only component APIs.
+
+## Future (not in allowlist)
+
+The following are planned but are **not** reachable via the Gateway today:
+
+- `POST /v1/query` — user-facing interactive query execution (Query Service).
+  - Blocked on dataset registry + published dataset authz and a stable query results model.
+  - Reference: `docs/architecture/containers/query_service.md`

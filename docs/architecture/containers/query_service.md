@@ -56,13 +56,15 @@ Explicitly not supported:
 
 ## Endpoint
 
-```
-POST /v1/query
-Authorization: Bearer <token>
-Content-Type: application/json
-```
+Status (v1):
+- Implemented: `POST /v1/task/query` (task-scoped; internal-only; capability token gated)
+- Not implemented yet: `POST /v1/query` (user-facing; blocked on dataset registry + authz + result persistence)
 
-### Task Query API (UDF)
+v1 references:
+- Task Query API spec: `docs/specs/query_service_task_query.md`
+- SQL gate spec: `docs/specs/query_sql_gating.md`
+
+## Implemented (v1): Task Query API (UDF)
 
 Untrusted UDF tasks may issue ad-hoc SQL using a **capability token** (not a user Bearer token).
 
@@ -74,11 +76,21 @@ Content-Type: application/json
 
 > Task-scoped endpoints (`/v1/task/*`) are **internal-only** and are not routed through the public Gateway.
 
-The request/response shape is the same as `/v1/query`, but dataset exposure is strictly limited to the dataset versions enumerated in the capability token.
+The request/response shape is a constrained subset of the Query Service contract, and dataset exposure is strictly limited to the dataset versions enumerated in the capability token.
 
 **Verification:** Query Service validates the capability token as a JWT (signature + expiry).
 - It should cache the Dispatcher’s internal task-JWKS (e.g., `GET /internal/jwks/task`) and refresh on `kid` miss.
 - Query Service does not call Dispatcher per request for authorization; the token contents are the authorization.
+
+## Future: User Query API
+
+This user-facing endpoint is not implemented yet.
+
+```
+POST /v1/query
+Authorization: Bearer <token>
+Content-Type: application/json
+```
 
 ### Request
 
