@@ -103,10 +103,17 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
         .with_context(|| format!("parse DISPATCHER_BIND={}", cfg.dispatcher_bind))?;
 
     let server = DispatcherServer::start(pool, cfg.clone(), bind, true, true).await?;
-    tracing::info!(addr = %server.addr, "dispatcher listening");
+    tracing::info!(
+        event = "harness.dispatcher.listening",
+        addr = %server.addr,
+        "dispatcher listening"
+    );
 
     tokio::signal::ctrl_c().await.context("wait for ctrl-c")?;
-    tracing::info!("dispatcher shutting down");
+    tracing::info!(
+        event = "harness.dispatcher.shutdown",
+        "dispatcher shutting down"
+    );
     server.shutdown().await?;
     Ok(())
 }
@@ -628,7 +635,11 @@ async fn outbox_drain_loop(
         )
         .await
         {
-            tracing::warn!(error = %err, "outbox drain error");
+            tracing::warn!(
+                event = "harness.dispatcher.outbox_drain.error",
+                error = %err,
+                "outbox drain error"
+            );
         }
 
         tokio::select! {
@@ -698,7 +709,11 @@ async fn lease_reaper_loop(
         }
 
         if let Err(err) = reap_expired_leases_once(&state.pool, &state.cfg).await {
-            tracing::warn!(error = %err, "lease reaper error");
+            tracing::warn!(
+                event = "harness.dispatcher.lease_reaper.error",
+                error = %err,
+                "lease reaper error"
+            );
         }
 
         tokio::select! {
@@ -807,7 +822,11 @@ impl ApiError {
     }
 
     fn internal<E: std::fmt::Display>(err: E) -> Self {
-        tracing::error!(error = %err, "dispatcher internal error");
+        tracing::error!(
+            event = "harness.dispatcher.internal_error",
+            error = %err,
+            "dispatcher internal error"
+        );
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: "internal error",
@@ -834,7 +853,11 @@ fn require_task_capability(
         .ok_or_else(|| ApiError::unauthorized("missing capability token"))?;
 
     let claims = signer.verify_task_capability(token).map_err(|err| {
-        tracing::warn!(error = %err, "invalid capability token");
+        tracing::warn!(
+            event = "harness.dispatcher.capability.invalid",
+            error = %err,
+            "invalid capability token"
+        );
         ApiError::unauthorized("invalid capability token")
     })?;
 

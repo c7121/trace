@@ -115,7 +115,11 @@ async fn task_query(
     let claims = require_task_capability(&state.signer, &headers, req.task_id, req.attempt)?;
 
     trace_core::query::validate_sql(&req.sql).map_err(|err| {
-        tracing::info!(error = %err, "sql rejected");
+        tracing::info!(
+            event = "query_service.sql.rejected",
+            error = %err,
+            "sql rejected"
+        );
         ApiError::bad_request("invalid sql")
     })?;
 
@@ -131,7 +135,10 @@ async fn task_query(
         .await
         .map_err(|_err| {
             // Avoid logging raw SQL; DuckDB errors may embed the statement text.
-            tracing::warn!("duckdb query failed");
+            tracing::warn!(
+                event = "query_service.duckdb.query_failed",
+                "duckdb query failed"
+            );
             ApiError::internal("query execution failed")
         })?;
 
@@ -179,7 +186,11 @@ fn require_task_capability(
         .ok_or_else(|| ApiError::unauthorized("missing capability token"))?;
 
     let claims = signer.verify_task_capability(token).map_err(|err| {
-        tracing::warn!(error = %err, "invalid capability token");
+        tracing::warn!(
+            event = "query_service.capability.invalid",
+            error = %err,
+            "invalid capability token"
+        );
         ApiError::unauthorized("invalid capability token")
     })?;
 
@@ -220,7 +231,11 @@ async fn insert_query_audit(
     .execute(pool)
     .await
     .map_err(|err| {
-        tracing::warn!(error = %err, "audit insert failed");
+        tracing::warn!(
+            event = "query_service.audit.insert_failed",
+            error = %err,
+            "audit insert failed"
+        );
         ApiError::internal("audit insert failed")
     })?;
 

@@ -50,12 +50,16 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
     let visibility_timeout = Duration::from_secs(cfg.sink_visibility_timeout_secs);
     let retry_delay = Duration::from_millis(cfg.sink_retry_delay_ms);
 
-    tracing::info!(queue = %cfg.buffer_queue, "sink started");
+    tracing::info!(
+        event = "harness.sink.started",
+        queue = %cfg.buffer_queue,
+        "sink started"
+    );
 
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("sink shutting down");
+                tracing::info!(event = "harness.sink.shutdown", "sink shutting down");
                 return Ok(());
             }
             res = queue.receive(&cfg.buffer_queue, 1, visibility_timeout) => {
@@ -67,7 +71,11 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
 
                 for msg in messages {
                     if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &data_pool, msg, retry_delay).await {
-                        tracing::warn!(error = %err, "sink message handling failed");
+                        tracing::warn!(
+                            event = "harness.sink.message.error",
+                            error = %err,
+                            "sink message handling failed"
+                        );
                     }
                 }
             }

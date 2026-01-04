@@ -2,6 +2,11 @@
 //!
 //! This crate defines cross-crate contracts used by the harness and query service: queues, object
 //! storage, task capability signing, and query safety gates.
+//!
+//! # API notes
+//! `trace-core` is an internal crate (`publish = false`). Its public API currently uses a few
+//! third-party types (`uuid::Uuid`, `chrono::DateTime<Utc>`, `serde_json::Value`) as part of the
+//! Trace Lite contract.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -58,7 +63,6 @@ impl From<sqlx::Error> for Error {
         }
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct QueueMessage {

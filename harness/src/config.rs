@@ -185,7 +185,10 @@ impl std::fmt::Debug for HarnessConfig {
             )
             .field("worker_requeue_delay_ms", &self.worker_requeue_delay_ms)
             .field("sink_poll_ms", &self.sink_poll_ms)
-            .field("sink_visibility_timeout_secs", &self.sink_visibility_timeout_secs)
+            .field(
+                "sink_visibility_timeout_secs",
+                &self.sink_visibility_timeout_secs,
+            )
             .field("sink_retry_delay_ms", &self.sink_retry_delay_ms)
             .field("sink_max_deliveries", &self.sink_max_deliveries)
             .field("s3_endpoint", &self.s3_endpoint)

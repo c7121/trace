@@ -1,6 +1,7 @@
 use crate::constants::TASK_CAPABILITY_HEADER;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -55,7 +56,7 @@ impl DispatcherClient {
     }
 
     pub async fn task_claim(&self, task_id: Uuid) -> anyhow::Result<Option<TaskClaimResponse>> {
-        let url = self.url("/internal/task-claim");
+        let url = self.url("/internal/task-claim")?;
         let resp = self
             .http
             .post(url)
@@ -81,7 +82,7 @@ impl DispatcherClient {
         capability_token: &str,
         req: &BufferPublishRequest,
     ) -> anyhow::Result<WriteDisposition> {
-        let url = self.url("/v1/task/buffer-publish");
+        let url = self.url("/v1/task/buffer-publish")?;
         let resp = self
             .http
             .post(url)
@@ -104,7 +105,7 @@ impl DispatcherClient {
         capability_token: &str,
         req: &CompleteRequest,
     ) -> anyhow::Result<WriteDisposition> {
-        let url = self.url("/v1/task/complete");
+        let url = self.url("/v1/task/complete")?;
         let resp = self
             .http
             .post(url)
@@ -122,9 +123,8 @@ impl DispatcherClient {
         Ok(WriteDisposition::Ok)
     }
 
-    fn url(&self, path: &str) -> String {
-        let base = self.base_url.trim_end_matches('/');
-        let path = path.trim_start_matches('/');
-        format!("{base}/{path}")
+    fn url(&self, path: &str) -> anyhow::Result<Url> {
+        let base = Url::parse(&self.base_url).context("parse dispatcher base URL")?;
+        base.join(path).context("join dispatcher URL")
     }
 }

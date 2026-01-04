@@ -42,6 +42,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
     let requeue_delay = Duration::from_millis(cfg.worker_requeue_delay_ms);
 
     tracing::info!(
+        event = "harness.invoker.started",
         queue = %cfg.task_wakeup_queue,
         dispatcher = %cfg.dispatcher_url,
         "invoker started"
@@ -50,7 +51,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("invoker shutting down");
+                tracing::info!(event = "harness.invoker.shutdown", "invoker shutting down");
                 return Ok(());
             }
             res = queue.receive(&cfg.task_wakeup_queue, 1, visibility_timeout) => {
@@ -62,7 +63,11 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
 
                 for msg in messages {
                     if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &dispatcher, &runner, msg, requeue_delay).await {
-                        tracing::warn!(error = %err, "invoker message handling failed");
+                        tracing::warn!(
+                            event = "harness.invoker.message.error",
+                            error = %err,
+                            "invoker message handling failed"
+                        );
                     }
                 }
             }
@@ -85,7 +90,12 @@ async fn handle_message(
     let wakeup: TaskWakeup = match serde_json::from_value(msg.payload.clone()) {
         Ok(v) => v,
         Err(err) => {
-            tracing::warn!(error = %err, message_id = %message_id, "invalid wakeup payload; dropping");
+            tracing::warn!(
+                event = "harness.invoker.wakeup.invalid",
+                error = %err,
+                message_id = %message_id,
+                "invalid wakeup payload; dropping"
+            );
             queue.ack(&ack_token).await?;
             return Ok(());
         }
