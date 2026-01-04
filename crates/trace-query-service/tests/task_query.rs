@@ -119,8 +119,12 @@ async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
 
     for sql in [
         "INSTALL httpfs",
+        "LOAD httpfs",
+        "ATTACH 'db.duckdb' AS other",
         "SELECT * FROM read_csv('data')",
+        "SELECT * FROM read_parquet('data')",
         "SELECT * FROM 'local.csv'",
+        "SELECT * FROM read_parquet('https://example.com/x.parquet')",
     ] {
         let req = TaskQueryRequest {
             task_id,
