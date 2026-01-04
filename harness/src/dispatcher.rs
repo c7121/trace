@@ -11,7 +11,9 @@ use serde_json::Value;
 use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
-use trace_core::{Queue as QueueTrait, S3Grants, Signer as SignerTrait, TaskCapabilityIssueRequest};
+use trace_core::{
+    Queue as QueueTrait, S3Grants, Signer as SignerTrait, TaskCapabilityIssueRequest,
+};
 use uuid::Uuid;
 
 use crate::constants::{OUTBOX_NAMESPACE, TASK_CAPABILITY_HEADER};

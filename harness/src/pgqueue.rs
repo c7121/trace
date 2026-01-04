@@ -41,7 +41,8 @@ mod tests {
         anyhow::ensure!(got[0].message_id == id1 || got[0].message_id == id2);
 
         pgq.ack(&id1).await?;
-        pgq.nack_or_requeue(&id2, Duration::from_millis(200)).await?;
+        pgq.nack_or_requeue(&id2, Duration::from_millis(200))
+            .await?;
 
         let got2 = pgq.receive(&queue, 10, Duration::from_millis(200)).await?;
         anyhow::ensure!(

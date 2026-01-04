@@ -1,6 +1,7 @@
 pub mod config;
 pub mod constants;
 pub mod dispatcher;
+pub mod dispatcher_client;
 pub mod enqueue;
 pub mod invoker;
 pub mod jwt;

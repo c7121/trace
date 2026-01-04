@@ -1,8 +1,12 @@
-use crate::{config::HarnessConfig, pgqueue::PgQueue, runner::FakeRunner, s3::ObjectStore};
+use crate::{
+    config::HarnessConfig,
+    dispatcher_client::{DispatcherClient, TaskClaimResponse},
+    pgqueue::PgQueue,
+    runner::FakeRunner,
+    s3::ObjectStore,
+};
 use anyhow::Context;
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use std::{sync::Arc, time::Duration};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
@@ -13,16 +17,6 @@ use crate::constants::CONTENT_TYPE_JSON;
 #[derive(Debug, Deserialize)]
 struct TaskWakeup {
     task_id: Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-struct ClaimResponse {
-    task_id: Uuid,
-    attempt: i64,
-    lease_token: Uuid,
-    lease_expires_at: DateTime<Utc>,
-    capability_token: String,
-    work_payload: Value,
 }
 
 pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
@@ -41,7 +35,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
         object_store.clone(),
     );
 
-    let http = reqwest::Client::new();
+    let dispatcher = DispatcherClient::new(cfg.dispatcher_url.clone());
 
     let poll_interval = Duration::from_millis(cfg.worker_poll_ms);
     let visibility_timeout = Duration::from_secs(cfg.worker_visibility_timeout_secs);
@@ -67,7 +61,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
                 }
 
                 for msg in messages {
-                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &http, &runner, msg, requeue_delay).await {
+                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &dispatcher, &runner, msg, requeue_delay).await {
                         tracing::warn!(error = %err, "invoker message handling failed");
                     }
                 }
@@ -80,7 +74,7 @@ async fn handle_message(
     cfg: &HarnessConfig,
     queue: &dyn QueueTrait,
     object_store: &dyn ObjectStoreTrait,
-    http: &reqwest::Client,
+    dispatcher: &DispatcherClient,
     runner: &FakeRunner,
     msg: crate::pgqueue::Message,
     requeue_delay: Duration,
@@ -98,24 +92,10 @@ async fn handle_message(
     };
 
     let res: anyhow::Result<()> = async {
-        let claim_url = format!(
-            "{}/internal/task-claim",
-            cfg.dispatcher_url.trim_end_matches('/')
-        );
-        let resp = http
-            .post(claim_url)
-            .json(&serde_json::json!({ "task_id": wakeup.task_id }))
-            .send()
-            .await
-            .context("POST /internal/task-claim")?;
-
-        if resp.status() == reqwest::StatusCode::CONFLICT {
+        let Some(claim) = dispatcher.task_claim(wakeup.task_id).await? else {
             queue.ack(&ack_token).await?;
             return Ok(());
-        }
-
-        let resp = resp.error_for_status().context("task-claim status")?;
-        let claim: ClaimResponse = resp.json().await.context("decode task-claim")?;
+        };
 
         let bundle_url = ensure_bundle_url(cfg, object_store, &claim).await?;
         let invocation = UdfInvocationPayload {
@@ -146,9 +126,13 @@ async fn handle_message(
 async fn ensure_bundle_url(
     cfg: &HarnessConfig,
     object_store: &dyn ObjectStoreTrait,
-    claim: &ClaimResponse,
+    claim: &TaskClaimResponse,
 ) -> anyhow::Result<String> {
-    if let Some(url) = claim.work_payload.get("bundle_url").and_then(|v| v.as_str()) {
+    if let Some(url) = claim
+        .work_payload
+        .get("bundle_url")
+        .and_then(|v| v.as_str())
+    {
         return Ok(url.to_string());
     }
     if let Some(url) = claim
@@ -159,7 +143,11 @@ async fn ensure_bundle_url(
         return Ok(url.to_string());
     }
 
-    let key = if let Some(key) = claim.work_payload.get("bundle_key").and_then(|v| v.as_str()) {
+    let key = if let Some(key) = claim
+        .work_payload
+        .get("bundle_key")
+        .and_then(|v| v.as_str())
+    {
         key.to_string()
     } else {
         format!("bundles/{}.json", claim.task_id)

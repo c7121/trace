@@ -5,8 +5,8 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait};
 use trace_harness::constants::{CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, TASK_CAPABILITY_HEADER};
 use trace_harness::{
-    config::HarnessConfig, dispatcher::DispatcherServer, migrate, pgqueue::PgQueue, s3::ObjectStore,
-    runner::FakeRunner,
+    config::HarnessConfig, dispatcher::DispatcherServer, migrate, pgqueue::PgQueue,
+    runner::FakeRunner, s3::ObjectStore,
 };
 use uuid::Uuid;
 

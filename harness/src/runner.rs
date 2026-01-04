@@ -6,7 +6,10 @@ use serde_json::{Map, Value};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait};
 use uuid::Uuid;
 
-use crate::constants::{CONTENT_TYPE_JSONL, TASK_CAPABILITY_HEADER};
+use crate::constants::CONTENT_TYPE_JSONL;
+use crate::dispatcher_client::{
+    BufferPublishRequest, CompleteRequest, DispatcherClient, WriteDisposition,
+};
 
 fn default_payload() -> Value {
     Value::Object(Map::new())
@@ -38,28 +41,9 @@ struct AlertEventRow {
     payload: Value,
 }
 
-#[derive(Debug, Serialize)]
-struct BufferPublishRequest {
-    task_id: Uuid,
-    attempt: i64,
-    lease_token: Uuid,
-    batch_uri: String,
-    content_type: String,
-    batch_size_bytes: i64,
-    dedupe_scope: String,
-}
-
-#[derive(Debug, Serialize)]
-struct CompleteRequest {
-    task_id: Uuid,
-    attempt: i64,
-    lease_token: Uuid,
-    outcome: &'static str,
-}
-
 #[derive(Clone)]
 pub struct FakeRunner {
-    dispatcher_url: String,
+    dispatcher: DispatcherClient,
     bucket: String,
     object_store: std::sync::Arc<dyn ObjectStoreTrait>,
     http: reqwest::Client,
@@ -72,7 +56,7 @@ impl FakeRunner {
         object_store: std::sync::Arc<dyn ObjectStoreTrait>,
     ) -> Self {
         Self {
-            dispatcher_url,
+            dispatcher: DispatcherClient::new(dispatcher_url),
             bucket,
             object_store,
             http: reqwest::Client::new(),
@@ -102,7 +86,10 @@ impl FakeRunner {
             payload: bundle.payload,
         };
 
-        let key = format!("batches/{}/{}/udf.jsonl", invocation.task_id, invocation.attempt);
+        let key = format!(
+            "batches/{}/{}/udf.jsonl",
+            invocation.task_id, invocation.attempt
+        );
         let batch_uri = format!("s3://{}/{}", self.bucket, key);
         let mut bytes = serde_json::to_vec(&row).context("encode alert event row")?;
         bytes.push(b'\n');
@@ -142,11 +129,6 @@ impl FakeRunner {
         batch_uri: &str,
         batch_size_bytes: usize,
     ) -> anyhow::Result<()> {
-        let url = format!(
-            "{}/v1/task/buffer-publish",
-            self.dispatcher_url.trim_end_matches('/')
-        );
-
         let req = BufferPublishRequest {
             task_id: invocation.task_id,
             attempt: invocation.attempt,
@@ -157,30 +139,19 @@ impl FakeRunner {
             dedupe_scope: "udf".to_string(),
         };
 
-        let resp = self
-            .http
-            .post(url)
-            .header(TASK_CAPABILITY_HEADER, &invocation.capability_token)
-            .json(&req)
-            .send()
-            .await
-            .context("POST /v1/task/buffer-publish")?;
-
-        if resp.status() == reqwest::StatusCode::CONFLICT {
+        if self
+            .dispatcher
+            .buffer_publish(&invocation.capability_token, &req)
+            .await?
+            == WriteDisposition::Conflict
+        {
             return Ok(());
         }
 
-        resp.error_for_status()
-            .context("buffer-publish status")?;
         Ok(())
     }
 
     async fn complete(&self, invocation: &UdfInvocationPayload) -> anyhow::Result<()> {
-        let url = format!(
-            "{}/v1/task/complete",
-            self.dispatcher_url.trim_end_matches('/')
-        );
-
         let req = CompleteRequest {
             task_id: invocation.task_id,
             attempt: invocation.attempt,
@@ -188,20 +159,15 @@ impl FakeRunner {
             outcome: "success",
         };
 
-        let resp = self
-            .http
-            .post(url)
-            .header(TASK_CAPABILITY_HEADER, &invocation.capability_token)
-            .json(&req)
-            .send()
-            .await
-            .context("POST /v1/task/complete")?;
-
-        if resp.status() == reqwest::StatusCode::CONFLICT {
+        if self
+            .dispatcher
+            .complete(&invocation.capability_token, &req)
+            .await?
+            == WriteDisposition::Conflict
+        {
             return Ok(());
         }
 
-        resp.error_for_status().context("complete status")?;
         Ok(())
     }
 }
