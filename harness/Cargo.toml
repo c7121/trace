@@ -21,3 +21,4 @@ uuid = { version = "1", features = ["v4", "v5", "serde"] }
 trace-core = { path = "../crates/trace-core" }
 
 [dev-dependencies]
+trace-query-service = { path = "../crates/trace-query-service" }
