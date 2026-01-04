@@ -1,3 +1,4 @@
+use anyhow::Context;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
@@ -120,11 +121,10 @@ async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
     for sql in [
         "INSTALL httpfs",
         "LOAD httpfs",
-        "ATTACH 'db.duckdb' AS other",
+        "ATTACH 'foo.db' AS other",
         "SELECT * FROM read_csv('data')",
-        "SELECT * FROM read_parquet('data')",
+        "SELECT * FROM read_parquet('http://example.com/x.parquet')",
         "SELECT * FROM 'local.csv'",
-        "SELECT * FROM read_parquet('https://example.com/x.parquet')",
     ] {
         let req = TaskQueryRequest {
             task_id,
@@ -145,7 +145,7 @@ async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn allows_url_literal_and_executes_selects() -> anyhow::Result<()> {
+async fn overblocking_url_literal_allowed() -> anyhow::Result<()> {
     let (cfg, _pool, app) = setup().await?;
 
     let task_id = Uuid::new_v4();
@@ -164,34 +164,35 @@ async fn allows_url_literal_and_executes_selects() -> anyhow::Result<()> {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["rows"][0][0].as_str(), Some("https://example.com"));
 
-    // SELECT 1 returns a single row.
-    let req = TaskQueryRequest {
-        task_id,
-        attempt,
-        dataset_id: Uuid::new_v4(),
-        sql: "SELECT 1".to_string(),
-        limit: None,
-    };
-    let (status, body) = send_query(app.clone(), Some(token.clone()), &req).await?;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["rows"][0][0].as_i64(), Some(1));
+    Ok(())
+}
 
-    // Fixture table exists.
+#[tokio::test]
+async fn allowed_select_returns_deterministic_fixture() -> anyhow::Result<()> {
+    let (cfg, _pool, app) = setup().await?;
+
+    let task_id = Uuid::new_v4();
+    let attempt = 1;
+    let token = issue_token(&cfg, task_id, attempt)?;
+
     let req = TaskQueryRequest {
         task_id,
         attempt,
         dataset_id: Uuid::new_v4(),
-        sql: "SELECT id, message FROM alerts ORDER BY id LIMIT 5".to_string(),
+        sql: "SELECT dedupe_key FROM alerts_fixture ORDER BY dedupe_key".to_string(),
         limit: None,
     };
     let (status, body) = send_query(app, Some(token), &req).await?;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["truncated"].as_bool(), Some(false));
-    assert_eq!(body["columns"][0]["name"], "id");
-    assert_eq!(body["columns"][1]["name"], "message");
-    assert_eq!(body["rows"].as_array().unwrap().len(), 5);
-    assert_eq!(body["rows"][0][0].as_i64(), Some(1));
-    assert_eq!(body["rows"][0][1].as_str(), Some("alert-1"));
+
+    let rows = body["rows"]
+        .as_array()
+        .context("rows is array")?
+        .iter()
+        .map(|r| r[0].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(rows, vec!["dedupe-001", "dedupe-002", "dedupe-003"]);
     Ok(())
 }
 

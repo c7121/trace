@@ -20,12 +20,12 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 ## Goals
 - Provide a runnable Query Service with one task-scoped endpoint.
 - Enforce capability-token authn/authz (token must match `{task_id, attempt}`).
-- Enforce `validate_sql` and run DuckDB in read-only mode with external access disabled.
+- Enforce `validate_sql` and run queries against a deterministic in-memory DuckDB fixture with external access disabled.
 - Emit a dataset-level query audit record (no raw SQL).
 
 ## Non-goals
 - User query endpoint (`/v1/query`), dataset registry, pagination/caching/export.
-- Postgres/S3 federation in DuckDB (use a small fixture dataset only).
+- Postgres/S3 federation in DuckDB (use an in-memory fixture dataset only).
 
 ## Public surface changes
 - Endpoints/RPC:
@@ -43,7 +43,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 - Query Service:
   - Auth: verify `X-Trace-Task-Capability` (HS256 dev secret in Lite).
   - Gate: call `validate_sql(sql)` on every request.
-  - Execute: run SQL in embedded DuckDB with locked-down runtime settings.
+  - Execute: run SQL in embedded DuckDB with locked-down runtime settings against an in-memory fixture table.
   - Audit: insert dataset-level audit row into Postgres data DB.
 
 ### Data flow and trust boundaries
@@ -51,7 +51,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 - Validation points:
   - JWT signature + expiry + `{task_id, attempt}` match.
   - `validate_sql` fail-closed.
-  - DuckDB: read-only access mode + external access disabled.
+  - DuckDB: external access disabled; writes prevented by `validate_sql` (DDL/DML rejected).
 - Sensitive data handling:
   - MUST NOT log raw SQL (only structured denial/execution outcomes).
 
@@ -64,7 +64,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 
 ## Security considerations
 - Primary control: `validate_sql` denylist + single-statement requirement.
-- Defense-in-depth: DuckDB read-only mode and `enable_external_access=false`.
+- Defense-in-depth: DuckDB `enable_external_access=false` plus no extension auto-install/load.
 - Residual risk: denylist incompleteness; mitigated by runtime sandboxing and tests.
 
 ## High risk addendum
@@ -84,5 +84,5 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 - Integration tests prove:
   - auth required (401/403),
   - `validate_sql` gate enforced for INSTALL/LOAD/ATTACH and external readers,
-  - allowed `SELECT` executes against fixture table,
+  - allowed `SELECT` executes against the `alerts_fixture` in-memory fixture table (3 deterministic rows),
   - audit row inserted with correct `{org_id, task_id, dataset_id}`.

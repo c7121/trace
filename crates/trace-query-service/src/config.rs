@@ -50,14 +50,6 @@ pub struct QueryServiceConfig {
     /// Task capability token TTL in seconds.
     #[arg(long, env = "TASK_CAPABILITY_TTL_SECS", default_value_t = 300)]
     pub task_capability_ttl_secs: u64,
-
-    /// Optional DuckDB file path (defaults to a temp file per process).
-    #[arg(long, env = "QUERY_SERVICE_DUCKDB_PATH")]
-    pub duckdb_path: Option<String>,
-
-    /// Number of fixture rows inserted into the `alerts` table.
-    #[arg(long, env = "QUERY_SERVICE_FIXTURE_ROWS", default_value_t = 10)]
-    pub fixture_rows: u32,
 }
 
 impl std::fmt::Debug for QueryServiceConfig {
@@ -76,8 +68,6 @@ impl std::fmt::Debug for QueryServiceConfig {
             .field("task_capability_next_kid", &self.task_capability_next_kid)
             .field("task_capability_next_secret", &task_capability_next_secret)
             .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
-            .field("duckdb_path", &self.duckdb_path)
-            .field("fixture_rows", &self.fixture_rows)
             .finish()
     }
 }

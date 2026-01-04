@@ -4,7 +4,7 @@
 //! flows with a fail-closed SQL validator.
 
 use crate::config::QueryServiceConfig;
-use crate::duckdb::{default_duckdb_path, DuckDbSandbox, QueryResultSet};
+use crate::duckdb::{DuckDbSandbox, QueryResultSet};
 use anyhow::Context;
 use axum::{
     extract::State,
@@ -42,7 +42,6 @@ impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
             .field("cfg", &self.cfg)
-            .field("duckdb_path", &self.duckdb.db_path())
             .field("data_pool", &"<PgPool>")
             .field("signer", &"<TaskCapability>")
             .finish()
@@ -67,8 +66,7 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     })
     .context("init task capability signer")?;
 
-    let db_path = default_duckdb_path(cfg.duckdb_path.as_deref()).context("choose duckdb path")?;
-    let duckdb = DuckDbSandbox::new(db_path, cfg.fixture_rows).context("init duckdb sandbox")?;
+    let duckdb = DuckDbSandbox::new_in_memory_fixture().context("init duckdb sandbox")?;
 
     Ok(AppState {
         cfg,
