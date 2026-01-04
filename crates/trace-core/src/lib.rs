@@ -20,6 +20,7 @@ pub mod lite;
 #[cfg(feature = "aws")]
 pub mod aws;
 
+pub mod fixtures;
 pub mod query;
 pub mod udf;
 

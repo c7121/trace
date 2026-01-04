@@ -5,6 +5,7 @@ use http_body_util::BodyExt;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 use tower::util::ServiceExt;
+use trace_core::fixtures::{ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_VERSION};
 use trace_core::lite::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_core::Signer as _;
 use trace_core::{DatasetGrant, S3Grants, TaskCapabilityIssueRequest};
@@ -38,7 +39,7 @@ fn issue_token(
             .copied()
             .map(|dataset_uuid| DatasetGrant {
                 dataset_uuid,
-                dataset_version: Uuid::nil(),
+                dataset_version: ALERTS_FIXTURE_DATASET_VERSION,
             })
             .collect(),
         s3: S3Grants::empty(),
@@ -92,7 +93,7 @@ async fn auth_required_missing_token() -> anyhow::Result<()> {
     let req = TaskQueryRequest {
         task_id: Uuid::new_v4(),
         attempt: 1,
-        dataset_id: Uuid::new_v4(),
+        dataset_id: ALERTS_FIXTURE_DATASET_ID,
         sql: "SELECT 1".to_string(),
         limit: None,
     };
@@ -107,7 +108,7 @@ async fn wrong_token_rejected() -> anyhow::Result<()> {
     let (cfg, _pool, app) = setup().await?;
 
     let task_id = Uuid::new_v4();
-    let dataset_id = Uuid::new_v4();
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
     let token = issue_token(&cfg, Uuid::new_v4(), 1, &[dataset_id])?;
 
     let req = TaskQueryRequest {
@@ -129,7 +130,7 @@ async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let dataset_id = Uuid::new_v4();
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
     let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
 
     for sql in [
@@ -164,7 +165,7 @@ async fn overblocking_url_literal_allowed() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let dataset_id = Uuid::new_v4();
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
     let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
 
     // Allow URL strings as inert literals (not external reads).
@@ -188,7 +189,7 @@ async fn allowed_select_returns_deterministic_fixture() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let dataset_id = Uuid::new_v4();
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
     let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
 
     let req = TaskQueryRequest {
@@ -218,7 +219,7 @@ async fn audit_emitted_after_success() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let dataset_id = Uuid::new_v4();
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
     let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
 
     let req = TaskQueryRequest {
@@ -266,7 +267,7 @@ async fn dataset_grant_required() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let dataset_id = Uuid::new_v4();
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
     let token = issue_token(&cfg, task_id, attempt, &[])?;
 
     let req = TaskQueryRequest {
@@ -288,8 +289,10 @@ async fn dataset_grant_must_match_request() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let dataset_id = Uuid::new_v4();
-    let other_dataset_id = Uuid::new_v4();
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let other_dataset_id = Uuid::from_bytes([
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+    ]);
     let token = issue_token(&cfg, task_id, attempt, &[other_dataset_id])?;
 
     let req = TaskQueryRequest {

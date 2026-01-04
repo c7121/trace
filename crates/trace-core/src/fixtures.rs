@@ -1,0 +1,13 @@
+use uuid::Uuid;
+
+/// Stable dataset UUID for the Query Service in-memory fixture table (`alerts_fixture`).
+///
+/// Harness code may grant this dataset to all tasks to keep integration tests deterministic.
+pub const ALERTS_FIXTURE_DATASET_ID: Uuid = Uuid::from_bytes([
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+]);
+
+/// Stable dataset version UUID for the Query Service in-memory fixture dataset.
+pub const ALERTS_FIXTURE_DATASET_VERSION: Uuid = Uuid::from_bytes([
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+]);
