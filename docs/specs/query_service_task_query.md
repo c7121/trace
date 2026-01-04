@@ -1,6 +1,6 @@
 # Query Service (Milestone 5): Minimal Task Query
 
-Status: Proposed
+Status: Implemented
 Owner: agent
 Last updated: 2026-01-04
 
