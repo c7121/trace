@@ -58,6 +58,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 ## Contract requirements
 - MUST require `X-Trace-Task-Capability` and reject missing/invalid tokens (401).
 - MUST reject a valid token that does not match `{task_id, attempt}` (403).
+- MUST reject a request whose `dataset_id` is not granted in the capability token (403).
 - MUST return 400 when `validate_sql` rejects.
 - MUST clamp `limit` to `[1, 10_000]` (default 1000) and return `truncated` when clipped.
 - MUST write an audit row on successful execution without storing raw SQL.
@@ -83,6 +84,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 ## Acceptance criteria
 - Integration tests prove:
   - auth required (401/403),
+  - dataset grants enforced (403 when not granted),
   - `validate_sql` gate enforced for INSTALL/LOAD/ATTACH and external readers,
   - allowed `SELECT` executes against the `alerts_fixture` in-memory fixture table (3 deterministic rows),
   - audit row inserted with correct `{org_id, task_id, dataset_id}`.

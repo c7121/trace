@@ -111,6 +111,7 @@ async fn task_query(
     Json(req): Json<TaskQueryRequest>,
 ) -> Result<Json<TaskQueryResponse>, ApiError> {
     let claims = require_task_capability(&state.signer, &headers, req.task_id, req.attempt)?;
+    require_dataset_grant(&claims, req.dataset_id)?;
 
     trace_core::query::validate_sql(&req.sql).map_err(|err| {
         tracing::info!(
@@ -202,6 +203,21 @@ fn require_task_capability(
     }
 
     Ok(claims)
+}
+
+fn require_dataset_grant(
+    claims: &trace_core::TaskCapabilityClaims,
+    dataset_id: Uuid,
+) -> Result<(), ApiError> {
+    if claims
+        .datasets
+        .iter()
+        .any(|grant| grant.dataset_uuid == dataset_id)
+    {
+        return Ok(());
+    }
+
+    Err(ApiError::forbidden("dataset not authorized"))
 }
 
 async fn insert_query_audit(

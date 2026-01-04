@@ -7,13 +7,18 @@ use sqlx::Row;
 use tower::util::ServiceExt;
 use trace_core::lite::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_core::Signer as _;
-use trace_core::{S3Grants, TaskCapabilityIssueRequest};
+use trace_core::{DatasetGrant, S3Grants, TaskCapabilityIssueRequest};
 use trace_query_service::{
     build_state, config::QueryServiceConfig, router, TaskQueryRequest, TASK_CAPABILITY_HEADER,
 };
 use uuid::Uuid;
 
-fn issue_token(cfg: &QueryServiceConfig, task_id: Uuid, attempt: i64) -> anyhow::Result<String> {
+fn issue_token(
+    cfg: &QueryServiceConfig,
+    task_id: Uuid,
+    attempt: i64,
+    dataset_uuids: &[Uuid],
+) -> anyhow::Result<String> {
     let signer = TaskCapability::from_hs256_config(Hs256TaskCapabilityConfig {
         issuer: cfg.task_capability_iss.clone(),
         audience: cfg.task_capability_aud.clone(),
@@ -28,7 +33,14 @@ fn issue_token(cfg: &QueryServiceConfig, task_id: Uuid, attempt: i64) -> anyhow:
         org_id: Uuid::parse_str("00000000-0000-0000-0000-000000000001")?,
         task_id,
         attempt,
-        datasets: Vec::new(),
+        datasets: dataset_uuids
+            .iter()
+            .copied()
+            .map(|dataset_uuid| DatasetGrant {
+                dataset_uuid,
+                dataset_version: Uuid::nil(),
+            })
+            .collect(),
         s3: S3Grants::empty(),
     };
     Ok(signer.issue_task_capability(&req)?)
@@ -95,12 +107,13 @@ async fn wrong_token_rejected() -> anyhow::Result<()> {
     let (cfg, _pool, app) = setup().await?;
 
     let task_id = Uuid::new_v4();
-    let token = issue_token(&cfg, Uuid::new_v4(), 1)?;
+    let dataset_id = Uuid::new_v4();
+    let token = issue_token(&cfg, Uuid::new_v4(), 1, &[dataset_id])?;
 
     let req = TaskQueryRequest {
         task_id,
         attempt: 1,
-        dataset_id: Uuid::new_v4(),
+        dataset_id,
         sql: "SELECT 1".to_string(),
         limit: None,
     };
@@ -116,7 +129,8 @@ async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let token = issue_token(&cfg, task_id, attempt)?;
+    let dataset_id = Uuid::new_v4();
+    let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
 
     for sql in [
         "INSTALL httpfs",
@@ -129,7 +143,7 @@ async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
         let req = TaskQueryRequest {
             task_id,
             attempt,
-            dataset_id: Uuid::new_v4(),
+            dataset_id,
             sql: sql.to_string(),
             limit: None,
         };
@@ -150,13 +164,14 @@ async fn overblocking_url_literal_allowed() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let token = issue_token(&cfg, task_id, attempt)?;
+    let dataset_id = Uuid::new_v4();
+    let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
 
     // Allow URL strings as inert literals (not external reads).
     let req = TaskQueryRequest {
         task_id,
         attempt,
-        dataset_id: Uuid::new_v4(),
+        dataset_id,
         sql: "SELECT 'https://example.com'".to_string(),
         limit: None,
     };
@@ -173,12 +188,13 @@ async fn allowed_select_returns_deterministic_fixture() -> anyhow::Result<()> {
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
-    let token = issue_token(&cfg, task_id, attempt)?;
+    let dataset_id = Uuid::new_v4();
+    let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
 
     let req = TaskQueryRequest {
         task_id,
         attempt,
-        dataset_id: Uuid::new_v4(),
+        dataset_id,
         sql: "SELECT dedupe_key FROM alerts_fixture ORDER BY dedupe_key".to_string(),
         limit: None,
     };
@@ -203,7 +219,7 @@ async fn audit_emitted_after_success() -> anyhow::Result<()> {
     let task_id = Uuid::new_v4();
     let attempt = 1;
     let dataset_id = Uuid::new_v4();
-    let token = issue_token(&cfg, task_id, attempt)?;
+    let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
 
     let req = TaskQueryRequest {
         task_id,
