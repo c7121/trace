@@ -167,4 +167,3 @@ fn duration_millis(d: Duration) -> i64 {
         ms as i64
     }
 }
-

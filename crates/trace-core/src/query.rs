@@ -192,7 +192,8 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                                 }
                             }
                             // Heuristic: these keywords end the FROM clause in common SQL dialects.
-                            "WHERE" | "GROUP" | "HAVING" | "QUALIFY" | "WINDOW" | "ORDER" | "LIMIT" => {
+                            "WHERE" | "GROUP" | "HAVING" | "QUALIFY" | "WINDOW" | "ORDER"
+                            | "LIMIT" => {
                                 in_from_clause = false;
                                 expects_relation = false;
                             }

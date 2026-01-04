@@ -3,7 +3,9 @@ use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait};
-use trace_harness::constants::{CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER};
+use trace_harness::constants::{
+    CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER,
+};
 use trace_harness::{
     config::HarnessConfig, dispatcher::DispatcherServer, migrate, pgqueue::PgQueue,
     runner::FakeRunner, s3::ObjectStore,

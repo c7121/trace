@@ -32,9 +32,7 @@ pub struct TaskCapability {
 impl TaskCapability {
     pub fn from_hs256_config(cfg: Hs256TaskCapabilityConfig) -> anyhow::Result<Self> {
         if cfg.next_kid.is_some() != cfg.next_secret.is_some() {
-            return Err(anyhow!(
-                "next_kid and next_secret must be set together"
-            ));
+            return Err(anyhow!("next_kid and next_secret must be set together"));
         }
 
         let secret = cfg.current_secret.as_bytes();
@@ -100,8 +98,8 @@ impl TaskCapability {
         validation.set_issuer(std::slice::from_ref(&self.issuer));
         validation.set_audience(std::slice::from_ref(&self.audience));
 
-        let data =
-            decode::<TaskCapabilityClaims>(token, decoding_key, &validation).context("verify jwt")?;
+        let data = decode::<TaskCapabilityClaims>(token, decoding_key, &validation)
+            .context("verify jwt")?;
         Ok(data.claims)
     }
 }
@@ -115,4 +113,3 @@ impl Signer for TaskCapability {
         self.verify(token)
     }
 }
-

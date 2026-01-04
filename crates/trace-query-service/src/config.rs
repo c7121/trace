@@ -65,4 +65,3 @@ impl QueryServiceConfig {
         Ok(Self::parse_from(["trace-query-service"]))
     }
 }
-

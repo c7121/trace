@@ -1,5 +1,5 @@
 use anyhow::Context;
-use duckdb::{Connection, Config};
+use duckdb::{Config, Connection};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tokio::task::JoinHandle;
@@ -37,7 +37,8 @@ impl DuckDbSandbox {
         .context("create fixture table")?;
 
         // Re-create fixture deterministically for test isolation.
-        conn.execute_batch("DELETE FROM alerts;").context("clear fixture table")?;
+        conn.execute_batch("DELETE FROM alerts;")
+            .context("clear fixture table")?;
         for i in 0..fixture_rows {
             let id: i64 = (i as i64) + 1;
             let message = format!("alert-{id}");
@@ -58,11 +59,12 @@ impl DuckDbSandbox {
 
     pub async fn query(&self, sql: String, max_rows: usize) -> anyhow::Result<QueryResultSet> {
         let db_path = self.db_path.clone();
-        let handle: JoinHandle<anyhow::Result<QueryResultSet>> = tokio::task::spawn_blocking(move || {
-            let conn = open_readonly(&db_path).context("open duckdb (ro)")?;
-            apply_hardening(&conn).context("apply duckdb hardening")?;
-            run_query(&conn, &sql, max_rows).context("run query")
-        });
+        let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
+            tokio::task::spawn_blocking(move || {
+                let conn = open_readonly(&db_path).context("open duckdb (ro)")?;
+                apply_hardening(&conn).context("apply duckdb hardening")?;
+                run_query(&conn, &sql, max_rows).context("run query")
+            });
 
         handle
             .await
@@ -163,7 +165,11 @@ fn value_ref_to_json(value: duckdb::types::ValueRef<'_>) -> Value {
         ),
         duckdb::types::ValueRef::Date32(v) => Value::Number((v as i64).into()),
         duckdb::types::ValueRef::Time64(_, v) => Value::Number(v.into()),
-        duckdb::types::ValueRef::Interval { months, days, nanos } => Value::Object(
+        duckdb::types::ValueRef::Interval {
+            months,
+            days,
+            nanos,
+        } => Value::Object(
             [
                 ("months".to_string(), Value::Number((months as i64).into())),
                 ("days".to_string(), Value::Number((days as i64).into())),
@@ -187,6 +193,9 @@ pub fn default_duckdb_path(path_override: Option<&str>) -> anyhow::Result<PathBu
     }
 
     let mut p = std::env::temp_dir();
-    p.push(format!("trace_query_service_fixture_{}.duckdb", Uuid::new_v4()));
+    p.push(format!(
+        "trace_query_service_fixture_{}.duckdb",
+        Uuid::new_v4()
+    ));
     Ok(p)
 }

@@ -4,10 +4,12 @@ use http_body_util::BodyExt;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 use tower::util::ServiceExt;
-use trace_core::{S3Grants, TaskCapabilityIssueRequest};
-use trace_core::Signer as _;
 use trace_core::lite::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
-use trace_query_service::{build_state, config::QueryServiceConfig, router, TASK_CAPABILITY_HEADER, TaskQueryRequest};
+use trace_core::Signer as _;
+use trace_core::{S3Grants, TaskCapabilityIssueRequest};
+use trace_query_service::{
+    build_state, config::QueryServiceConfig, router, TaskQueryRequest, TASK_CAPABILITY_HEADER,
+};
 use uuid::Uuid;
 
 fn issue_token(cfg: &QueryServiceConfig, task_id: Uuid, attempt: i64) -> anyhow::Result<String> {
@@ -128,7 +130,11 @@ async fn gate_rejects_unsafe_sql() -> anyhow::Result<()> {
             limit: None,
         };
         let (status, _body) = send_query(app.clone(), Some(token.clone()), &req).await?;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "sql should be rejected: {sql}");
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "sql should be rejected: {sql}"
+        );
     }
 
     Ok(())
@@ -222,7 +228,10 @@ async fn audit_emitted_after_success() -> anyhow::Result<()> {
     let result_row_count: i64 = row.try_get("result_row_count")?;
     let columns_accessed: Option<serde_json::Value> = row.try_get("columns_accessed")?;
 
-    assert_eq!(org_id, Uuid::parse_str("00000000-0000-0000-0000-000000000001")?);
+    assert_eq!(
+        org_id,
+        Uuid::parse_str("00000000-0000-0000-0000-000000000001")?
+    );
     assert_eq!(logged_dataset_id, dataset_id);
     assert_eq!(result_row_count, 1);
     assert!(columns_accessed.is_none());

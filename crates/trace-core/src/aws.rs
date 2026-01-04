@@ -1,6 +1,6 @@
 use crate::{
-    ObjectStore as ObjectStoreTrait, Queue as QueueTrait, QueueMessage, Signer, TaskCapabilityClaims,
-    TaskCapabilityIssueRequest,
+    ObjectStore as ObjectStoreTrait, Queue as QueueTrait, QueueMessage, Signer,
+    TaskCapabilityClaims, TaskCapabilityIssueRequest,
 };
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;

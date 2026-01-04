@@ -1,8 +1,8 @@
 use anyhow::Context;
 use clap::Parser;
 use std::net::SocketAddr;
+use trace_query_service::{build_state, config::QueryServiceConfig, router};
 use tracing_subscriber::EnvFilter;
-use trace_query_service::{config::QueryServiceConfig, build_state, router};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,4 +30,3 @@ async fn main() -> anyhow::Result<()> {
         .context("serve query service")?;
     Ok(())
 }
-

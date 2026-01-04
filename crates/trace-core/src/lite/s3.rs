@@ -80,4 +80,3 @@ fn object_url(endpoint: &Url, bucket: &str, key: &str) -> anyhow::Result<Url> {
     let full = format!("{base}/{bucket}/{key}");
     full.parse().context("build object URL")
 }
-
