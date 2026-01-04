@@ -12,7 +12,7 @@ use std::{sync::Arc, time::Duration};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
 use uuid::Uuid;
 
-use crate::constants::CONTENT_TYPE_JSON;
+use crate::constants::{CONTENT_TYPE_JSON, DEFAULT_ALERT_DEFINITION_ID};
 
 #[derive(Debug, Deserialize)]
 struct TaskWakeup {
@@ -154,7 +154,7 @@ async fn ensure_bundle_url(
     };
 
     let bundle = serde_json::json!({
-        "alert_definition_id": "490b8f3f-1d41-496a-917b-5b7eeeb85e07",
+        "alert_definition_id": DEFAULT_ALERT_DEFINITION_ID,
         "dedupe_key": format!("udf:{}", claim.task_id),
         "chain_id": 1,
         "block_number": 123,

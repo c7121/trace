@@ -3,7 +3,7 @@ use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait};
-use trace_harness::constants::{CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, TASK_CAPABILITY_HEADER};
+use trace_harness::constants::{CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER};
 use trace_harness::{
     config::HarnessConfig, dispatcher::DispatcherServer, migrate, pgqueue::PgQueue,
     runner::FakeRunner, s3::ObjectStore,
@@ -785,7 +785,7 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
 
     let dedupe_key = format!("poison_test:{}", Uuid::new_v4());
     let valid = serde_json::json!({
-        "alert_definition_id": "490b8f3f-1d41-496a-917b-5b7eeeb85e07",
+        "alert_definition_id": DEFAULT_ALERT_DEFINITION_ID,
         "dedupe_key": dedupe_key,
         "event_time": chrono::Utc::now().to_rfc3339(),
         "chain_id": 1,
@@ -898,7 +898,7 @@ async fn runner_claim_invoke_sink_inserts_once() -> anyhow::Result<()> {
         let task_id = Uuid::new_v4();
         let dedupe_key = format!("runner_test:{task_id}");
         let bundle = serde_json::json!({
-            "alert_definition_id": "490b8f3f-1d41-496a-917b-5b7eeeb85e07",
+            "alert_definition_id": DEFAULT_ALERT_DEFINITION_ID,
             "dedupe_key": dedupe_key,
             "chain_id": 1,
             "block_number": 123,
