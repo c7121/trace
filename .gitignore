@@ -1,1 +1,42 @@
+# OS / editor junk
 .DS_Store
+Thumbs.db
+
+# Rust build artifacts
+/target/
+/**/target/
+**/*.rs.bk
+
+# Cargo
+# - Keep Cargo.lock for binaries (e.g., harness). Do NOT ignore it globally.
+
+# Env files (keep .env.example committed)
+/.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# macOS/Linux temp files
+*~
+*.swp
+*.swo
+
+# Node / Python junk (for UDF runner tooling, etc.)
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/.python-version
+
+# Terraform / IaC (if added later)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.crash.log
