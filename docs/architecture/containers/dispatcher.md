@@ -62,9 +62,10 @@ Events are treated as **at-least-once** and may be duplicated or arrive out of o
 
 Propagates upstream through DAG edges. When a queue trips its threshold (depth or age), Dispatcher pauses upstream producers recursively. When pressure clears (depth drops below threshold), Dispatcher unpauses and producers resume.
 
-- Per-job thresholds: `max_queue_depth`, `max_queue_age`
-- Mode: `pause` (stop task creation until queue drains)
-- Priority tiers: `normal`, `bulk` — shed `bulk` first when under pressure (bulk = bootstrap/catch-up workloads)
+- **v1:** Backpressure is global and operational (protect the system), not per-job configurable.
+- Per-job backpressure knobs are **reserved** and MUST be rejected in v1: `max_queue_depth`, `max_queue_age`, `backpressure_mode`.
+  See `docs/specs/dag_configuration.md` (“Reserved fields”).
+- Priority/tiers (e.g., shedding bulk bootstrap work first) is a future optimization and is not required for v1 correctness.
 
 ## Task capability token issuance
 

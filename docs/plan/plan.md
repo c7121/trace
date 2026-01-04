@@ -45,7 +45,7 @@ Goal: make `/v1/task/*` auth and verification rules match `docs/architecture/con
 ### Deliverables
 - `/v1/task/*` requires `X-Trace-Task-Capability: <jwt>` on all task-scoped endpoints.
 - JWT verification rules are explicit and implemented:
-  - required claims (at minimum): `iss`, `aud`, `sub`, `exp`, `iat`, `task_id`, `attempt`, `org_id`, `scopes`
+  - required claims (at minimum): `iss`, `aud`, `sub`, `exp`, `iat`, `org_id`, `task_id`, `attempt` (plus optional grants: `datasets`, `s3`)
   - request body `task_id`/`attempt` must match token claims
 - Lease fencing remains required for Dispatcher mutations:
   - `(task_id, attempt, lease_token)` must match current row
@@ -107,10 +107,10 @@ Goal: implement the Lambda runner invocation path and a local version of the run
 - One owned struct for the invoke payload used by Dispatcher and runner:
   - `task_id`, `attempt`, `lease_token`, `lease_expires_at`
   - `capability_token`
-  - `bundle_get_url` (pre-signed)
+  - `bundle_url` (pre-signed GET; `bundle_url` remains an accepted alias)
   - `work_payload` (opaque JSON)
 - Local runner implementation for harness:
-  - fetch bundle via `bundle_get_url`
+  - fetch bundle via `bundle_url`
   - run Node and Python bundles (TypeScript compiles to JS)
   - runner calls:
     - `/v1/task/buffer-publish`

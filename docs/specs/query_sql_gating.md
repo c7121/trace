@@ -1,4 +1,8 @@
-# Query SQL Gating (Milestone 4)
+# Query SQL gating
+
+Status: Accepted (v1)
+Owner: Platform
+Last updated: 2026-01-03
 
 Risk: Medium
 Public surface: trace-core `query::validate_sql(sql: &str) -> trace_core::Result<()>`

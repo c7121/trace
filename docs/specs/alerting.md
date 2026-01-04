@@ -113,6 +113,14 @@ Validation + refusal behavior:
 - `alert_deliveries` MUST be idempotent per channel via `UNIQUE (org_id, alert_event_id, channel)`.
 - Delivery semantics are at-least-once: providers may see duplicates on timeouts; include a stable provider idempotency key where supported (use `alert_deliveries.id`).
 
+### Deduplication
+
+Alert events are at-least-once. Producers and sinks MUST tolerate duplicates.
+
+- Each emitted alert event MUST include a deterministic `dedupe_key` that is **stable across retries/attempts**.
+- The `dedupe_key` MUST be derived from event identity (e.g., `{alert_definition_id, partition_key, tx_hash}`) or a stable hash of canonicalized event content.
+- The sink enforces idempotency with a uniqueness constraint (see `docs/architecture/data_model/alerting.md`).
+
 ### Reorg / invalidation behavior
 - Reorg-safe producers should include reorg-relevant identifiers in the `dedupe_key` and event payload (e.g., `block_hash`).
 - Reorg correction uses the platform’s invalidation/versioning mechanisms (see `docs/architecture/data_versioning.md`). Alert routing should apply staleness gating based on `event_time` and/or cursor state.

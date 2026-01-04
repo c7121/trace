@@ -35,6 +35,25 @@ flowchart LR
 Accepts SQL queries via REST API and executes against federated hot (Postgres data) and cold
 (S3 Parquet) storage using embedded DuckDB. Designed for interactive exploration with a batch mode for heavy queries.
 
+## Query capabilities
+
+The supported SQL surface is intentionally constrained. Query execution is **fail-closed**:
+
+- The SQL validator (`trace-core::query::validate_sql`) MUST accept the query, and
+- the runtime hardening MUST prevent external I/O and mutation even if a query slips through.
+
+Canonical gate spec and required tests live in: `docs/specs/query_sql_gating.md`.
+
+At a minimum, Query Service supports:
+- A single `SELECT` (including `WITH` / CTEs).
+- Reads from published/pinned datasets (Postgres views and/or S3 Parquet manifests).
+- Common relational operators: joins, filters, aggregates, and window functions (as permitted by the gate).
+
+Explicitly not supported:
+- Any DDL/DML or multi-statement SQL.
+- Extension install/load/attach workflows.
+- File/URL readers or anything that implies filesystem or network access.
+
 ## Endpoint
 
 ```
@@ -171,6 +190,12 @@ DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at 
 
 ## SQL sandboxing (required)
 
+Before executing any query, Query Service MUST call the gate:
+- `trace-core::query::validate_sql(sql)`
+
+The canonical rules + deny cases are specified in `docs/specs/query_sql_gating.md`.
+
+
 Read-only mode is necessary but not sufficient. Query Service MUST also prevent SQL from accessing
 unintended data sources (filesystem/HTTP/arbitrary S3) or bypassing the authorized dataset catalog.
 
@@ -273,4 +298,3 @@ Results are written to S3; clients poll task status or fetch `query_results` by 
 Query executions (interactive and batch) are recorded in a platform-managed table. See [ADR 0005](../../adr/0005-query-results.md).
 
 `query_id` in API responses is `query_results.id`.
-

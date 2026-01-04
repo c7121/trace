@@ -1,4 +1,4 @@
-# Query Service (Milestone 5): Minimal Task Query
+# Query Service: Task Query API
 
 Status: Implemented
 Owner: agent
@@ -15,7 +15,7 @@ This adds a new endpoint that executes untrusted SQL (security/trust-boundary ch
 
 ## Context
 `docs/architecture/containers/query_service.md` defines DuckDB sandboxing requirements and a task-scoped `/v1/task/query` endpoint.
-Milestone 4 introduced `trace_core::query::validate_sql` and tests to gate unsafe SQL.
+The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_gating.md`).
 
 ## Goals
 - Provide a runnable Query Service with one task-scoped endpoint.
