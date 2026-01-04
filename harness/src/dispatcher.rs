@@ -14,9 +14,7 @@ use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use trace_core::{Queue as QueueTrait, S3Grants, Signer as SignerTrait, TaskCapabilityIssueRequest};
 use uuid::Uuid;
 
-const OUTBOX_NAMESPACE: Uuid = Uuid::from_bytes([
-    0x6c, 0x07, 0x30, 0x87, 0x5b, 0x7c, 0x4c, 0x55, 0xb0, 0x7a, 0x1e, 0x2c, 0x7a, 0x01, 0x5a, 0xe2,
-]);
+use crate::constants::{OUTBOX_NAMESPACE, TASK_CAPABILITY_HEADER};
 
 #[derive(Clone)]
 struct AppState {
@@ -196,8 +194,8 @@ async fn task_claim(
     Json(req): Json<TaskClaimRequest>,
 ) -> ApiResult<Json<TaskClaimResponse>> {
     let now = Utc::now();
-    let lease_expires_at = now
-        + chrono::Duration::seconds(state.cfg.lease_duration_secs.try_into().unwrap_or(i64::MAX));
+    let lease_secs = state.cfg.lease_duration_secs.min(i64::MAX as u64) as i64;
+    let lease_expires_at = now + chrono::Duration::seconds(lease_secs);
     let lease_token = Uuid::new_v4();
 
     let mut tx = state.pool.begin().await.map_err(ApiError::internal)?;
@@ -344,8 +342,8 @@ async fn task_heartbeat(
     )?;
 
     let now = Utc::now();
-    let lease_expires_at = now
-        + chrono::Duration::seconds(state.cfg.lease_duration_secs.try_into().unwrap_or(i64::MAX));
+    let lease_secs = state.cfg.lease_duration_secs.min(i64::MAX as u64) as i64;
+    let lease_expires_at = now + chrono::Duration::seconds(lease_secs);
 
     let row = sqlx::query(
         r#"
@@ -828,7 +826,7 @@ fn require_task_capability(
     attempt: i64,
 ) -> ApiResult<()> {
     let token = headers
-        .get("X-Trace-Task-Capability")
+        .get(TASK_CAPABILITY_HEADER)
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| ApiError::unauthorized("missing capability token"))?;
 

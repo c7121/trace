@@ -8,6 +8,8 @@ use std::{sync::Arc, time::Duration};
 use trace_core::{ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
 use uuid::Uuid;
 
+use crate::constants::{CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER};
+
 #[derive(Debug, Deserialize)]
 struct TaskWakeup {
     task_id: Uuid,
@@ -41,7 +43,6 @@ struct CompleteRequest {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(deny_unknown_fields)]
 struct AlertEventRow {
     alert_definition_id: Uuid,
     dedupe_key: String,
@@ -139,7 +140,7 @@ async fn handle_message(
         let (batch_uri, batch_bytes) = build_batch(cfg, &claim)?;
         let (bucket, key) = crate::s3::parse_s3_uri(&batch_uri).context("parse batch uri")?;
         object_store
-            .put_bytes(&bucket, &key, batch_bytes.clone(), "application/jsonl")
+            .put_bytes(&bucket, &key, batch_bytes.clone(), CONTENT_TYPE_JSONL)
             .await
             .context("upload batch")?;
 
@@ -152,14 +153,14 @@ async fn handle_message(
             attempt: claim.attempt,
             lease_token: claim.lease_token,
             batch_uri: batch_uri.clone(),
-            content_type: "application/jsonl".to_string(),
-            batch_size_bytes: batch_bytes.len().try_into().unwrap_or(i64::MAX),
+            content_type: CONTENT_TYPE_JSONL.to_string(),
+            batch_size_bytes: batch_bytes.len().min(i64::MAX as usize) as i64,
             dedupe_scope: "harness".to_string(),
         };
 
         let resp = http
             .post(publish_url)
-            .header("X-Trace-Task-Capability", &claim.capability_token)
+            .header(TASK_CAPABILITY_HEADER, &claim.capability_token)
             .json(&publish_req)
             .send()
             .await
@@ -183,7 +184,7 @@ async fn handle_message(
         };
         let resp = http
             .post(complete_url)
-            .header("X-Trace-Task-Capability", &claim.capability_token)
+            .header(TASK_CAPABILITY_HEADER, &claim.capability_token)
             .json(&complete_req)
             .send()
             .await
@@ -210,13 +211,9 @@ async fn handle_message(
 }
 
 fn build_batch(cfg: &HarnessConfig, claim: &ClaimResponse) -> anyhow::Result<(String, Vec<u8>)> {
-    let alert_definition_id = Uuid::from_bytes([
-        0x49, 0x0b, 0x8f, 0x3f, 0x1d, 0x41, 0x49, 0x6a, 0x91, 0x7b, 0x5b, 0x7e, 0xee, 0xb8, 0x5e,
-        0x07,
-    ]);
     let dedupe_key = format!("harness:{}", claim.task_id);
     let row = AlertEventRow {
-        alert_definition_id,
+        alert_definition_id: DEFAULT_ALERT_DEFINITION_ID,
         dedupe_key,
         event_time: Utc::now(),
         chain_id: 1,

@@ -39,6 +39,8 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
         object_store.clone(),
     );
 
+    let http = reqwest::Client::new();
+
     let poll_interval = Duration::from_millis(cfg.worker_poll_ms);
     let visibility_timeout = Duration::from_secs(cfg.worker_visibility_timeout_secs);
     let requeue_delay = Duration::from_millis(cfg.worker_requeue_delay_ms);
@@ -63,7 +65,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
                 }
 
                 for msg in messages {
-                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &runner, msg, requeue_delay).await {
+                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &http, &runner, msg, requeue_delay).await {
                         tracing::warn!(error = %err, "invoker message handling failed");
                     }
                 }
@@ -76,6 +78,7 @@ async fn handle_message(
     cfg: &HarnessConfig,
     queue: &dyn QueueTrait,
     object_store: &dyn ObjectStoreTrait,
+    http: &reqwest::Client,
     runner: &FakeRunner,
     msg: crate::pgqueue::Message,
     requeue_delay: Duration,
@@ -97,7 +100,7 @@ async fn handle_message(
             "{}/internal/task-claim",
             cfg.dispatcher_url.trim_end_matches('/')
         );
-        let resp = reqwest::Client::new()
+        let resp = http
             .post(claim_url)
             .json(&serde_json::json!({ "task_id": wakeup.task_id }))
             .send()

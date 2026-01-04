@@ -9,6 +9,8 @@ use std::{sync::Arc, time::Duration};
 use trace_core::{ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
 use uuid::Uuid;
 
+use crate::constants::CONTENT_TYPE_JSONL;
+
 #[derive(Debug, Deserialize)]
 struct BufferPointerMessage {
     batch_uri: String,
@@ -89,7 +91,7 @@ async fn handle_message(
             serde_json::from_value(msg.payload.clone()).context("decode buffer pointer payload")?;
 
         if let Some(ct) = &pointer.content_type {
-            if ct != "application/jsonl" {
+            if ct != CONTENT_TYPE_JSONL {
                 return Err(anyhow!("unsupported content_type={ct}"));
             }
         }

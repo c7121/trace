@@ -6,6 +6,8 @@ use serde_json::{Map, Value};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait};
 use uuid::Uuid;
 
+use crate::constants::{CONTENT_TYPE_JSONL, TASK_CAPABILITY_HEADER};
+
 fn default_payload() -> Value {
     Value::Object(Map::new())
 }
@@ -25,7 +27,6 @@ struct FakeBundle {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(deny_unknown_fields)]
 struct AlertEventRow {
     alert_definition_id: Uuid,
     dedupe_key: String,
@@ -107,7 +108,7 @@ impl FakeRunner {
         bytes.push(b'\n');
 
         self.object_store
-            .put_bytes(&self.bucket, &key, bytes.clone(), "application/jsonl")
+            .put_bytes(&self.bucket, &key, bytes.clone(), CONTENT_TYPE_JSONL)
             .await
             .context("upload batch")?;
 
@@ -151,15 +152,15 @@ impl FakeRunner {
             attempt: invocation.attempt,
             lease_token: invocation.lease_token,
             batch_uri: batch_uri.to_string(),
-            content_type: "application/jsonl".to_string(),
-            batch_size_bytes: batch_size_bytes.try_into().unwrap_or(i64::MAX),
+            content_type: CONTENT_TYPE_JSONL.to_string(),
+            batch_size_bytes: batch_size_bytes.min(i64::MAX as usize) as i64,
             dedupe_scope: "udf".to_string(),
         };
 
         let resp = self
             .http
             .post(url)
-            .header("X-Trace-Task-Capability", &invocation.capability_token)
+            .header(TASK_CAPABILITY_HEADER, &invocation.capability_token)
             .json(&req)
             .send()
             .await
@@ -190,7 +191,7 @@ impl FakeRunner {
         let resp = self
             .http
             .post(url)
-            .header("X-Trace-Task-Capability", &invocation.capability_token)
+            .header(TASK_CAPABILITY_HEADER, &invocation.capability_token)
             .json(&req)
             .send()
             .await
