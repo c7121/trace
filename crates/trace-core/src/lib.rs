@@ -10,6 +10,7 @@ pub mod lite;
 #[cfg(feature = "aws")]
 pub mod aws;
 
+pub mod query;
 pub mod udf;
 
 #[derive(Debug, Clone)]
