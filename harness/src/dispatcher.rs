@@ -12,7 +12,8 @@ use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use trace_core::{
-    Queue as QueueTrait, S3Grants, Signer as SignerTrait, TaskCapabilityIssueRequest,
+    fixtures::{ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_VERSION},
+    DatasetGrant, Queue as QueueTrait, S3Grants, Signer as SignerTrait, TaskCapabilityIssueRequest,
 };
 use uuid::Uuid;
 
@@ -302,7 +303,10 @@ async fn task_claim(
         org_id: state.cfg.org_id,
         task_id: req.task_id,
         attempt,
-        datasets: Vec::new(),
+        datasets: vec![DatasetGrant {
+            dataset_uuid: ALERTS_FIXTURE_DATASET_ID,
+            dataset_version: ALERTS_FIXTURE_DATASET_VERSION,
+        }],
         s3: S3Grants::empty(),
     };
 
