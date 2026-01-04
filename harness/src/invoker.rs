@@ -8,6 +8,8 @@ use std::{sync::Arc, time::Duration};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
 use uuid::Uuid;
 
+use crate::constants::CONTENT_TYPE_JSON;
+
 #[derive(Debug, Deserialize)]
 struct TaskWakeup {
     task_id: Uuid,
@@ -180,7 +182,7 @@ async fn ensure_bundle_url(
     let bytes = serde_json::to_vec(&bundle).context("encode default fake bundle")?;
 
     object_store
-        .put_bytes(&cfg.s3_bucket, &key, bytes, "application/json")
+        .put_bytes(&cfg.s3_bucket, &key, bytes, CONTENT_TYPE_JSON)
         .await
         .context("upload default fake bundle")?;
 

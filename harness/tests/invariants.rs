@@ -3,6 +3,7 @@ use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait};
+use trace_harness::constants::{CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, TASK_CAPABILITY_HEADER};
 use trace_harness::{
     config::HarnessConfig, dispatcher::DispatcherServer, migrate, pgqueue::PgQueue, s3::ObjectStore,
     runner::FakeRunner,
@@ -174,7 +175,7 @@ async fn wrong_capability_token_rejected() -> anyhow::Result<()> {
 
     let resp = client
         .post(format!("{base}/v1/task/heartbeat"))
-        .header("X-Trace-Task-Capability", token_a)
+        .header(TASK_CAPABILITY_HEADER, token_a)
         .json(&serde_json::json!({
             "task_id": task_b,
             "attempt": attempt_b,
@@ -231,7 +232,7 @@ async fn wrong_lease_token_rejected() -> anyhow::Result<()> {
 
     let resp = client
         .post(format!("{base}/v1/task/heartbeat"))
-        .header("X-Trace-Task-Capability", token)
+        .header(TASK_CAPABILITY_HEADER, token)
         .json(&serde_json::json!({
             "task_id": task_id,
             "attempt": attempt,
@@ -323,7 +324,7 @@ async fn next_key_token_accepted_during_overlap() -> anyhow::Result<()> {
 
     let resp = client
         .post(format!("{base}/v1/task/heartbeat"))
-        .header("X-Trace-Task-Capability", token)
+        .header(TASK_CAPABILITY_HEADER, token)
         .json(&serde_json::json!({
             "task_id": task_id,
             "attempt": attempt,
@@ -393,7 +394,7 @@ async fn stale_attempt_fencing_rejects_old_complete() -> anyhow::Result<()> {
 
     let resp = client
         .post(format!("{base}/v1/task/complete"))
-        .header("X-Trace-Task-Capability", token1)
+        .header(TASK_CAPABILITY_HEADER, token1)
         .json(&serde_json::json!({
             "task_id": task_id,
             "attempt": attempt1,
@@ -464,13 +465,13 @@ async fn stale_attempt_fencing_rejects_old_buffer_publish() -> anyhow::Result<()
 
     let resp = client
         .post(format!("{base}/v1/task/buffer-publish"))
-        .header("X-Trace-Task-Capability", token1)
+        .header(TASK_CAPABILITY_HEADER, token1)
         .json(&serde_json::json!({
             "task_id": task_id,
             "attempt": attempt1,
             "lease_token": lease1,
             "batch_uri": format!("s3://{}/batches/{task_id}/{attempt1}.jsonl", cfg.s3_bucket),
-            "content_type": "application/jsonl",
+            "content_type": CONTENT_TYPE_JSONL,
             "batch_size_bytes": 1,
             "dedupe_scope": "test",
         }))
@@ -527,13 +528,13 @@ async fn buffer_publish_is_idempotent_for_same_attempt_and_uri() -> anyhow::Resu
     for _ in 0..2 {
         client
             .post(format!("{base}/v1/task/buffer-publish"))
-            .header("X-Trace-Task-Capability", token)
+            .header(TASK_CAPABILITY_HEADER, token)
             .json(&serde_json::json!({
                 "task_id": task_id,
                 "attempt": attempt,
                 "lease_token": lease,
                 "batch_uri": batch_uri.clone(),
-                "content_type": "application/jsonl",
+                "content_type": CONTENT_TYPE_JSONL,
                 "batch_size_bytes": 1,
                 "dedupe_scope": "test",
             }))
@@ -600,13 +601,13 @@ async fn dispatcher_restart_recovers_outbox() -> anyhow::Result<()> {
 
     client
         .post(format!("{base1}/v1/task/buffer-publish"))
-        .header("X-Trace-Task-Capability", token)
+        .header(TASK_CAPABILITY_HEADER, token)
         .json(&serde_json::json!({
             "task_id": task_id,
             "attempt": attempt,
             "lease_token": lease_token,
             "batch_uri": format!("s3://{}/batches/{task_id}/{attempt}.jsonl", cfg.s3_bucket),
-            "content_type": "application/jsonl",
+            "content_type": CONTENT_TYPE_JSONL,
             "batch_size_bytes": 1,
             "dedupe_scope": "test",
         }))
@@ -799,7 +800,7 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
 
     let key = format!("poison/{}.jsonl", Uuid::new_v4());
     object_store
-        .put_bytes(&cfg.s3_bucket, &key, bytes.clone(), "application/jsonl")
+        .put_bytes(&cfg.s3_bucket, &key, bytes.clone(), CONTENT_TYPE_JSONL)
         .await?;
 
     let batch_uri = format!("s3://{}/{}", cfg.s3_bucket, key);
@@ -807,7 +808,7 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
         &cfg.buffer_queue,
         serde_json::json!({
             "batch_uri": batch_uri,
-            "content_type": "application/jsonl",
+            "content_type": CONTENT_TYPE_JSONL,
             "batch_size_bytes": bytes.len(),
         }),
         chrono::Utc::now(),
@@ -912,7 +913,7 @@ async fn runner_claim_invoke_sink_inserts_once() -> anyhow::Result<()> {
                 &cfg.s3_bucket,
                 &bundle_key,
                 serde_json::to_vec(&bundle).context("encode bundle")?,
-                "application/json",
+                CONTENT_TYPE_JSON,
             )
             .await
             .context("upload bundle")?;
