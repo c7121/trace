@@ -112,8 +112,9 @@ async fn task_query(
         .duckdb
         .query(req.sql, limit + 1)
         .await
-        .map_err(|err| {
-            tracing::warn!(error = %err, "duckdb query failed");
+        .map_err(|_err| {
+            // Avoid logging raw SQL; DuckDB errors may embed the statement text.
+            tracing::warn!("duckdb query failed");
             ApiError::internal("query execution failed")
         })?;
 
