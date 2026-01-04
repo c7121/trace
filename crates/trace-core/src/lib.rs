@@ -10,6 +10,8 @@ pub mod lite;
 #[cfg(feature = "aws")]
 pub mod aws;
 
+pub mod udf;
+
 #[derive(Debug, Clone)]
 pub struct QueueMessage {
     /// Opaque token used to acknowledge or requeue the message.
