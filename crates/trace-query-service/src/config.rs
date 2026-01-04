@@ -1,7 +1,7 @@
 use clap::Parser;
 
 /// Query Service configuration (Lite/harness defaults).
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Clone)]
 pub struct QueryServiceConfig {
     /// Postgres data DB connection string (for audit logging).
     #[arg(
@@ -58,6 +58,28 @@ pub struct QueryServiceConfig {
     /// Number of fixture rows inserted into the `alerts` table.
     #[arg(long, env = "QUERY_SERVICE_FIXTURE_ROWS", default_value_t = 10)]
     pub fixture_rows: u32,
+}
+
+impl std::fmt::Debug for QueryServiceConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let task_capability_next_secret = self
+            .task_capability_next_secret
+            .as_deref()
+            .map(|_| "<redacted>");
+        f.debug_struct("QueryServiceConfig")
+            .field("data_database_url", &"<redacted>")
+            .field("bind", &self.bind)
+            .field("task_capability_iss", &self.task_capability_iss)
+            .field("task_capability_aud", &self.task_capability_aud)
+            .field("task_capability_kid", &self.task_capability_kid)
+            .field("task_capability_secret", &"<redacted>")
+            .field("task_capability_next_kid", &self.task_capability_next_kid)
+            .field("task_capability_next_secret", &task_capability_next_secret)
+            .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
+            .field("duckdb_path", &self.duckdb_path)
+            .field("fixture_rows", &self.fixture_rows)
+            .finish()
+    }
 }
 
 impl QueryServiceConfig {

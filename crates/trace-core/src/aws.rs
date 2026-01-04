@@ -1,8 +1,8 @@
 use crate::{
-    ObjectStore as ObjectStoreTrait, Queue as QueueTrait, QueueMessage, Signer,
+    Error, ObjectStore as ObjectStoreTrait, Queue as QueueTrait, QueueMessage, Result, Signer,
     TaskCapabilityClaims, TaskCapabilityIssueRequest,
 };
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use async_trait::async_trait;
 use aws_sdk_s3::primitives::ByteStream;
 use chrono::{DateTime, Utc};
@@ -29,7 +29,7 @@ impl SqsQueue {
         }
     }
 
-    pub async fn from_env(queue_name: impl Into<String>) -> anyhow::Result<Self> {
+    pub async fn from_env(queue_name: impl Into<String>) -> Result<Self> {
         let queue_name = queue_name.into();
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let client = aws_sdk_sqs::Client::new(&config);
@@ -38,10 +38,11 @@ impl SqsQueue {
             .queue_name(&queue_name)
             .send()
             .await
-            .context("sqs GetQueueUrl")?;
+            .context("sqs GetQueueUrl")
+            .map_err(Error::from)?;
         let queue_url = resp
             .queue_url()
-            .ok_or_else(|| anyhow!("sqs GetQueueUrl returned no queue_url"))?
+            .ok_or_else(|| Error::msg("sqs GetQueueUrl returned no queue_url"))?
             .to_string();
         Ok(Self {
             client,
@@ -50,15 +51,14 @@ impl SqsQueue {
         })
     }
 
-    fn ensure_queue(&self, queue: &str) -> anyhow::Result<()> {
+    fn ensure_queue(&self, queue: &str) -> Result<()> {
         if queue == self.queue_name || queue == self.queue_url {
             return Ok(());
         }
-        Err(anyhow!(
+        Err(Error::msg(format!(
             "queue mismatch: got={queue} expected={} or {}",
-            self.queue_name,
-            self.queue_url
-        ))
+            self.queue_name, self.queue_url
+        )))
     }
 }
 
@@ -69,10 +69,12 @@ impl QueueTrait for SqsQueue {
         queue: &str,
         payload: Value,
         available_at: DateTime<Utc>,
-    ) -> anyhow::Result<String> {
+    ) -> Result<String> {
         self.ensure_queue(queue)?;
 
-        let body = serde_json::to_string(&payload).context("serialize sqs payload json")?;
+        let body = serde_json::to_string(&payload)
+            .context("serialize sqs payload json")
+            .map_err(Error::from)?;
         let delay_secs = {
             let now = Utc::now();
             if available_at <= now {
@@ -81,9 +83,9 @@ impl QueueTrait for SqsQueue {
                 let delay = available_at - now;
                 let delay_secs = delay.num_seconds();
                 if delay_secs > 900 {
-                    return Err(anyhow!(
+                    return Err(Error::msg(format!(
                         "sqs delay_seconds max is 900; requested {delay_secs}"
-                    ));
+                    )));
                 }
                 delay_secs.try_into().unwrap_or(900)
             }
@@ -97,7 +99,8 @@ impl QueueTrait for SqsQueue {
             .delay_seconds(delay_secs)
             .send()
             .await
-            .context("sqs SendMessage")?;
+            .context("sqs SendMessage")
+            .map_err(Error::from)?;
 
         Ok(resp.message_id().unwrap_or_default().to_string())
     }
@@ -107,7 +110,7 @@ impl QueueTrait for SqsQueue {
         queue: &str,
         max: i64,
         visibility_timeout: Duration,
-    ) -> anyhow::Result<Vec<QueueMessage>> {
+    ) -> Result<Vec<QueueMessage>> {
         self.ensure_queue(queue)?;
 
         let max_number_of_messages: i32 = max.clamp(1, 10).try_into().unwrap_or(10);
@@ -128,7 +131,8 @@ impl QueueTrait for SqsQueue {
             )
             .send()
             .await
-            .context("sqs ReceiveMessage")?;
+            .context("sqs ReceiveMessage")
+            .map_err(Error::from)?;
 
         let mut out = Vec::new();
         for message in resp.messages().iter() {
@@ -162,18 +166,19 @@ impl QueueTrait for SqsQueue {
         Ok(out)
     }
 
-    async fn ack(&self, ack_token: &str) -> anyhow::Result<()> {
+    async fn ack(&self, ack_token: &str) -> Result<()> {
         self.client
             .delete_message()
             .queue_url(&self.queue_url)
             .receipt_handle(ack_token)
             .send()
             .await
-            .context("sqs DeleteMessage")?;
+            .context("sqs DeleteMessage")
+            .map_err(Error::from)?;
         Ok(())
     }
 
-    async fn nack_or_requeue(&self, ack_token: &str, delay: Duration) -> anyhow::Result<()> {
+    async fn nack_or_requeue(&self, ack_token: &str, delay: Duration) -> Result<()> {
         let visibility_timeout_secs: i32 = delay
             .as_secs()
             .min(43_200)
@@ -188,7 +193,8 @@ impl QueueTrait for SqsQueue {
             .visibility_timeout(visibility_timeout_secs)
             .send()
             .await
-            .context("sqs ChangeMessageVisibility")?;
+            .context("sqs ChangeMessageVisibility")
+            .map_err(Error::from)?;
 
         Ok(())
     }
@@ -204,7 +210,7 @@ impl S3ObjectStore {
         Self { client }
     }
 
-    pub async fn from_env() -> anyhow::Result<Self> {
+    pub async fn from_env() -> Result<Self> {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         Ok(Self {
             client: aws_sdk_s3::Client::new(&config),
@@ -220,7 +226,7 @@ impl ObjectStoreTrait for S3ObjectStore {
         key: &str,
         bytes: Vec<u8>,
         content_type: &str,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         self.client
             .put_object()
             .bucket(bucket)
@@ -229,11 +235,12 @@ impl ObjectStoreTrait for S3ObjectStore {
             .body(ByteStream::from(bytes))
             .send()
             .await
-            .with_context(|| format!("s3 PutObject bucket={bucket} key={key}"))?;
+            .with_context(|| format!("s3 PutObject bucket={bucket} key={key}"))
+            .map_err(Error::from)?;
         Ok(())
     }
 
-    async fn get_bytes(&self, bucket: &str, key: &str) -> anyhow::Result<Vec<u8>> {
+    async fn get_bytes(&self, bucket: &str, key: &str) -> Result<Vec<u8>> {
         let resp = self
             .client
             .get_object()
@@ -241,13 +248,15 @@ impl ObjectStoreTrait for S3ObjectStore {
             .key(key)
             .send()
             .await
-            .with_context(|| format!("s3 GetObject bucket={bucket} key={key}"))?;
+            .with_context(|| format!("s3 GetObject bucket={bucket} key={key}"))
+            .map_err(Error::from)?;
 
         let bytes = resp
             .body
             .collect()
             .await
-            .context("s3 GetObject body collect")?
+            .context("s3 GetObject body collect")
+            .map_err(Error::from)?
             .into_bytes()
             .to_vec();
         Ok(bytes)
@@ -258,11 +267,11 @@ impl ObjectStoreTrait for S3ObjectStore {
 pub struct KmsSigner;
 
 impl Signer for KmsSigner {
-    fn issue_task_capability(&self, _req: &TaskCapabilityIssueRequest) -> anyhow::Result<String> {
-        Err(anyhow!("aws KmsSigner is stubbed (compile-only)"))
+    fn issue_task_capability(&self, _req: &TaskCapabilityIssueRequest) -> Result<String> {
+        Err(Error::msg("aws KmsSigner is stubbed (compile-only)"))
     }
 
-    fn verify_task_capability(&self, _token: &str) -> anyhow::Result<TaskCapabilityClaims> {
-        Err(anyhow!("aws KmsSigner is stubbed (compile-only)"))
+    fn verify_task_capability(&self, _token: &str) -> Result<TaskCapabilityClaims> {
+        Err(Error::msg("aws KmsSigner is stubbed (compile-only)"))
     }
 }

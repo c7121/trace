@@ -1,4 +1,4 @@
-use anyhow::bail;
+use crate::{Error, Result};
 
 const MAX_STRING_LITERAL_BYTES: usize = 4096;
 
@@ -59,10 +59,10 @@ enum State {
 /// - Reject multi-statement batches
 ///
 /// This validator is intentionally conservative and does not try to be a full SQL parser.
-pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
+pub fn validate_sql(sql: &str) -> Result<()> {
     let sql = sql.trim();
     if sql.is_empty() {
-        bail!("sql rejected: empty");
+        return Err(Error::msg("sql rejected: empty"));
     }
 
     let bytes = sql.as_bytes();
@@ -101,7 +101,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                         i += 2;
                         continue;
                     }
-                    bail!("sql rejected: multiple statements");
+                    return Err(Error::msg("sql rejected: multiple statements"));
                 }
 
                 if b.is_ascii_whitespace() {
@@ -170,7 +170,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
 
                     let token = match std::str::from_utf8(&bytes[start..i]) {
                         Ok(s) => s,
-                        Err(_) => bail!("sql rejected: invalid utf-8"),
+                        Err(_) => return Err(Error::msg("sql rejected: invalid utf-8")),
                     };
                     let token_upper = token.to_ascii_uppercase();
 
@@ -209,7 +209,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                         .iter()
                         .any(|kw| kw.eq_ignore_ascii_case(&token_upper))
                     {
-                        bail!("sql rejected: forbidden keyword");
+                        return Err(Error::msg("sql rejected: forbidden keyword"));
                     }
 
                     // Deny known unsafe function call sites (e.g. read_csv(...)).
@@ -218,7 +218,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                         .any(|f| f.eq_ignore_ascii_case(&token_upper))
                         && looks_like_function_call(bytes, i)
                     {
-                        bail!("sql rejected: forbidden function");
+                        return Err(Error::msg("sql rejected: forbidden function"));
                     }
 
                     continue;
@@ -233,7 +233,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                         if string_literal.len() < MAX_STRING_LITERAL_BYTES {
                             string_literal.push('\'');
                         } else {
-                            bail!("sql rejected: string literal too long");
+                            return Err(Error::msg("sql rejected: string literal too long"));
                         }
                         i += 2;
                         continue;
@@ -242,7 +242,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                     if in_from_clause && expects_relation {
                         // Reject non-standard table factor syntax like:
                         //   SELECT * FROM 'file.csv'
-                        bail!("sql rejected: string literal relation");
+                        return Err(Error::msg("sql rejected: string literal relation"));
                     }
 
                     state = State::Normal;
@@ -253,7 +253,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                 if string_literal.len() < MAX_STRING_LITERAL_BYTES {
                     string_literal.push(b as char);
                 } else {
-                    bail!("sql rejected: string literal too long");
+                    return Err(Error::msg("sql rejected: string literal too long"));
                 }
                 i += 1;
             }
@@ -263,7 +263,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                         if quoted_ident.len() < MAX_STRING_LITERAL_BYTES {
                             quoted_ident.push('"');
                         } else {
-                            bail!("sql rejected: quoted identifier too long");
+                            return Err(Error::msg("sql rejected: quoted identifier too long"));
                         }
                         i += 2;
                         continue;
@@ -277,7 +277,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                         .any(|f| f.eq_ignore_ascii_case(&ident_upper))
                         && looks_like_function_call(bytes, i + 1)
                     {
-                        bail!("sql rejected: forbidden function");
+                        return Err(Error::msg("sql rejected: forbidden function"));
                     }
 
                     state = State::Normal;
@@ -288,7 +288,7 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
                 if quoted_ident.len() < MAX_STRING_LITERAL_BYTES {
                     quoted_ident.push(b as char);
                 } else {
-                    bail!("sql rejected: quoted identifier too long");
+                    return Err(Error::msg("sql rejected: quoted identifier too long"));
                 }
                 i += 1;
             }
@@ -311,14 +311,16 @@ pub fn validate_sql(sql: &str) -> anyhow::Result<()> {
 
     match state {
         State::Normal | State::LineComment => {}
-        State::SingleQuote => bail!("sql rejected: unterminated string literal"),
-        State::DoubleQuote => bail!("sql rejected: unterminated quoted identifier"),
-        State::BlockComment => bail!("sql rejected: unterminated block comment"),
+        State::SingleQuote => return Err(Error::msg("sql rejected: unterminated string literal")),
+        State::DoubleQuote => {
+            return Err(Error::msg("sql rejected: unterminated quoted identifier"));
+        }
+        State::BlockComment => return Err(Error::msg("sql rejected: unterminated block comment")),
     }
 
-    let first = first_keyword.ok_or_else(|| anyhow::anyhow!("sql rejected: no statement"))?;
+    let first = first_keyword.ok_or_else(|| Error::msg("sql rejected: no statement"))?;
     if first != "SELECT" && first != "WITH" {
-        bail!("sql rejected: only SELECT allowed");
+        return Err(Error::msg("sql rejected: only SELECT allowed"));
     }
 
     Ok(())

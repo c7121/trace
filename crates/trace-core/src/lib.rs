@@ -1,8 +1,13 @@
+//! Shared core abstractions for Trace Lite.
+//!
+//! This crate defines cross-crate contracts used by the harness and query service: queues, object
+//! storage, task capability signing, and query safety gates.
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::time::Duration;
+use std::{fmt, time::Duration};
 use uuid::Uuid;
 
 pub mod lite;
@@ -12,6 +17,48 @@ pub mod aws;
 
 pub mod query;
 pub mod udf;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug)]
+pub struct Error {
+    inner: anyhow::Error,
+}
+
+impl Error {
+    pub fn msg(message: impl Into<String>) -> Self {
+        Self {
+            inner: anyhow::anyhow!(message.into()),
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.inner.source()
+    }
+}
+
+impl From<anyhow::Error> for Error {
+    fn from(value: anyhow::Error) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    fn from(value: sqlx::Error) -> Self {
+        Self {
+            inner: anyhow::Error::from(value),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub struct QueueMessage {
@@ -39,18 +86,18 @@ pub trait Queue: Send + Sync {
         queue: &str,
         payload: Value,
         available_at: DateTime<Utc>,
-    ) -> anyhow::Result<String>;
+    ) -> Result<String>;
 
     async fn receive(
         &self,
         queue: &str,
         max: i64,
         visibility_timeout: Duration,
-    ) -> anyhow::Result<Vec<QueueMessage>>;
+    ) -> Result<Vec<QueueMessage>>;
 
-    async fn ack(&self, ack_token: &str) -> anyhow::Result<()>;
+    async fn ack(&self, ack_token: &str) -> Result<()>;
 
-    async fn nack_or_requeue(&self, ack_token: &str, delay: Duration) -> anyhow::Result<()>;
+    async fn nack_or_requeue(&self, ack_token: &str, delay: Duration) -> Result<()>;
 }
 
 #[async_trait]
@@ -61,9 +108,9 @@ pub trait ObjectStore: Send + Sync {
         key: &str,
         bytes: Vec<u8>,
         content_type: &str,
-    ) -> anyhow::Result<()>;
+    ) -> Result<()>;
 
-    async fn get_bytes(&self, bucket: &str, key: &str) -> anyhow::Result<Vec<u8>>;
+    async fn get_bytes(&self, bucket: &str, key: &str) -> Result<Vec<u8>>;
 }
 
 #[derive(Debug, Clone)]
@@ -79,10 +126,10 @@ pub trait Signer: Send + Sync {
     /// Issue a task-scoped capability token (JWT).
     ///
     /// The signer is responsible for setting `iss`, `aud`, `sub`, `iat`, `exp`.
-    fn issue_task_capability(&self, req: &TaskCapabilityIssueRequest) -> anyhow::Result<String>;
+    fn issue_task_capability(&self, req: &TaskCapabilityIssueRequest) -> Result<String>;
 
     /// Verify and decode a task capability token.
-    fn verify_task_capability(&self, token: &str) -> anyhow::Result<TaskCapabilityClaims>;
+    fn verify_task_capability(&self, token: &str) -> Result<TaskCapabilityClaims>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

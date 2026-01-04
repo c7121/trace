@@ -1,7 +1,7 @@
 # Query SQL Gating (Milestone 4)
 
 Risk: Medium
-Public surface: trace-core `query::validate_sql(sql: &str) -> anyhow::Result<()>`
+Public surface: trace-core `query::validate_sql(sql: &str) -> trace_core::Result<()>`
 
 Summary: Add a conservative SQL validator used by Query Service to fail-closed on unsafe SQL.
 

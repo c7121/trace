@@ -40,7 +40,7 @@ pub enum WriteDisposition {
     Conflict,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DispatcherClient {
     base_url: String,
     http: reqwest::Client,

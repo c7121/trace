@@ -9,7 +9,7 @@ use uuid::Uuid;
 /// - Avoid global mutable state.
 ///
 /// Defaults match `harness/docker-compose.yml`.
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Clone)]
 pub struct HarnessConfig {
     /// Postgres state DB connection string.
     #[arg(
@@ -150,6 +150,51 @@ pub struct HarnessConfig {
 
     #[arg(long, env = "S3_REGION", default_value = "us-east-1")]
     pub s3_region: String,
+}
+
+impl std::fmt::Debug for HarnessConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let task_capability_next_secret = self
+            .task_capability_next_secret
+            .as_deref()
+            .map(|_| "<redacted>");
+        f.debug_struct("HarnessConfig")
+            .field("state_database_url", &"<redacted>")
+            .field("data_database_url", &"<redacted>")
+            .field("dispatcher_bind", &self.dispatcher_bind)
+            .field("dispatcher_url", &self.dispatcher_url)
+            .field("lease_duration_secs", &self.lease_duration_secs)
+            .field("outbox_poll_ms", &self.outbox_poll_ms)
+            .field("lease_reaper_poll_ms", &self.lease_reaper_poll_ms)
+            .field("outbox_batch_size", &self.outbox_batch_size)
+            .field("task_wakeup_queue", &self.task_wakeup_queue)
+            .field("buffer_queue", &self.buffer_queue)
+            .field("buffer_queue_dlq", &self.buffer_queue_dlq)
+            .field("org_id", &self.org_id)
+            .field("task_capability_iss", &self.task_capability_iss)
+            .field("task_capability_aud", &self.task_capability_aud)
+            .field("task_capability_kid", &self.task_capability_kid)
+            .field("task_capability_secret", &"<redacted>")
+            .field("task_capability_next_kid", &self.task_capability_next_kid)
+            .field("task_capability_next_secret", &task_capability_next_secret)
+            .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
+            .field("worker_poll_ms", &self.worker_poll_ms)
+            .field(
+                "worker_visibility_timeout_secs",
+                &self.worker_visibility_timeout_secs,
+            )
+            .field("worker_requeue_delay_ms", &self.worker_requeue_delay_ms)
+            .field("sink_poll_ms", &self.sink_poll_ms)
+            .field("sink_visibility_timeout_secs", &self.sink_visibility_timeout_secs)
+            .field("sink_retry_delay_ms", &self.sink_retry_delay_ms)
+            .field("sink_max_deliveries", &self.sink_max_deliveries)
+            .field("s3_endpoint", &self.s3_endpoint)
+            .field("s3_bucket", &self.s3_bucket)
+            .field("s3_access_key", &"<redacted>")
+            .field("s3_secret_key", &"<redacted>")
+            .field("s3_region", &self.s3_region)
+            .finish()
+    }
 }
 
 impl HarnessConfig {

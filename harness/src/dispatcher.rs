@@ -26,6 +26,7 @@ struct AppState {
     queue: Arc<dyn QueueTrait>,
 }
 
+#[derive(Debug)]
 pub struct DispatcherServer {
     pub addr: SocketAddr,
     shutdown_tx: watch::Sender<bool>,

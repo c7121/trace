@@ -1,3 +1,8 @@
+//! Trace Lite harness.
+//!
+//! This crate provides a local dispatcher + worker + sink setup for exercising Trace Lite flows
+//! and invariants.
+
 pub mod config;
 pub mod constants;
 pub mod dispatcher;

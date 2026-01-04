@@ -110,7 +110,7 @@ impl FakeRunner {
     async fn fetch_bundle_bytes(&self, url: &str) -> anyhow::Result<Vec<u8>> {
         if url.starts_with("s3://") {
             let (bucket, key) = parse_s3_uri(url)?;
-            return self.object_store.get_bytes(&bucket, &key).await;
+            return Ok(self.object_store.get_bytes(&bucket, &key).await?);
         }
 
         let resp = self

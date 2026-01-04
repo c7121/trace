@@ -1,3 +1,8 @@
+//! Trace query service (Lite mode).
+//!
+//! Exposes a constrained `/v1/task/query` endpoint backed by DuckDB, intended for local/harness
+//! flows with a fail-closed SQL validator.
+
 use crate::config::QueryServiceConfig;
 use crate::duckdb::{default_duckdb_path, DuckDbSandbox, QueryResultSet};
 use anyhow::Context;
@@ -21,6 +26,7 @@ mod duckdb;
 
 pub const TASK_CAPABILITY_HEADER: &str = "X-Trace-Task-Capability";
 
+// Default and max per-request row limits (defense-in-depth against memory/CPU blowups).
 const DEFAULT_LIMIT: usize = 1000;
 const MAX_LIMIT: usize = 10_000;
 
@@ -30,6 +36,17 @@ pub struct AppState {
     pub signer: TaskCapability,
     pub duckdb: DuckDbSandbox,
     pub data_pool: sqlx::PgPool,
+}
+
+impl std::fmt::Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState")
+            .field("cfg", &self.cfg)
+            .field("duckdb_path", &self.duckdb.db_path())
+            .field("data_pool", &"<PgPool>")
+            .field("signer", &"<TaskCapability>")
+            .finish()
+    }
 }
 
 pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {

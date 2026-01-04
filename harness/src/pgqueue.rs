@@ -1,3 +1,4 @@
+#[doc(inline)]
 pub use trace_core::lite::pgqueue::{Message, PgQueue};
 
 #[cfg(test)]
