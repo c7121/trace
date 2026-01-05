@@ -14,19 +14,19 @@ env:\n\
 async fn main() -> anyhow::Result<()> {
     let mut args: VecDeque<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.pop_front() else {
-        eprintln!("{usage()}");
+        eprintln!("{}", usage());
         return Ok(());
     };
 
     if cmd == "--help" || cmd == "-h" {
-        println!("{usage()}");
+        println!("{}", usage());
         return Ok(());
     }
 
     match cmd.as_str() {
         "plan-chain-sync" => plan_chain_sync_cmd(args).await,
         _ => {
-            eprintln!("unknown command: {cmd}\n\n{usage()}");
+            eprintln!("unknown command: {cmd}\n\n{}", usage());
             Ok(())
         }
     }
@@ -114,4 +114,3 @@ fn optional_i64(
             .with_context(|| format!("parse --{key}={v}"))?,
     ))
 }
-
