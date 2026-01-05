@@ -7,6 +7,23 @@ This directory is **sequencing guidance** for implementation. It is intentionall
 - `docs/adr/*` (decisions)
 - `docs/standards/*` (security + ops invariants)
 
+# Milestone tracking
+
+Milestones are tracked in two places:
+
+- Plan + gates: `docs/plan/plan.md` (this file)
+- Ledger of completed + planned milestones: `docs/plan/milestones.md`
+
+Completed milestones are tagged in git as annotated tags `ms/<N>` (e.g., `ms/7`).
+These are **not** release tags.
+
+## Context links requirement
+
+Every milestone section in this plan MUST include a short **Context links** list (repo-relative paths)
+to the docs/specs/contracts that define the milestone's intended behavior.
+
+If a milestone adds or edits any docs/specs/contracts, update its Context links list as part of that milestone.
+
 ## How to use this plan
 
 - Keep the **contract-freeze harness** green. If the harness breaks, stop and fix it before adding features.
