@@ -3176,6 +3176,7 @@ dependencies = [
  "trace-core",
  "trace-dispatcher",
  "trace-query-service",
+ "trace-sink",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -3196,6 +3197,21 @@ dependencies = [
  "trace-core",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "trace-sink"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "trace-core",
+ "tracing",
  "uuid",
 ]
 
