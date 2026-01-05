@@ -7,8 +7,11 @@ const MAX_STRING_LITERAL_BYTES: usize = 4096;
 /// Notes:
 /// - We intentionally key off *function call sites* (identifier followed by `(`, allowing
 ///   whitespace/comments in between). This avoids false positives for column/table names.
-/// - This list is necessarily conservative. Query Service MUST also run DuckDB with external
-///   access disabled and a locked-down OS/network sandbox.
+/// - This list is necessarily conservative. Query Service MUST also harden DuckDB (disable
+///   the `LocalFileSystem`, forbid extension installation) and run in a locked-down OS/network
+///   sandbox. In particular, if the service allows querying authorized remote Parquet datasets
+///   (HTTP/S3), the OS-level network policy must restrict egress to only the configured object
+///   store endpoints.
 const FORBIDDEN_FUNCTIONS: &[&str] = &[
     // File / URL readers (table functions)
     "READ_CSV",

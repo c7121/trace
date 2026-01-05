@@ -50,6 +50,28 @@ pub struct QueryServiceConfig {
     /// Task capability token TTL in seconds.
     #[arg(long, env = "TASK_CAPABILITY_TTL_SECS", default_value_t = 300)]
     pub task_capability_ttl_secs: u64,
+
+    /// MinIO/S3 endpoint for dataset manifests and Parquet objects (Lite mode).
+    #[arg(long, env = "S3_ENDPOINT", default_value = "http://localhost:9000")]
+    pub s3_endpoint: String,
+
+    /// Max allowed size of a dataset manifest JSON document in bytes.
+    ///
+    /// Treat the manifest as untrusted input even if "produced by us".
+    #[arg(long, env = "DATASET_MAX_MANIFEST_BYTES", default_value_t = 1_048_576)]
+    pub dataset_max_manifest_bytes: usize,
+
+    /// Max allowed number of Parquet objects referenced by a dataset manifest.
+    #[arg(long, env = "DATASET_MAX_OBJECTS", default_value_t = 2_048)]
+    pub dataset_max_objects: usize,
+
+    /// Max allowed size of any single Parquet object in bytes.
+    #[arg(long, env = "DATASET_MAX_OBJECT_BYTES", default_value_t = 268_435_456)]
+    pub dataset_max_object_bytes: u64,
+
+    /// Max total bytes downloaded per dataset attachment (sum of Parquet objects).
+    #[arg(long, env = "DATASET_MAX_TOTAL_BYTES", default_value_t = 1_073_741_824)]
+    pub dataset_max_total_bytes: u64,
 }
 
 impl std::fmt::Debug for QueryServiceConfig {
@@ -68,6 +90,11 @@ impl std::fmt::Debug for QueryServiceConfig {
             .field("task_capability_next_kid", &self.task_capability_next_kid)
             .field("task_capability_next_secret", &task_capability_next_secret)
             .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
+            .field("s3_endpoint", &self.s3_endpoint)
+            .field("dataset_max_manifest_bytes", &self.dataset_max_manifest_bytes)
+            .field("dataset_max_objects", &self.dataset_max_objects)
+            .field("dataset_max_object_bytes", &self.dataset_max_object_bytes)
+            .field("dataset_max_total_bytes", &self.dataset_max_total_bytes)
             .finish()
     }
 }

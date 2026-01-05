@@ -2,7 +2,7 @@
 
 Status: Implemented
 Owner: agent
-Last updated: 2026-01-04
+Last updated: 2026-01-05
 
 ## Summary
 Implement a minimal Query Service binary that exposes only `POST /v1/task/query` for task-scoped SQL.
@@ -20,12 +20,13 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 ## Goals
 - Provide a runnable Query Service with one task-scoped endpoint.
 - Enforce capability-token authn/authz (token must match `{task_id, attempt}`).
-- Enforce `validate_sql` and run queries against a deterministic in-memory DuckDB fixture with external access disabled.
+- Enforce `validate_sql` and run queries against Parquet datasets attached via a pinned manifest referenced by the task capability token.
 - Emit a dataset-level query audit record (no raw SQL).
 
 ## Non-goals
 - User query endpoint (`/v1/query`), dataset registry, pagination/caching/export.
-- Postgres/S3 federation in DuckDB (use an in-memory fixture dataset only).
+- General Postgres federation in DuckDB.
+- Any dataset discovery/resolution beyond the dataset grants carried in the task capability token.
 
 ## Public surface changes
 - Endpoints/RPC:
@@ -43,7 +44,16 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 - Query Service:
   - Auth: verify `X-Trace-Task-Capability` (HS256 dev secret in Lite).
   - Gate: call `validate_sql(sql)` on every request.
-  - Execute: run SQL in embedded DuckDB with locked-down runtime settings against an in-memory fixture table.
+  - Execute:
+    - Trusted attach: resolve a pinned dataset manifest from object storage (MinIO/S3) and attach it as a DuckDB relation (`dataset`).
+      - Implementation note: attach as a TEMP VIEW over `read_parquet(...)` (do not materialize into a table) so Parquet predicate/projection pushdown is preserved.
+    - Untrusted SQL: execute gated SQL against attached relations only.
+
+      DuckDB runtime hardening MUST be applied in addition to SQL gating:
+      - disable host filesystem access (e.g. `SET disabled_filesystems='LocalFileSystem'`),
+      - lock configuration (`SET lock_configuration=true`),
+      - disable extension auto-install (no `INSTALL` from untrusted SQL; `autoinstall_known_extensions=false`),
+      - run in an OS/container sandbox with egress restricted to only the object-store endpoint(s).
   - Audit: insert dataset-level audit row into Postgres data DB.
 
 ### Data flow and trust boundaries
@@ -51,7 +61,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 - Validation points:
   - JWT signature + expiry + `{task_id, attempt}` match.
   - `validate_sql` fail-closed.
-  - DuckDB: external access disabled; writes prevented by `validate_sql` (DDL/DML rejected).
+  - DuckDB: disable host filesystem access and lock configuration; writes prevented by `validate_sql` (DDL/DML rejected). If the dataset itself is remote (HTTP/S3), DuckDB must be allowed to perform those authorized reads.
 - Sensitive data handling:
   - MUST NOT log raw SQL (only structured denial/execution outcomes).
 
@@ -59,13 +69,14 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 - MUST require `X-Trace-Task-Capability` and reject missing/invalid tokens (401).
 - MUST reject a valid token that does not match `{task_id, attempt}` (403).
 - MUST reject a request whose `dataset_id` is not granted in the capability token (403).
+- MUST reject if the dataset storage reference is missing or outside the token’s S3 read prefixes (fail-closed).
 - MUST return 400 when `validate_sql` rejects.
 - MUST clamp `limit` to `[1, 10_000]` (default 1000) and return `truncated` when clipped.
 - MUST write an audit row on successful execution without storing raw SQL.
 
 ## Security considerations
 - Primary control: `validate_sql` denylist + single-statement requirement.
-- Defense-in-depth: DuckDB `enable_external_access=false` plus no extension auto-install/load.
+- Defense-in-depth: DuckDB runtime hardening (disable `LocalFileSystem`, lock configuration, no extension auto-install). If remote datasets are supported, pair with OS-level egress controls so DuckDB can only reach the configured object-store endpoint(s).
 - Residual risk: denylist incompleteness; mitigated by runtime sandboxing and tests.
 
 ## High risk addendum
@@ -86,5 +97,6 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
   - auth required (401/403),
   - dataset grants enforced (403 when not granted),
   - `validate_sql` gate enforced for INSTALL/LOAD/ATTACH and external readers,
-  - allowed `SELECT` executes against the `alerts_fixture` in-memory fixture table (3 deterministic rows),
+  - allowed `SELECT` executes against an attached `dataset` relation backed by a deterministic Parquet fixture dataset (3 deterministic rows),
+  - manifest cannot reference Parquet outside authorized S3 prefixes (403),
   - audit row inserted with correct `{org_id, task_id, dataset_id}`.

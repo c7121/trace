@@ -1,17 +1,24 @@
 use anyhow::Context;
+use duckdb::Connection;
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use trace_core::{
-    fixtures::ALERTS_FIXTURE_DATASET_ID, runtime::RuntimeInvoker, udf::UdfInvocationPayload,
+    fixtures::{ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX},
+    runtime::RuntimeInvoker,
+    udf::UdfInvocationPayload,
     ObjectStore as ObjectStoreTrait,
 };
 use trace_harness::constants::{
     CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER,
 };
 use trace_harness::{
-    config::HarnessConfig, dispatcher::DispatcherServer, migrate, pgqueue::PgQueue,
-    runner::FakeRunner, s3::ObjectStore,
+    config::HarnessConfig,
+    dispatcher::DispatcherServer,
+    migrate,
+    pgqueue::PgQueue,
+    runner::FakeRunner,
+    s3::{parse_s3_uri, ObjectStore},
 };
 use trace_query_service::{
     build_state as build_query_state, config::QueryServiceConfig, router as query_router,
@@ -30,6 +37,112 @@ async fn migrated_config() -> anyhow::Result<HarnessConfig> {
     cfg.buffer_queue_dlq = unique_queue("buffer_queue_dlq_test");
     migrate::run(&cfg).await.context("run migrations")?;
     Ok(cfg)
+}
+
+const CONTENT_TYPE_PARQUET: &str = "application/octet-stream";
+
+fn join_key(prefix: &str, leaf: &str) -> String {
+    let prefix = prefix.trim_end_matches('/');
+    format!("{prefix}/{leaf}")
+}
+
+async fn build_alerts_fixture_parquet_bytes() -> anyhow::Result<Vec<u8>> {
+    tokio::task::spawn_blocking(|| {
+        let dir = std::env::temp_dir().join(format!("trace-harness-fixture-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).context("create temp dir")?;
+        let parquet_path = dir.join("alerts_fixture.parquet");
+
+        let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE alerts_fixture (
+              alert_definition_id VARCHAR NOT NULL,
+              dedupe_key          VARCHAR NOT NULL,
+              event_time          TIMESTAMP NOT NULL,
+              chain_id            BIGINT NOT NULL,
+              block_number        BIGINT NOT NULL,
+              block_hash          VARCHAR NOT NULL,
+              tx_hash             VARCHAR NOT NULL,
+              payload             VARCHAR NOT NULL
+            );
+
+            INSERT INTO alerts_fixture VALUES
+              (
+                'alert_definition_1',
+                'dedupe-001',
+                '2025-01-01T00:00:00Z',
+                1,
+                100,
+                '0xblockhash001',
+                '0xtxhash001',
+                '{"severity":"low","msg":"fixture-1"}'
+              ),
+              (
+                'alert_definition_1',
+                'dedupe-002',
+                '2025-01-01T00:00:01Z',
+                1,
+                101,
+                '0xblockhash002',
+                '0xtxhash002',
+                '{"severity":"medium","msg":"fixture-2"}'
+              ),
+              (
+                'alert_definition_2',
+                'dedupe-003',
+                '2025-01-01T00:00:02Z',
+                10,
+                202,
+                '0xblockhash003',
+                '0xtxhash003',
+                '{"severity":"high","msg":"fixture-3"}'
+              );
+            COMMIT;
+            "#,
+        )
+        .context("create fixture table")?;
+
+        let parquet_escaped = parquet_path.to_string_lossy().replace('\'', "''");
+        conn.execute_batch(&format!(
+            "COPY alerts_fixture TO '{parquet_escaped}' (FORMAT PARQUET);"
+        ))
+        .context("copy to parquet")?;
+
+        let bytes = std::fs::read(&parquet_path).context("read parquet bytes")?;
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok::<_, anyhow::Error>(bytes)
+    })
+    .await
+    .context("join parquet builder")?
+}
+
+async fn seed_alerts_fixture_dataset(cfg: &HarnessConfig) -> anyhow::Result<()> {
+    let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
+    let (bucket, prefix_key) =
+        parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX).context("parse storage prefix")?;
+
+    let parquet_bytes = build_alerts_fixture_parquet_bytes().await?;
+    let parquet_key = join_key(&prefix_key, "alerts_fixture.parquet");
+    object_store
+        .put_bytes(&bucket, &parquet_key, parquet_bytes, CONTENT_TYPE_PARQUET)
+        .await?;
+
+    let parquet_uri = format!("s3://{bucket}/{parquet_key}");
+    let manifest = serde_json::json!({
+        "parquet_objects": [parquet_uri],
+    });
+    let manifest_key = join_key(&prefix_key, "_manifest.json");
+    object_store
+        .put_bytes(
+            &bucket,
+            &manifest_key,
+            serde_json::to_vec(&manifest)?,
+            CONTENT_TYPE_JSON,
+        )
+        .await?;
+
+    Ok(())
 }
 
 #[tokio::test]
@@ -1051,6 +1164,7 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
     }
 
     let cfg = migrated_config().await?;
+    seed_alerts_fixture_dataset(&cfg).await?;
 
     let state_pool = PgPoolOptions::new()
         .max_connections(5)
@@ -1082,6 +1196,7 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
     qs_cfg.task_capability_next_kid = cfg.task_capability_next_kid.clone();
     qs_cfg.task_capability_next_secret = cfg.task_capability_next_secret.clone();
     qs_cfg.task_capability_ttl_secs = cfg.task_capability_ttl_secs;
+    qs_cfg.s3_endpoint = cfg.s3_endpoint.clone();
 
     let qs_state = build_query_state(qs_cfg)
         .await
@@ -1091,7 +1206,9 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
     let qs_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .context("bind query service")?;
-    let qs_addr = qs_listener.local_addr().context("query service local_addr")?;
+    let qs_addr = qs_listener
+        .local_addr()
+        .context("query service local_addr")?;
     let qs_base = format!("http://{qs_addr}");
 
     let (qs_shutdown_tx, qs_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -1122,7 +1239,7 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
             task_id,
             attempt: claim.attempt,
             dataset_id: ALERTS_FIXTURE_DATASET_ID,
-            sql: "SELECT dedupe_key FROM alerts_fixture ORDER BY dedupe_key".to_string(),
+            sql: "SELECT dedupe_key FROM dataset ORDER BY dedupe_key".to_string(),
             limit: None,
         };
 
@@ -1153,8 +1270,8 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
         );
 
         let unauthorized_dataset_id = Uuid::from_bytes([
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x99,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x99,
         ]);
 
         let unauthorized_req = TaskQueryRequest {
@@ -1208,7 +1325,11 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
         .fetch_one(&data_pool)
         .await?;
 
-        anyhow::ensure!(org_id == cfg.org_id, "expected org_id {}, got {org_id}", cfg.org_id);
+        anyhow::ensure!(
+            org_id == cfg.org_id,
+            "expected org_id {}, got {org_id}",
+            cfg.org_id
+        );
 
         let result_row_count: i64 = sqlx::query_scalar(
             r#"

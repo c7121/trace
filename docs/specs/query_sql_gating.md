@@ -27,10 +27,13 @@ Acceptance:
 
 Non-goals:
 - Perfect SQL parsing. This gate is intentionally conservative and SHOULD be paired with DuckDB runtime hardening:
-  - disable external access,
-  - no network egress,
+  - disable host filesystem access (e.g. `SET disabled_filesystems='LocalFileSystem'` + `SET lock_configuration=true`),
+  - forbid extension installation (no `INSTALL ...` / `LOAD ...` from untrusted SQL; disable autoinstall),
   - no host filesystem mounts,
-  - restricted catalog attachment.
+  - restricted catalog attachment,
+  - OS-level network egress restrictions.
+
+  Note: if the Query Service allows querying *authorized* remote Parquet datasets (HTTP/S3), DuckDB needs network access for those scans. In that case, the OS-level egress policy becomes mandatory (only allow the configured object-store endpoint(s)).
 
 Reduction:
 - No new dependencies; pure Rust scanning.

@@ -10,7 +10,7 @@ Stateless service for interactive and batch SQL queries across hot and cold stor
 | **Runtime** | Rust + embedded DuckDB |
 | **Deployment** | ECS Fargate, behind ALB |
 
-**Implementation note (v1):** Only `POST /v1/task/query` is implemented today, and it executes against a deterministic **in-memory DuckDB fixture** (no Postgres/S3 federation yet). The federation diagram below reflects the intended future topology; the implemented v1 contract is specified in `docs/specs/query_service_task_query.md`.
+**Implementation note (v1):** Only `POST /v1/task/query` is implemented today. It executes against Parquet datasets that Query Service attaches via a pinned manifest referenced by the **task capability token** (Lite/harness uses a deterministic fixture dataset in MinIO). The federation diagram below reflects the intended future topology; the implemented v1 contract is specified in `docs/specs/query_service_task_query.md`.
 
 
 ## Component View (future topology)
@@ -85,6 +85,22 @@ The request/response shape is a constrained subset of the Query Service contract
 - **Lite/harness:** HS256 shared secret configured by env (acceptable for local dev only).
 - **AWS/prod:** cache the Dispatcher’s internal task-JWKS (e.g., `GET /internal/jwks/task`) and refresh on `kid` miss.
 - Query Service does not call Dispatcher per request for authorization; the token contents are the authorization.
+
+### Dataset attach hardening
+
+Even though dataset manifests are produced by Trace components, Query Service treats `_manifest.json` as **untrusted input**.
+
+Hard limits (defaults) are enforced to prevent accidental or adversarial resource exhaustion:
+
+- `DATASET_MAX_MANIFEST_BYTES` (default: 1 MiB)
+- `DATASET_MAX_PARQUET_OBJECTS` (default: 2048)
+- `DATASET_MAX_PARQUET_OBJECT_BYTES` (default: 256 MiB)
+- `DATASET_MAX_TOTAL_PARQUET_BYTES` (default: 1 GiB)
+
+Failure modes are classified:
+
+- **Permanent**: malformed manifest, exceeds size limits, structural violations.
+- **Retryable**: object store temporarily unavailable (network errors, server 5xx, missing objects).
 
 ## Future: User Query API
 
@@ -205,11 +221,14 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 Query Service enforces a read-only SQL surface using **both**:
 
 - **Gate:** `trace-core::query::validate_sql` (single `SELECT` / CTE only; rejects DDL/DML and multi-statement SQL).
-- **Runtime hardening:** DuckDB settings such as `enable_external_access=false` and disabling extension autoload/autoinstall.
+- **Runtime hardening:** DuckDB settings such as disabling the `LocalFileSystem`, locking configuration, and disabling extension auto-install.
 
-Because v1 uses an **in-memory** DuckDB database for the fixture dataset, file-backed `AccessMode::ReadOnly` is not applicable.
-When Query Service begins attaching file-backed datasets (e.g., downloaded manifests, local scratch DBs), it SHOULD additionally
-open those attachments read-only where possible.
+v1 attaches Parquet datasets via a **trusted attach** step:
+- Query Service resolves a pinned dataset manifest and validates it against capability-token S3 grants.
+- Query Service attaches the dataset as a stable relation (name: `dataset`) using a TEMP VIEW over `read_parquet(...)`.
+  - This preserves Parquet projection/predicate pushdown.
+  - The Parquet files may be remote (HTTP/S3). This means DuckDB needs network access for those authorized scans.
+- Query Service executes gated SQL (untrusted) against only those attached relations.
 
 ## SQL sandboxing (required)
 
@@ -226,12 +245,13 @@ v1 requirements:
 - Queries may reference only platform-attached relations for authorized datasets.
   - `/v1/query`: published datasets only.
   - `/v1/task/query`: dataset versions enumerated in the capability token only.
-- External access MUST be disabled for untrusted SQL:
-  - no filesystem reads/writes,
-  - no HTTP/URL reads,
-  - no user-supplied S3/URI reads,
+- Host filesystem access MUST be disabled for untrusted SQL (e.g. `SET disabled_filesystems='LocalFileSystem'` + `SET lock_configuration=true`).
+- Network egress MUST be restricted at the OS/container layer to only the configured object-store endpoint(s).
+  - Reason: if the dataset relation is backed by remote Parquet, DuckDB must be allowed to perform authorized HTTP/S3 reads.
+- User-supplied external reads MUST be blocked by SQL gating:
+  - no `read_parquet('http...')` / `read_csv('file...')` / string-literal relations in FROM,
   - no `ATTACH` with user-supplied connection strings,
-  - no extension install/load (or enforce a strict allowlist of built-in extensions only).
+  - no extension install/load (and disable auto-install).
 - Reject anything other than a single `SELECT` statement (no multi-statement batches).
 
 Verification (required):

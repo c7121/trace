@@ -3,7 +3,10 @@ use crate::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use anyhow::Context;
 use sqlx::PgPool;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
-use trace_core::fixtures::{ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_VERSION};
+use trace_core::fixtures::{
+    ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX,
+    ALERTS_FIXTURE_DATASET_VERSION,
+};
 use trace_core::{DatasetGrant, S3Grants, Signer as SignerTrait};
 
 #[derive(Debug)]
@@ -43,8 +46,12 @@ impl DispatcherServer {
             default_datasets: vec![DatasetGrant {
                 dataset_uuid: ALERTS_FIXTURE_DATASET_ID,
                 dataset_version: ALERTS_FIXTURE_DATASET_VERSION,
+                storage_prefix: Some(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX.to_string()),
             }],
-            default_s3: S3Grants::empty(),
+            default_s3: S3Grants {
+                read_prefixes: vec![ALERTS_FIXTURE_DATASET_STORAGE_PREFIX.to_string()],
+                write_prefixes: Vec::new(),
+            },
         };
 
         let inner = trace_dispatcher::DispatcherServer::start(

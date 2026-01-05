@@ -1,7 +1,6 @@
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use duckdb::Connection;
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
@@ -18,26 +17,57 @@ pub struct QueryResultSet {
 
 #[derive(Clone)]
 pub struct DuckDbSandbox {
-    conn: Arc<Mutex<Connection>>,
+    _private: (),
 }
 
 impl DuckDbSandbox {
-    pub fn new_in_memory_fixture() -> anyhow::Result<Self> {
-        let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
-        init_fixture(&conn).context("init fixture dataset")?;
-        apply_hardening(&conn).context("apply duckdb hardening")?;
-
-        Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
-        })
+    pub fn new() -> Self {
+        Self { _private: () }
     }
 
     pub async fn query(&self, sql: String, max_rows: usize) -> anyhow::Result<QueryResultSet> {
-        let conn = self.conn.clone();
         let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
             tokio::task::spawn_blocking(move || {
-                let guard = conn.lock().map_err(|_| anyhow!("duckdb lock poisoned"))?;
-                run_query(&guard, &sql, max_rows).context("run query")
+                let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+                apply_hardening(&conn).context("apply duckdb hardening")?;
+                lock_down_local_filesystem(&conn).context("lock down local filesystem")?;
+                lock_down_external_access(&conn).context("lock down external access")?;
+                run_query(&conn, &sql, max_rows).context("run query")
+            });
+
+        handle
+            .await
+            .context("join duckdb worker")?
+            .context("duckdb query failed")
+    }
+
+    pub async fn query_with_dataset_urls(
+        &self,
+        parquet_urls: &[String],
+        sql: String,
+        max_rows: usize,
+    ) -> anyhow::Result<QueryResultSet> {
+        let parquet_urls = parquet_urls.to_vec();
+        let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
+            tokio::task::spawn_blocking(move || {
+                let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+                apply_hardening(&conn).context("apply duckdb hardening")?;
+
+                // Attach the dataset using a TEMP VIEW so DuckDB can push down filters/projections
+                // into the Parquet scan (including for remote HTTP/S3 reads).
+                attach_parquet_dataset(&conn, &parquet_urls).context("attach parquet dataset")?;
+
+                // Runtime hardening for untrusted SQL:
+                // - disable host filesystem access (LocalFileSystem)
+                // - lock config to prevent re-enabling
+                //
+                // NOTE: We intentionally do *not* set `enable_external_access=false` here because
+                // the authorized dataset itself may require remote reads (HTTP range requests via
+                // DuckDB's httpfs file system). Authorization is enforced via capability token
+                // grants + manifest validation.
+                lock_down_local_filesystem(&conn).context("lock down local filesystem")?;
+
+                run_query(&conn, &sql, max_rows).context("run query")
             });
 
         handle
@@ -47,74 +77,66 @@ impl DuckDbSandbox {
     }
 }
 
-fn init_fixture(conn: &Connection) -> anyhow::Result<()> {
-    // Deterministic, in-memory fixture dataset (exactly 3 rows).
-    conn.execute_batch(
-        r#"
-        BEGIN;
-        CREATE TABLE alerts_fixture (
-          alert_definition_id VARCHAR NOT NULL,
-          dedupe_key          VARCHAR NOT NULL,
-          event_time          TIMESTAMP NOT NULL,
-          chain_id            BIGINT NOT NULL,
-          block_number        BIGINT NOT NULL,
-          block_hash          VARCHAR NOT NULL,
-          tx_hash             VARCHAR NOT NULL,
-          payload             VARCHAR NOT NULL
-        );
-
-        INSERT INTO alerts_fixture VALUES
-          (
-            'alert_definition_1',
-            'dedupe-001',
-            '2025-01-01T00:00:00Z',
-            1,
-            100,
-            '0xblockhash001',
-            '0xtxhash001',
-            '{"severity":"low","msg":"fixture-1"}'
-          ),
-          (
-            'alert_definition_1',
-            'dedupe-002',
-            '2025-01-01T00:00:01Z',
-            1,
-            101,
-            '0xblockhash002',
-            '0xtxhash002',
-            '{"severity":"medium","msg":"fixture-2"}'
-          ),
-          (
-            'alert_definition_2',
-            'dedupe-003',
-            '2025-01-01T00:00:02Z',
-            10,
-            202,
-            '0xblockhash003',
-            '0xtxhash003',
-            '{"severity":"high","msg":"fixture-3"}'
-          );
-        COMMIT;
-        "#,
-    )
-    .context("create fixture table and rows")?;
-
-    Ok(())
-}
-
 fn apply_hardening(conn: &Connection) -> anyhow::Result<()> {
     // Fail-closed: if we can't apply these settings, refuse to run queries.
     //
     // NOTE: We still rely on `trace_core::query::validate_sql` as the primary gate.
     conn.execute_batch(
         r#"
-        SET enable_external_access=false;
         SET autoinstall_known_extensions=false;
-        SET autoload_known_extensions=false;
         "#,
     )
     .context("set hardening defaults")?;
 
+    Ok(())
+}
+
+fn lock_down_external_access(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch("SET enable_external_access=false;")
+        .context("disable external access")?;
+    Ok(())
+}
+
+fn lock_down_local_filesystem(conn: &Connection) -> anyhow::Result<()> {
+    // DuckDB hardening: disallow the LocalFileSystem so untrusted SQL cannot access the host
+    // filesystem even if the SQL gate misses a file-reading function.
+    //
+    // We also lock configuration to prevent changes at runtime.
+    conn.execute_batch(
+        "SET disabled_filesystems='LocalFileSystem';\nSET lock_configuration=true;",
+    )
+    .context("disable local filesystem")?;
+    Ok(())
+}
+
+fn attach_parquet_dataset(conn: &Connection, parquet_urls: &[String]) -> anyhow::Result<()> {
+    if parquet_urls.is_empty() {
+        return Err(anyhow::anyhow!("no parquet objects"));
+    }
+
+    // Enable remote file access for Parquet reads.
+    //
+    // NOTE: We intentionally do *not* run `INSTALL httpfs;` here. The service is expected to
+    // run with DuckDB built/bundled with httpfs available locally.
+    conn.execute_batch("LOAD httpfs;")
+        .context("load httpfs extension")?;
+
+    let scan = if parquet_urls.len() == 1 {
+        let url = parquet_urls[0].replace('\'', "''");
+        format!("read_parquet('{url}')")
+    } else {
+        let mut parts = Vec::with_capacity(parquet_urls.len());
+        for url in parquet_urls {
+            let url = url.replace('\'', "''");
+            parts.push(format!("'{url}'"));
+        }
+        format!("read_parquet([{}])", parts.join(","))
+    };
+
+    // Use a VIEW to preserve Parquet pushdown.
+    let create = format!("CREATE TEMP VIEW dataset AS SELECT * FROM {scan};");
+    conn.execute_batch(&create)
+        .context("create temp dataset view")?;
     Ok(())
 }
 

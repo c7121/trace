@@ -157,6 +157,14 @@ pub struct TaskCapabilityClaims {
 pub struct DatasetGrant {
     pub dataset_uuid: Uuid,
     pub dataset_version: Uuid,
+
+    /// Version-resolved storage location for this dataset version (for trusted attach).
+    ///
+    /// This is intentionally optional to allow staged upgrades where older capability tokens do
+    /// not yet carry storage references. Query Service MUST fail-closed if it requires attach and
+    /// this is missing.
+    #[serde(default)]
+    pub storage_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
