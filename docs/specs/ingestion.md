@@ -45,9 +45,14 @@ flowchart LR
 
 ### Onchain ingestion modes
 - **Realtime (chain tip)**: a long-running source/operator follows chain head and produces new blocks/txs/logs and reorg invalidations.
-  - Example: `block_follower` (writes to Postgres hot tables; reorg-aware).
+  - Example: `block_follower` (reorg-aware).
 - **Historical (bounded ranges)**: batch/range ingestion writes immutable outputs to S3 (Parquet), typically followed by compaction/finalization steps.
   - Example: `cryo_ingest` + downstream `parquet_compact`.
+
+
+v1 stance (Lite-first):
+- Bootstrap sync (empty → tip) is proven using **Cryo → Parquet** outputs in object storage.
+- Trace does **not** require a platform-owned relational schema for chain datasets in v1; Parquet schema is canonical.
 
 ### Offchain ingestion
 Offchain feeds (price data, labels, external APIs) enter via **source jobs at DAG entry points**. External data ingestion is not embedded mid-job.
