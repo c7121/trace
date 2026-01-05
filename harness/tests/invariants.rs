@@ -7,8 +7,10 @@ use trace_core::{
     fixtures::{ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX},
     runtime::RuntimeInvoker,
     udf::UdfInvocationPayload,
+    DatasetGrant, S3Grants, TaskCapabilityIssueRequest,
     ObjectStore as ObjectStoreTrait,
 };
+use trace_dispatcher::planner::{plan_chain_sync, PlanChainSyncRequest};
 use trace_harness::constants::{
     CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER,
 };
@@ -22,6 +24,7 @@ use trace_harness::{
     runner::FakeRunner,
     s3::{parse_s3_uri, ObjectStore},
 };
+use trace_harness::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_query_service::{
     build_state as build_query_state, config::QueryServiceConfig, router as query_router,
     TaskQueryRequest,
@@ -1519,6 +1522,256 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
             parquet_objects == &[expected_parquet_uri],
             "expected manifest parquet_objects to be stable"
         );
+
+        Ok(())
+    }
+    .await;
+
+    server.shutdown().await?;
+    result
+}
+
+#[tokio::test]
+async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Result<()> {
+    let cfg = migrated_config().await?;
+
+    let state_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let data_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.data_database_url)
+        .await
+        .context("connect data db")?;
+
+    let server = DispatcherServer::start(
+        state_pool.clone(),
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        true,
+        false,
+    )
+    .await?;
+    let base = format!("http://{}", server.addr);
+
+    let result: anyhow::Result<()> = async {
+        let chain_id = ((Uuid::new_v4().as_u128() % 1_000_000) as i64) + 1;
+        let chunk_size = 1_000;
+        let to_block = 3 * chunk_size;
+
+        let req = PlanChainSyncRequest {
+            chain_id,
+            from_block: 0,
+            to_block,
+            chunk_size,
+            max_inflight: 10,
+        };
+
+        let r1 = plan_chain_sync(&state_pool, &cfg.task_wakeup_queue, req.clone()).await?;
+        let r2 = plan_chain_sync(&state_pool, &cfg.task_wakeup_queue, req.clone()).await?;
+        anyhow::ensure!(r1.scheduled_ranges == 3, "expected 3 scheduled ranges");
+        anyhow::ensure!(r2.scheduled_ranges == 0, "expected idempotent planner restart");
+
+        let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
+        let dispatcher = DispatcherClient::new(base.clone());
+        let queue = PgQueue::new(state_pool.clone());
+
+        let visibility_timeout = Duration::from_secs(cfg.worker_visibility_timeout_secs);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+
+        loop {
+            let msgs = queue
+                .receive(&cfg.task_wakeup_queue, 10, visibility_timeout)
+                .await?;
+
+            for msg in &msgs {
+                let task_id = msg.payload["task_id"]
+                    .as_str()
+                    .context("task_id")?
+                    .parse::<Uuid>()
+                    .context("parse task_id")?;
+
+                let _res = trace_harness::cryo_worker::run_task(
+                    &cfg,
+                    &object_store as &dyn ObjectStoreTrait,
+                    &dispatcher,
+                    task_id,
+                )
+                .await?;
+            }
+
+            for msg in msgs {
+                queue.ack(&msg.ack_token).await?;
+            }
+
+            let completed: i64 = sqlx::query_scalar(
+                r#"
+                SELECT count(*)
+                FROM state.chain_sync_scheduled_ranges
+                WHERE chain_id = $1
+                  AND status = 'completed'
+                "#,
+            )
+            .bind(chain_id)
+            .fetch_one(&state_pool)
+            .await?;
+
+            if completed == 3 {
+                break;
+            }
+
+            if tokio::time::Instant::now() > deadline {
+                anyhow::bail!("timed out waiting for cryo ranges to complete");
+            }
+
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let (dataset_uuid, dataset_version, storage_prefix): (Uuid, Uuid, String) = sqlx::query_as(
+            r#"
+            SELECT dataset_uuid, dataset_version, storage_prefix
+            FROM state.dataset_versions
+            WHERE config_hash = 'cryo_ingest.blocks:v1'
+            ORDER BY range_start
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&state_pool)
+        .await?;
+
+        let dataset_rows: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM state.dataset_versions
+            WHERE dataset_uuid = $1
+              AND config_hash = 'cryo_ingest.blocks:v1'
+              AND range_start IN (0, 1000, 2000)
+              AND range_end IN (999, 1999, 2999)
+            "#,
+        )
+        .bind(dataset_uuid)
+        .fetch_one(&state_pool)
+        .await
+        .context("count dataset_versions")?;
+
+        anyhow::ensure!(dataset_rows == 3, "expected 3 dataset versions, got {dataset_rows}");
+
+        // Prove Query Service can attach+query one produced dataset version.
+        let signer = TaskCapability::from_hs256_config(Hs256TaskCapabilityConfig {
+            issuer: cfg.task_capability_iss.clone(),
+            audience: cfg.task_capability_aud.clone(),
+            current_kid: cfg.task_capability_kid.clone(),
+            current_secret: cfg.task_capability_secret.clone(),
+            next_kid: cfg.task_capability_next_kid.clone(),
+            next_secret: cfg.task_capability_next_secret.clone(),
+            ttl: Duration::from_secs(cfg.task_capability_ttl_secs),
+        })?;
+
+        let query_task_id = Uuid::new_v4();
+        let issue_req = TaskCapabilityIssueRequest {
+            org_id: cfg.org_id,
+            task_id: query_task_id,
+            attempt: 1,
+            datasets: vec![DatasetGrant {
+                dataset_uuid,
+                dataset_version,
+                storage_prefix: Some(storage_prefix.clone()),
+            }],
+            s3: S3Grants {
+                read_prefixes: vec![storage_prefix.clone()],
+                write_prefixes: Vec::new(),
+            },
+        };
+        let token = signer.issue_task_capability(&issue_req)?;
+
+        let mut qs_cfg = QueryServiceConfig::from_env().context("load query service config")?;
+        qs_cfg.data_database_url = cfg.data_database_url.clone();
+        qs_cfg.task_capability_iss = cfg.task_capability_iss.clone();
+        qs_cfg.task_capability_aud = cfg.task_capability_aud.clone();
+        qs_cfg.task_capability_kid = cfg.task_capability_kid.clone();
+        qs_cfg.task_capability_secret = cfg.task_capability_secret.clone();
+        qs_cfg.task_capability_next_kid = cfg.task_capability_next_kid.clone();
+        qs_cfg.task_capability_next_secret = cfg.task_capability_next_secret.clone();
+        qs_cfg.task_capability_ttl_secs = cfg.task_capability_ttl_secs;
+        qs_cfg.s3_endpoint = cfg.s3_endpoint.clone();
+
+        let qs_state = build_query_state(qs_cfg)
+            .await
+            .context("build query service state")?;
+        let qs_app = query_router(qs_state);
+        let qs_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let qs_addr = qs_listener.local_addr()?;
+        let qs_base = format!("http://{qs_addr}");
+
+        let (qs_shutdown_tx, qs_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let qs_task = tokio::spawn(async move {
+            axum::serve(qs_listener, qs_app.into_make_service())
+                .with_graceful_shutdown(async move {
+                    let _ = qs_shutdown_rx.await;
+                })
+                .await
+                .context("query service serve")
+        });
+
+        let query_result: anyhow::Result<()> = async {
+            let client = reqwest::Client::new();
+            let req = TaskQueryRequest {
+                task_id: query_task_id,
+                attempt: 1,
+                dataset_id: dataset_uuid,
+                sql: "SELECT count(*) FROM dataset".to_string(),
+                limit: None,
+            };
+
+            let resp = client
+                .post(format!("{qs_base}/v1/task/query"))
+                .header(TASK_CAPABILITY_HEADER, token)
+                .json(&req)
+                .send()
+                .await?;
+
+            anyhow::ensure!(resp.status().is_success(), "expected 200, got {}", resp.status());
+            let body = resp.json::<serde_json::Value>().await?;
+            let count = body["rows"][0][0].as_i64().context("count")?;
+            anyhow::ensure!(count == 3, "expected 3 rows, got {count}");
+
+            let audit: i64 = sqlx::query_scalar(
+                r#"
+                SELECT count(*)
+                FROM data.query_audit
+                WHERE task_id = $1
+                  AND dataset_id = $2
+                "#,
+            )
+            .bind(query_task_id)
+            .bind(dataset_uuid)
+            .fetch_one(&data_pool)
+            .await?;
+
+            anyhow::ensure!(audit == 1, "expected 1 audit row, got {audit}");
+            Ok(())
+        }
+        .await;
+
+        let _ = qs_shutdown_tx.send(());
+        let _ = qs_task.await;
+        query_result?;
+
+        let cursor_next: i64 = sqlx::query_scalar(
+            r#"
+            SELECT next_block
+            FROM state.chain_sync_cursor
+            WHERE chain_id = $1
+            "#,
+        )
+        .bind(chain_id)
+        .fetch_one(&state_pool)
+        .await?;
+
+        anyhow::ensure!(cursor_next == to_block, "expected cursor next_block={to_block}, got {cursor_next}");
 
         Ok(())
     }
