@@ -20,6 +20,7 @@ Each completed milestone is pinned by an annotated git tag `ms/<N>` pointing at 
 | 5 | ms/5 | 22c3511 | Task query service + audit + deterministic DuckDB fixture |
 | 6 | ms/6 | 9578de7 | Dataset grants enforced + docs corrected |
 | 7 | ms/7 | 88dbd37 | Harness E2E invariant: dataset grant -> task query -> audit |
+| 8 | ms/8 | 2334ae5 | Dispatcher extracted into `crates/trace-dispatcher` (harness wrapper kept) |
 
 ### How to review a milestone
 
@@ -37,4 +38,9 @@ This list is intentionally short; add details in `docs/plan/plan.md`.
 
 | Milestone | Title | Notes |
 |----------:|-------|-------|
-| 8 | Extract dispatcher into `crates/trace-dispatcher` | Make harness depend on the production dispatcher crate while keeping harness gates green |
+| 9 | Extract sink into `crates/trace-sink` | Make harness depend on the production sink implementation while keeping invariants green |
+| 10 | Introduce `RuntimeInvoker` interface | Local invoker + AWS Lambda invoker; dispatcher uses it to invoke untrusted UDFs |
+| 11 | Bundle manifest + bundle store | Signed bundle manifests, size/hash checks, and presigned fetch rules (fail closed) |
+| 12 | AWS profile “real wiring” | Use SQS + S3 adapters end-to-end (still minimal; no IaC required yet) |
+| 13 | Minimal user API v1 | Bundle upload + DAG registration + alert definition CRUD (no public query surface) |
+| 14 | Deployable AWS MVP | IaC, IAM+network boundaries, runbooks, smoke tests |

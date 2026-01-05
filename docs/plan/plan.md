@@ -30,6 +30,14 @@ If a milestone adds or edits any docs/specs/contracts, update its Context links 
 - Make changes in **small commits** that each come with a clear verification command.
 - Treat each milestone below as a review gate: when you hit a **STOP** point, share a repo zip (with `.git`) for review.
 
+## Current status
+
+Milestones **ms/1** through **ms/8** are complete (see `docs/plan/milestones.md`).
+
+If you're starting new work, begin with the **Planned milestones** section in `docs/plan/milestones.md`.
+This file is still useful for the general harness gates + STOP packaging, but the milestone-by-milestone
+task lists below may lag behind the implementation.
+
 ### Harness “green” command
 
 From `harness/`:
