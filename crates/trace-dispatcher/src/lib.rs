@@ -90,6 +90,7 @@ impl DispatcherServer {
             listener,
             app,
             state,
+            shutdown_tx.clone(),
             shutdown_rx,
             enable_outbox,
             enable_lease_reaper,
@@ -113,6 +114,7 @@ async fn run_dispatcher(
     listener: TcpListener,
     app: Router,
     state: Arc<AppState>,
+    shutdown_tx: watch::Sender<bool>,
     mut shutdown_rx: watch::Receiver<bool>,
     enable_outbox: bool,
     enable_lease_reaper: bool,
@@ -132,38 +134,24 @@ async fn run_dispatcher(
     }
 
     let mut server_shutdown = shutdown_rx.clone();
-    let server =
-        axum::serve(listener, app.into_make_service()).with_graceful_shutdown(async move {
-            while !*server_shutdown.borrow() {
-                if server_shutdown.changed().await.is_err() {
-                    break;
-                }
+    let server = axum::serve(listener, app.into_make_service()).with_graceful_shutdown(async move {
+        while !*server_shutdown.borrow() {
+            if server_shutdown.changed().await.is_err() {
+                break;
             }
-        });
-
-    tokio::select! {
-        res = server => {
-            res.context("dispatcher serve")?;
         }
-        _ = wait_shutdown(&mut shutdown_rx) => {}
-    }
+    });
+
+    // Ensure the background loops always stop when the server ends (including error paths).
+    let server_res = server.await;
+    let _ = shutdown_tx.send(true);
 
     for h in bg {
         let _ = h.await;
     }
 
+    server_res.context("dispatcher serve")?;
     Ok(())
-}
-
-async fn wait_shutdown(shutdown_rx: &mut watch::Receiver<bool>) {
-    loop {
-        if *shutdown_rx.borrow() {
-            return;
-        }
-        if shutdown_rx.changed().await.is_err() {
-            return;
-        }
-    }
 }
 
 fn build_router(state: Arc<AppState>) -> Router {
