@@ -21,7 +21,7 @@ Each completed milestone is pinned by an annotated git tag `ms/<N>` pointing at 
 | 6 | ms/6 | 9578de7 | Dataset grants enforced + docs corrected |
 | 7 | ms/7 | 88dbd37 | Harness E2E invariant: dataset grant -> task query -> audit |
 | 8 | ms/8 | 2334ae5 | Dispatcher extracted into `crates/trace-dispatcher` (harness wrapper kept) |
-| 9 | ms/9 | 3fafd3c | Sink extracted into `crates/trace-sink` (harness wrapper kept) |
+| 9 | ms/9 | 3892487 | Sink extracted into `crates/trace-sink` (harness wrapper kept) |
 
 ### How to review a milestone
 
