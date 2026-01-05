@@ -149,9 +149,14 @@ CREATE TABLE dataset_versions (
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     created_at TIMESTAMPTZ DEFAULT now(),
     storage_location TEXT NOT NULL,                -- S3/Parquet: version-addressed `s3://bucket/prefix/` containing `_manifest.json`; Postgres data (v1): stable table/view name
-    config_hash TEXT,
+    config_hash TEXT NOT NULL,                     -- stable hash of producer config + dataset kind + chain_id + range + etc
     schema_hash TEXT,
-    UNIQUE (dataset_uuid, id)
+
+    -- Optional range metadata for partitioned/chain-range datasets (v1 Cryo bootstrap).
+    -- If present, this is used to enforce determinism/idempotency at the version registry boundary.
+    range_start BIGINT,
+    range_end BIGINT,
+    UNIQUE (dataset_uuid, config_hash, range_start, range_end)
 );
 
 -- The dataset-version pointer set for a given DAG version.

@@ -66,6 +66,7 @@ Ingestion operators MUST:
 ## Contract requirements
 - Ingestion jobs MUST follow the standard task lifecycle (heartbeat/complete) and idempotent commit semantics.
 - Outputs MUST be written using `append` + `unique_key` or `replace` semantics as declared in the DAG.
+- For Parquet outputs (replace-style datasets), the ingestion task MUST report dataset publications on task completion so the Dispatcher can register `dataset_versions` idempotently (Lite: `datasets_published` on `POST /v1/task/complete`).
 
 ## Security considerations
 - Ingestion code may need provider credentials (RPC keys). Credentials are injected via platform secret handling; untrusted code must not gain broad AWS perms (see `docs/standards/security_model.md`).
