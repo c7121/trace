@@ -10,7 +10,10 @@ Stateless service for interactive and batch SQL queries across hot and cold stor
 | **Runtime** | Rust + embedded DuckDB |
 | **Deployment** | ECS Fargate, behind ALB |
 
-## Component View
+**Implementation note (v1):** Only `POST /v1/task/query` is implemented today, and it executes against a deterministic **in-memory DuckDB fixture** (no Postgres/S3 federation yet). The federation diagram below reflects the intended future topology; the implemented v1 contract is specified in `docs/specs/query_service_task_query.md`.
+
+
+## Component View (future topology)
 
 ```mermaid
 flowchart LR
@@ -79,7 +82,8 @@ Content-Type: application/json
 The request/response shape is a constrained subset of the Query Service contract, and dataset exposure is strictly limited to the dataset versions enumerated in the capability token.
 
 **Verification:** Query Service validates the capability token as a JWT (signature + expiry).
-- It should cache the Dispatcher’s internal task-JWKS (e.g., `GET /internal/jwks/task`) and refresh on `kid` miss.
+- **Lite/harness:** HS256 shared secret configured by env (acceptable for local dev only).
+- **AWS/prod:** cache the Dispatcher’s internal task-JWKS (e.g., `GET /internal/jwks/task`) and refresh on `kid` miss.
 - Query Service does not call Dispatcher per request for authorization; the token contents are the authorization.
 
 ## Future: User Query API
@@ -198,7 +202,14 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 
 ## Read-Only Enforcement
 
-DuckDB is opened with `AccessMode::ReadOnly`. Any DDL or DML statements fail at the DuckDB layer.
+Query Service enforces a read-only SQL surface using **both**:
+
+- **Gate:** `trace-core::query::validate_sql` (single `SELECT` / CTE only; rejects DDL/DML and multi-statement SQL).
+- **Runtime hardening:** DuckDB settings such as `enable_external_access=false` and disabling extension autoload/autoinstall.
+
+Because v1 uses an **in-memory** DuckDB database for the fixture dataset, file-backed `AccessMode::ReadOnly` is not applicable.
+When Query Service begins attaching file-backed datasets (e.g., downloaded manifests, local scratch DBs), it SHOULD additionally
+open those attachments read-only where possible.
 
 ## SQL sandboxing (required)
 
@@ -291,7 +302,7 @@ See `docs/architecture/data_model/pii.md`.
 
 > **v1 is single-tenant.** Limits protect the service from runaway queries, not tenants from each other. Per-org quotas and stricter isolation deferred to multi-tenant.
 
-- Concurrency cap: small fixed pool (e.g., 3-5 interactive queries). Beyond cap, requests queue briefly; if queue exceeds depth/age, force `mode: batch`.
+- Concurrency cap: **Lite** runs queries serially (single DuckDB connection behind a mutex). Before enabling `/v1/query`, implement a small pool (e.g., 3-5 concurrent queries) and backpressure; beyond the cap, queue briefly and then force `mode: batch`.
 - Memory cap with spill: DuckDB spill-to-disk enabled; log spill events.
 - Timeouts: follow `docs/standards/operations.md` (60s for `/v1/query`, 300s for `/v1/task/query`); long-running jobs go to batch.
 - Metrics: emit queue depth, queue age p95, spill count, OOM/circuit trips, forced-batch count.
