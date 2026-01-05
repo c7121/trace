@@ -10,6 +10,7 @@ async-trait = "0.1"
 axum = "0.7"
 clap = { version = "4", features = ["derive", "env"] }
 chrono = { version = "0.4", features = ["serde"] }
+duckdb = { version = "1", features = ["bundled"] }
 jsonwebtoken = "9"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 serde = { version = "1", features = ["derive"] }
@@ -25,4 +26,3 @@ trace-sink = { path = "../crates/trace-sink" }
 
 [dev-dependencies]
 trace-query-service = { path = "../crates/trace-query-service" }
-duckdb = { version = "1", features = ["bundled"] }
