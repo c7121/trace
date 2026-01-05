@@ -2,7 +2,10 @@
 
 Component boundaries: task payloads, results, and upstream events.
 
-User-facing `/v1/*` endpoints reachable via the Gateway are enumerated in [`user_api_contracts.md`](user_api_contracts.md). This document focuses on task-scoped and worker-only contracts.
+Systemwide invariants that constrain these contracts live in `invariants.md`.
+The user-facing Gateway surface is enumerated in `user_api_contracts.md`.
+
+User-facing `/v1/*` endpoints reachable via the Gateway are enumerated in `user_api_contracts.md` in [`user_api_contracts.md`](user_api_contracts.md). This document focuses on task-scoped and worker-only contracts.
 
 > `/internal/*` endpoints are internal-only and are not exposed to end users. They are callable only by **trusted** platform components (worker wrappers and platform services). Untrusted runtimes (UDF code, including `runtime: lambda`) must not call `/internal/*`.
 >
@@ -14,8 +17,12 @@ User-facing `/v1/*` endpoints reachable via the Gateway are enumerated in [`user
 > - **Privileged platform endpoints** (if any) should use a separate service identity mechanism (recommended: service JWT); **mTLS is optional hardening**, not a requirement.
 
 **Task capability token format (v1):**
-- The task capability token is a **JWT signed by the Dispatcher** (recommended: ES256).
-- Verifiers (Dispatcher `/v1/task/*`, Query Service `/v1/task/query`, sinks) validate signature and expiry using the Dispatcher’s internal **task-JWKS** document.
+- The task capability token is a **JWT signed by the Dispatcher**.
+  - **AWS/prod:** asymmetric signing (recommended: ES256) with a public JWKS for verifiers.
+  - **Lite/harness:** HS256 is acceptable for local development only (shared secret via env); do not treat this as a security boundary.
+- Verifiers (Dispatcher `/v1/task/*`, Query Service `/v1/task/query`, sinks) validate signature and expiry:
+  - **AWS/prod:** using the Dispatcher’s internal **task-JWKS** document (public keys only).
+  - **Lite/harness:** using the shared HS256 secret configured out of band.
 - The task-JWKS endpoint is internal-only (e.g., `GET /internal/jwks/task`) and should be cached by verifiers; rotation uses `kid`.
 
 

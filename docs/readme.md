@@ -79,6 +79,7 @@ See [db_boundaries.md](architecture/db_boundaries.md) for hard invariants and cr
 
 - C4 diagrams: [c4.md](architecture/c4.md)
 - End-to-end flow: [event_flow.md](architecture/event_flow.md)
+- System invariants: [invariants.md](architecture/invariants.md)
 - Task lifecycle: [task_lifecycle.md](architecture/task_lifecycle.md)
 - Operations (targets, invariants, failure drills): [operations.md](standards/operations.md)
 - Orchestration internals: [dispatcher.md](architecture/containers/dispatcher.md)

@@ -7,6 +7,20 @@ Last updated: 2026-01-02
 ## Summary
 Trace DAGs are defined as a single YAML document that declares jobs (operators + runtime + config), edges (inputs), and optional dataset publishing. The YAML is versioned; a deployed DAG version is the immutable unit of scheduling and lineage.
 
+## Concepts
+
+- **DAG**: a versioned YAML definition containing jobs + edges.
+- **Job**: a named node in the DAG. Jobs produce one or more outputs.
+- **Task**: a single execution attempt for a job+partition (created by Dispatcher).
+- **Operator**: a built-in implementation (trusted) that runs in a platform runtime.
+- **UDF job**: a job whose logic is user-supplied code (untrusted).
+- **Activation**:
+  - `reactive`: runs when upstream outputs update,
+  - `source`: long-running follower/producer,
+  - `manual`: runs only when explicitly triggered (future).
+- **Runtime**: where code executes (`lambda` for UDFs in v1; `ecs_platform` for trusted operators).
+- **Publish**: exposing a `{job, output_index}` as a named dataset in the registry (ADR 0008).
+
 ## Risk
 Medium
 
@@ -65,9 +79,6 @@ defaults:
   heartbeat_timeout_seconds: 60
   max_attempts: 3
   priority: normal
-  max_queue_depth: 1000
-  max_queue_age: 5m
-  backpressure_mode: pause
 
 jobs:
   - name: daily_trigger
@@ -96,6 +107,16 @@ publish:
     from: { job: compact_blocks, output: 0 }
     storage: s3
 ```
+
+### Reserved fields (not supported in v1)
+
+The following YAML fields are reserved for future backpressure controls and are **not supported in v1**.
+
+- `max_queue_depth`
+- `max_queue_age`
+- `backpressure_mode`
+
+Deploy/validation MUST reject configs that set these fields. This prevents “configs that look supported but are ignored.”
 
 ### Job fields (reference)
 

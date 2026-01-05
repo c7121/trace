@@ -18,5 +18,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
+trace-core = { path = "../crates/trace-core" }
+trace-dispatcher = { path = "../crates/trace-dispatcher" }
 
 [dev-dependencies]
+trace-query-service = { path = "../crates/trace-query-service" }

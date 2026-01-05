@@ -1,139 +1,183 @@
 # Plan
 
-This directory is sequencing guidance. It is intentionally **not normative**; the source of truth for behavior and invariants is:
+This directory is **sequencing guidance** for implementation. It is intentionally *not normative*; the source of truth for behavior and invariants is:
 
-- `docs/architecture/*` (C4, contracts, lifecycle)
-- `docs/specs/*` (public surfaces)
+- `docs/architecture/*` (contracts, lifecycle, containers)
+- `docs/specs/*` (feature surfaces)
 - `docs/adr/*` (decisions)
-- `docs/standards/*` (security + operations invariants)
+- `docs/standards/*` (security + ops invariants)
 
-## Next steps (do these first)
+# Milestone tracking
 
-### 1) Contract-freeze “happy path” harness (MUST)
+Milestones are tracked in two places:
 
-Implementation lives in `harness/`.
-See `harness/README.md` and `harness/AGENT_TASKS.md`.
+- Plan + gates: `docs/plan/plan.md` (this file)
+- Ledger of completed + planned milestones: `docs/plan/milestones.md`
 
+Completed milestones are tagged in git as annotated tags `ms/<N>` (e.g., `ms/7`).
+These are **not** release tags.
 
-Goal: prove the core contracts are implementable and correct under at-least-once delivery **before** you build feature code.
+## Context links requirement
 
-**Recommendation:** implement this first against the **Trace Lite** profile (Postgres + MinIO + pgqueue). It gives you a deterministic harness for retries/duplicates without AWS integration churn. Once the harness passes, swap the adapters for AWS (SQS/S3/RDS).
+Every milestone section in this plan MUST include a short **Context links** list (repo-relative paths)
+to the docs/specs/contracts that define the milestone's intended behavior.
 
-Deliverables:
-- A stub Dispatcher implementing only:
-  - `/internal/task-claim` (lease acquisition; worker-only)
-  - `/v1/task/heartbeat` (attempt-fenced)
-  - `/v1/task/events` (attempt-fenced)
-  - `/v1/task/buffer-publish` (attempt-fenced; pointer pattern)
-  - `/v1/task/complete` (attempt-fenced; commit + route side effects via outbox)
-- A stub worker that:
-  - consumes a `task_id` wake-up message,
-  - claims a lease,
-  - emits one event,
-  - publishes one buffer batch pointer,
-  - completes.
+If a milestone adds or edits any docs/specs/contracts, update its Context links list as part of that milestone.
 
-**Test cases (minimum):**
-- Duplicate wake-up messages do not cause concurrent execution (lease fencing).
-- Stale attempt cannot heartbeat/emit/publish/complete (lease_token mismatch).
-- Kill/restart Dispatcher mid-flight: outbox rows resume and side effects are not lost.
-- Kill worker mid-task: lease expires, task retries, and only one attempt commits.
-- Poison buffer batch artifact: sink rejects; message reaches DLQ; replay path is documented.
+## How to use this plan
 
-Exit criteria:
-- You can repeatedly crash/restart components and still end with exactly one accepted completion per `(task_id, attempt)` (idempotent updates, no double-commit).
-- All “duplicate” paths are safe no-ops (no manual SQL required).
+- Keep the **contract-freeze harness** green. If the harness breaks, stop and fix it before adding features.
+- Make changes in **small commits** that each come with a clear verification command.
+- Treat each milestone below as a review gate: when you hit a **STOP** point, share a repo zip (with `.git`) for review.
 
-### 2) Freeze the small-but-critical public surfaces
+## Current status
 
-Lock these decisions before you implement operators:
+Milestones **ms/1** through **ms/8** are complete (see `docs/plan/milestones.md`).
 
-- **Task auth model:** untrusted runtimes use **only** per-attempt capability tokens (+ lease fencing). No hidden shared secrets for Lambdas.
-- **Capability token contract:** `X-Trace-Task-Capability` header + the token claim schema in `docs/architecture/contracts.md` are **normative**. Do not implement ad-hoc variants.
-- **User auth:** JWT authenticates the user; org membership/role comes from Postgres state (no forwarded header trust).
-- **User API contracts:** keep `docs/architecture/user_api_contracts.md` as the single owned inventory of `/v1/*` routes and their authz invariants. Do not implement or expose any user endpoint not listed there (default-deny).
-- **Input filters (`where`):** structured map only (ADR 0007).
-- **Buffered datasets:** pointer pattern + sink-side strict validation + row-level idempotency (ADR 0006).
+If you're starting new work, begin with the **Planned milestones** section in `docs/plan/milestones.md`.
+This file is still useful for the general harness gates + STOP packaging, but the milestone-by-milestone
+task lists below may lag behind the implementation.
 
-### 3) Pick the v1 UDF language runners
+### Harness “green” command
 
-Recommended for v1 (minimal but practical):
-- Node runner (JS/TS)
-- Python runner
-- Rust runner (custom runtime via `cargo-lambda`)
+From `harness/`:
 
-A single DAG can mix languages by referencing different bundle IDs.
+```bash
+docker compose down -v
+docker compose up -d
+cargo run -- migrate
+cargo test -- --nocapture
+```
 
-### 4) Freeze operational defaults
+---
 
-Do not leave “magic numbers” implicit. Defaults live in:
-- `docs/standards/operations.md` (timings, limits, retry policies, runbooks)
+## Milestone 0: Contract-freeze harness
 
-Treat that file as the v1 “config skeleton.”
+Status: **complete** (this is the baseline gate).
 
-## Suggested milestones
+Reference:
+- `harness/README.md`
+- `harness/AGENT_TASKS.md`
 
-This is a conservative build order that keeps each milestone independently testable.
+STOP: if you change core lifecycle/outbox/token/sink semantics, share a zip for review.
 
-### Milestone 0: Foundations
-- Networking + IAM skeleton
-- RDS: Postgres state + Postgres data
-- Object storage: datasets/results/scratch buckets
-- Queues: task wake-ups and dataset buffers (+ DLQs)
+---
 
-Exit: services boot and can reach dependencies.
+## Milestone 1: Lock task capability token contract
 
-### Milestone 1: Dispatcher core
-- Postgres state schema: jobs, tasks, leases, retries, outbox
-- Implement the core worker contracts in `docs/architecture/contracts.md`
-- Implement outbox drain + retry policy (max attempts + backoff)
+Goal: make `/v1/task/*` auth and verification rules match `docs/architecture/contracts.md` exactly, and prove it via harness tests.
 
-Exit: you can enqueue a task into Postgres state and see it wake a worker through the queue.
+### Deliverables
+- `/v1/task/*` requires `X-Trace-Task-Capability: <jwt>` on all task-scoped endpoints.
+- JWT verification rules are explicit and implemented:
+  - required claims (at minimum): `iss`, `aud`, `sub`, `exp`, `iat`, `org_id`, `task_id`, `attempt` (plus optional grants: `datasets`, `s3`)
+  - request body `task_id`/`attempt` must match token claims
+- Lease fencing remains required for Dispatcher mutations:
+  - `(task_id, attempt, lease_token)` must match current row
+- Minimal key rotation shape for verifiers (Lite/dev):
+  - support `{current_key, next_key}` overlap window (accept either; sign with current)
 
-### Milestone 2: Platform worker wrapper (trusted)
-- Poll queue, claim lease, heartbeat, complete
-- Extend queue visibility while a task is running
-- Emit task events via Dispatcher (attempt-fenced)
+### Required harness tests
+- missing token → 401
+- wrong task_id in token → 403/409
+- right token but wrong lease_token → 409/403
+- token signed with `next_key` accepted during overlap window
 
-Exit: retries and restarts do not create double-commits.
+### Suggested commits
+1. `feat(auth): enforce capability token claims on /v1/task/*`
+2. `test(auth): add token mismatch + rotation tests`
 
-### Milestone 3: Dataset versions + commit protocol
-- Dataset registry + version pointers
-- Replace/append staging layout (S3)
-- Commit protocol is atomic and idempotent
+✅ Done when: `cd harness && cargo test -- --nocapture` passes.
 
-Exit: failed attempts never become visible; retries produce a single committed version.
+🛑 STOP: share a zip for review.
 
-### Milestone 4: Buffered dataset sinks
-- Implement ADR 0006 end-to-end (pointer publish → sink consumer → Postgres data)
-- Strict batch parsing + DLQ on malformed input
-- Stable row-level idempotency (`dedupe_key` + upsert)
+---
 
-Exit: duplicate publishes and task retries do not create duplicate rows.
+## Milestone 2: Introduce adapters and AWS implementations (feature-gated)
 
-### Milestone 5: Query Service + credential minting
-- Task-scoped reads through Query Service (`/v1/task/query`)
-- Scoped S3 credentials minted per task (`/v1/task/credentials`)
-- Enforce query timeouts and export thresholds
-- Implement and test the Query Service **SQL sandbox** (no filesystem/HTTP/URL reads, no extension loading, no user-supplied ATTACH/URIs)
-- Implement the minimum feasible **PII access audit** model for Query Service (dataset-level; no raw SQL stored)
+Goal: keep the orchestration kernel identical across Lite vs AWS; only adapters differ.
 
-Exit: untrusted execution can read only allowed dataset versions and write only allowed prefixes.
+### Deliverables
+Introduce traits (in a crate/module that is not the harness binary):
 
-### Milestone 6: UDF execution + alerting pipeline
-- Platform-managed Lambda UDF runners (Node/Python/Rust)
-- Alert evaluation emits `alert_events` batch artifacts
-- Routing + Delivery Service process events
+- `Queue` (Lite: pgqueue, AWS: SQS)
+- `ObjectStore` (Lite: MinIO, AWS: S3)
+- `Signer` (Lite: local key, AWS: KMS) — KMS can be stubbed initially if needed
 
-Exit: alerts are end-to-end functional with at-least-once semantics.
+Rules:
+- Do **not** change semantics from the harness.
+- Keep AWS code behind `--features aws` or a similar compile-time flag.
 
-### Milestone 7: Production hardening
-- Monitoring dashboards + alerts (based on `docs/standards/operations.md`)
-- Runbooks: DLQ replay, outbox replay, staging cleanup, delivery retry
-- Partition staleness detection and repair triggers (no silent gaps)
-- Source liveness: heartbeat SLA + restart/backoff behavior for source runners
+### Verification
+- Harness continues to pass using Lite adapters.
+- `cargo check` succeeds with AWS feature enabled (compilation-only is fine at this milestone).
 
-Exit: you can run a game day without manual SQL surgery.
+### Suggested commits
+1. `refactor(core): introduce Queue/ObjectStore/Signer traits + lite impl`
+2. `feat(aws): add sqs + s3 adapters (feature-gated)`
 
-## Trace Lite
-For the local/dev profile, start with: `docs/plan/trace_lite.md`.
+🛑 STOP: share a zip for review.
+
+---
+
+## Milestone 3: Platform-managed Lambda UDF runner (v1 untrusted execution)
+
+Stance:
+- **v1 untrusted execution runs on Lambda** (platform-managed runner).
+- Untrusted `ecs_udf` is **v2** (see `docs/plan/backlog.md`). Do not implement ECS UDF in v1.
+
+Goal: implement the Lambda runner invocation path and a local version of the runner for tests.
+
+### Deliverables
+- One owned struct for the invoke payload used by Dispatcher and runner:
+  - `task_id`, `attempt`, `lease_token`, `lease_expires_at`
+  - `capability_token`
+  - `bundle_url` (pre-signed GET; `bundle_url` remains an accepted alias)
+  - `work_payload` (opaque JSON)
+- Local runner implementation for harness:
+  - fetch bundle via `bundle_url`
+  - run Node and Python bundles (TypeScript compiles to JS)
+  - runner calls:
+    - `/v1/task/buffer-publish`
+    - `/v1/task/complete`
+- Runner does **not** receive platform secrets (no Secrets Manager, no DB creds).
+
+### Verification
+- Add a harness test that exercises:
+  - claim → invoke runner → buffer-publish → complete → sink insert (dedupe)
+- Manual run remains possible:
+  - dispatcher + sink + worker/runner + enqueue
+
+### Suggested commits
+1. `feat(udf): define runner payload contract`
+2. `feat(udf): implement node+python local runner`
+3. `test(udf): add end-to-end runner test`
+
+🛑 STOP: share a zip for review.
+
+---
+
+## Milestone 4: Query Service is explicitly gated (do not build early)
+
+Do not implement Query Service until you can enforce (and test) the sandbox constraints in `docs/architecture/containers/query_service.md`.
+
+Minimum gate:
+- negative tests proving SQL cannot:
+  - load/execute extensions
+  - read local files
+  - read URLs (HTTP/HTTPS) or other external resources
+  - attach arbitrary databases/files
+
+If you can’t enforce these, do **not** ship `/v1/query` yet.
+
+🛑 STOP: share a zip before starting Query Service implementation.
+
+---
+
+## Review packaging: what to send at STOP points
+
+At each STOP point, share:
+- a zip of the repo including `.git`
+- output of `cd harness && cargo test -- --nocapture`
+- `git log --oneline -n 30`
+- a short note: “what changed” + “what you want reviewed”

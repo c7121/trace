@@ -5,8 +5,11 @@ use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+use trace_core::{ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
 use uuid::Uuid;
+
+use crate::constants::CONTENT_TYPE_JSONL;
 
 #[derive(Debug, Deserialize)]
 struct BufferPointerMessage {
@@ -39,22 +42,27 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
         .await
         .context("connect data db")?;
 
-    let pgq = PgQueue::new(state_pool);
-    let object_store = ObjectStore::new(&cfg.s3_endpoint).context("init object store")?;
+    let queue: Arc<dyn QueueTrait> = Arc::new(PgQueue::new(state_pool));
+    let object_store: Arc<dyn ObjectStoreTrait> =
+        Arc::new(ObjectStore::new(&cfg.s3_endpoint).context("init object store")?);
 
     let poll_interval = Duration::from_millis(cfg.sink_poll_ms);
     let visibility_timeout = Duration::from_secs(cfg.sink_visibility_timeout_secs);
     let retry_delay = Duration::from_millis(cfg.sink_retry_delay_ms);
 
-    tracing::info!(queue = %cfg.buffer_queue, "sink started");
+    tracing::info!(
+        event = "harness.sink.started",
+        queue = %cfg.buffer_queue,
+        "sink started"
+    );
 
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("sink shutting down");
+                tracing::info!(event = "harness.sink.shutdown", "sink shutting down");
                 return Ok(());
             }
-            res = pgq.receive(&cfg.buffer_queue, 1, visibility_timeout) => {
+            res = queue.receive(&cfg.buffer_queue, 1, visibility_timeout) => {
                 let messages = res?;
                 if messages.is_empty() {
                     tokio::time::sleep(poll_interval).await;
@@ -62,8 +70,12 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
                 }
 
                 for msg in messages {
-                    if let Err(err) = handle_message(cfg, &pgq, &object_store, &data_pool, msg, retry_delay).await {
-                        tracing::warn!(error = %err, "sink message handling failed");
+                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &data_pool, msg, retry_delay).await {
+                        tracing::warn!(
+                            event = "harness.sink.message.error",
+                            error = %err,
+                            "sink message handling failed"
+                        );
                     }
                 }
             }
@@ -73,13 +85,13 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
 
 async fn handle_message(
     cfg: &HarnessConfig,
-    pgq: &PgQueue,
-    object_store: &ObjectStore,
+    queue: &dyn QueueTrait,
+    object_store: &dyn ObjectStoreTrait,
     data_pool: &PgPool,
     msg: crate::pgqueue::Message,
     retry_delay: Duration,
 ) -> anyhow::Result<()> {
-    let message_id = msg.message_id;
+    let ack_token = msg.ack_token.clone();
     let deliveries = msg.deliveries;
 
     let res: anyhow::Result<()> = async {
@@ -87,7 +99,7 @@ async fn handle_message(
             serde_json::from_value(msg.payload.clone()).context("decode buffer pointer payload")?;
 
         if let Some(ct) = &pointer.content_type {
-            if ct != "application/jsonl" {
+            if ct != CONTENT_TYPE_JSONL {
                 return Err(anyhow!("unsupported content_type={ct}"));
             }
         }
@@ -101,7 +113,7 @@ async fn handle_message(
         let rows = parse_jsonl(&bytes)?;
         insert_alert_events(data_pool, rows).await?;
 
-        pgq.ack(message_id).await?;
+        queue.ack(&ack_token).await?;
         Ok(())
     }
     .await;
@@ -114,14 +126,14 @@ async fn handle_message(
                     "error": err.to_string(),
                     "original": msg.payload,
                 });
-                let _ = pgq
+                let _ = queue
                     .publish(&cfg.buffer_queue_dlq, dlq_payload, Utc::now())
                     .await?;
-                pgq.ack(message_id).await?;
+                queue.ack(&ack_token).await?;
                 return Ok(());
             }
 
-            pgq.nack_or_requeue(message_id, retry_delay).await?;
+            queue.nack_or_requeue(&ack_token, retry_delay).await?;
             Err(err)
         }
     }

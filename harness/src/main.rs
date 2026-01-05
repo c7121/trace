@@ -2,7 +2,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use trace_harness::{config, dispatcher, enqueue, migrate, sink, worker};
+use trace_harness::{config, dispatcher, enqueue, invoker, migrate, sink, worker};
 
 #[derive(Parser, Debug)]
 #[command(name = "trace-harness")]
@@ -22,6 +22,9 @@ enum Command {
 
     /// Run the worker wrapper (stub in skeleton).
     Worker,
+
+    /// Run the local invoker + fake UDF runner.
+    Invoker,
 
     /// Run the buffered sink consumer (stub in skeleton).
     Sink,
@@ -47,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Migrate => migrate::run(&cfg).await,
         Command::Dispatcher => dispatcher::run(&cfg).await,
         Command::Worker => worker::run(&cfg).await,
+        Command::Invoker => invoker::run(&cfg).await,
         Command::Sink => sink::run(&cfg).await,
         Command::Enqueue { task_id } => enqueue::run(&cfg, task_id).await,
     }

@@ -1,8 +1,20 @@
 use anyhow::Context;
+use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+use trace_core::{
+    fixtures::ALERTS_FIXTURE_DATASET_ID, udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait,
+};
+use trace_harness::constants::{
+    CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER,
+};
 use trace_harness::{
-    config::HarnessConfig, dispatcher::DispatcherServer, migrate, pgqueue::PgQueue, s3::ObjectStore,
+    config::HarnessConfig, dispatcher::DispatcherServer, migrate, pgqueue::PgQueue,
+    runner::FakeRunner, s3::ObjectStore,
+};
+use trace_query_service::{
+    build_state as build_query_state, config::QueryServiceConfig, router as query_router,
+    TaskQueryRequest,
 };
 use uuid::Uuid;
 
@@ -171,7 +183,7 @@ async fn wrong_capability_token_rejected() -> anyhow::Result<()> {
 
     let resp = client
         .post(format!("{base}/v1/task/heartbeat"))
-        .header("X-Trace-Task-Capability", token_a)
+        .header(TASK_CAPABILITY_HEADER, token_a)
         .json(&serde_json::json!({
             "task_id": task_b,
             "attempt": attempt_b,
@@ -183,6 +195,155 @@ async fn wrong_capability_token_rejected() -> anyhow::Result<()> {
     anyhow::ensure!(
         resp.status() == reqwest::StatusCode::FORBIDDEN,
         "expected 403, got {}",
+        resp.status()
+    );
+
+    server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn wrong_lease_token_rejected() -> anyhow::Result<()> {
+    let cfg = migrated_config().await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let server = DispatcherServer::start(
+        pool,
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
+        false,
+    )
+    .await?;
+
+    let base = format!("http://{}", server.addr);
+    let client = reqwest::Client::new();
+    let task_id = Uuid::new_v4();
+
+    let claim = client
+        .post(format!("{base}/internal/task-claim"))
+        .json(&serde_json::json!({ "task_id": task_id }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let attempt = claim["attempt"].as_i64().context("attempt")?;
+    let token = claim["capability_token"]
+        .as_str()
+        .context("capability_token")?;
+
+    let resp = client
+        .post(format!("{base}/v1/task/heartbeat"))
+        .header(TASK_CAPABILITY_HEADER, token)
+        .json(&serde_json::json!({
+            "task_id": task_id,
+            "attempt": attempt,
+            "lease_token": Uuid::new_v4(),
+        }))
+        .send()
+        .await?;
+
+    anyhow::ensure!(
+        resp.status() == reqwest::StatusCode::CONFLICT,
+        "expected 409, got {}",
+        resp.status()
+    );
+
+    server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn next_key_token_accepted_during_overlap() -> anyhow::Result<()> {
+    let mut cfg = migrated_config().await?;
+    cfg.task_capability_kid = "current".to_string();
+    cfg.task_capability_secret = "current-secret".to_string();
+    cfg.task_capability_next_kid = Some("next".to_string());
+    cfg.task_capability_next_secret = Some("next-secret".to_string());
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let server = DispatcherServer::start(
+        pool,
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
+        false,
+    )
+    .await?;
+
+    let base = format!("http://{}", server.addr);
+    let client = reqwest::Client::new();
+    let task_id = Uuid::new_v4();
+
+    let claim = client
+        .post(format!("{base}/internal/task-claim"))
+        .json(&serde_json::json!({ "task_id": task_id }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let attempt = claim["attempt"].as_i64().context("attempt")?;
+    let lease_token = claim["lease_token"].as_str().context("lease_token")?;
+
+    let now = chrono::Utc::now().timestamp();
+    let iat: usize = now.try_into().unwrap_or(0);
+    let exp: usize = (now + 60).try_into().unwrap_or(usize::MAX);
+    let claims = trace_harness::jwt::TaskCapabilityClaims {
+        iss: cfg.task_capability_iss.clone(),
+        aud: cfg.task_capability_aud.clone(),
+        sub: format!("task:{task_id}"),
+        exp,
+        iat,
+        org_id: cfg.org_id,
+        task_id,
+        attempt,
+        datasets: Vec::new(),
+        s3: trace_harness::jwt::S3Grants {
+            read_prefixes: Vec::new(),
+            write_prefixes: Vec::new(),
+        },
+    };
+
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    header.kid = cfg.task_capability_next_kid.clone();
+    let token = jsonwebtoken::encode(
+        &header,
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(
+            cfg.task_capability_next_secret
+                .as_deref()
+                .unwrap()
+                .as_bytes(),
+        ),
+    )?;
+
+    let resp = client
+        .post(format!("{base}/v1/task/heartbeat"))
+        .header(TASK_CAPABILITY_HEADER, token)
+        .json(&serde_json::json!({
+            "task_id": task_id,
+            "attempt": attempt,
+            "lease_token": lease_token,
+        }))
+        .send()
+        .await?;
+
+    anyhow::ensure!(
+        resp.status().is_success(),
+        "expected 200, got {}",
         resp.status()
     );
 
@@ -241,7 +402,7 @@ async fn stale_attempt_fencing_rejects_old_complete() -> anyhow::Result<()> {
 
     let resp = client
         .post(format!("{base}/v1/task/complete"))
-        .header("X-Trace-Task-Capability", token1)
+        .header(TASK_CAPABILITY_HEADER, token1)
         .json(&serde_json::json!({
             "task_id": task_id,
             "attempt": attempt1,
@@ -312,13 +473,13 @@ async fn stale_attempt_fencing_rejects_old_buffer_publish() -> anyhow::Result<()
 
     let resp = client
         .post(format!("{base}/v1/task/buffer-publish"))
-        .header("X-Trace-Task-Capability", token1)
+        .header(TASK_CAPABILITY_HEADER, token1)
         .json(&serde_json::json!({
             "task_id": task_id,
             "attempt": attempt1,
             "lease_token": lease1,
             "batch_uri": format!("s3://{}/batches/{task_id}/{attempt1}.jsonl", cfg.s3_bucket),
-            "content_type": "application/jsonl",
+            "content_type": CONTENT_TYPE_JSONL,
             "batch_size_bytes": 1,
             "dedupe_scope": "test",
         }))
@@ -375,13 +536,13 @@ async fn buffer_publish_is_idempotent_for_same_attempt_and_uri() -> anyhow::Resu
     for _ in 0..2 {
         client
             .post(format!("{base}/v1/task/buffer-publish"))
-            .header("X-Trace-Task-Capability", token)
+            .header(TASK_CAPABILITY_HEADER, token)
             .json(&serde_json::json!({
                 "task_id": task_id,
                 "attempt": attempt,
                 "lease_token": lease,
                 "batch_uri": batch_uri.clone(),
-                "content_type": "application/jsonl",
+                "content_type": CONTENT_TYPE_JSONL,
                 "batch_size_bytes": 1,
                 "dedupe_scope": "test",
             }))
@@ -448,13 +609,13 @@ async fn dispatcher_restart_recovers_outbox() -> anyhow::Result<()> {
 
     client
         .post(format!("{base1}/v1/task/buffer-publish"))
-        .header("X-Trace-Task-Capability", token)
+        .header(TASK_CAPABILITY_HEADER, token)
         .json(&serde_json::json!({
             "task_id": task_id,
             "attempt": attempt,
             "lease_token": lease_token,
             "batch_uri": format!("s3://{}/batches/{task_id}/{attempt}.jsonl", cfg.s3_bucket),
-            "content_type": "application/jsonl",
+            "content_type": CONTENT_TYPE_JSONL,
             "batch_size_bytes": 1,
             "dedupe_scope": "test",
         }))
@@ -485,7 +646,7 @@ async fn dispatcher_restart_recovers_outbox() -> anyhow::Result<()> {
             .receive(&cfg.buffer_queue, 10, Duration::from_secs(1))
             .await?;
         if let Some(msg) = got.first() {
-            pgq.ack(msg.message_id).await?;
+            pgq.ack(&msg.ack_token).await?;
             break;
         }
         if tokio::time::Instant::now() > deadline {
@@ -551,7 +712,7 @@ async fn worker_crash_triggers_retry() -> anyhow::Result<()> {
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Uuid>().ok());
 
-        pgq.ack(msg.message_id).await?;
+        pgq.ack(&msg.ack_token).await?;
 
         if got_task_id == Some(task_id) {
             break;
@@ -589,7 +750,7 @@ async fn worker_crash_triggers_retry() -> anyhow::Result<()> {
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Uuid>().ok());
 
-        pgq.ack(msg.message_id).await?;
+        pgq.ack(&msg.ack_token).await?;
 
         if got_task_id == Some(task_id) {
             break;
@@ -632,7 +793,7 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
 
     let dedupe_key = format!("poison_test:{}", Uuid::new_v4());
     let valid = serde_json::json!({
-        "alert_definition_id": "490b8f3f-1d41-496a-917b-5b7eeeb85e07",
+        "alert_definition_id": DEFAULT_ALERT_DEFINITION_ID,
         "dedupe_key": dedupe_key,
         "event_time": chrono::Utc::now().to_rfc3339(),
         "chain_id": 1,
@@ -647,7 +808,7 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
 
     let key = format!("poison/{}.jsonl", Uuid::new_v4());
     object_store
-        .put_bytes(&cfg.s3_bucket, &key, bytes.clone(), "application/jsonl")
+        .put_bytes(&cfg.s3_bucket, &key, bytes.clone(), CONTENT_TYPE_JSONL)
         .await?;
 
     let batch_uri = format!("s3://{}/{}", cfg.s3_bucket, key);
@@ -655,7 +816,7 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
         &cfg.buffer_queue,
         serde_json::json!({
             "batch_uri": batch_uri,
-            "content_type": "application/jsonl",
+            "content_type": CONTENT_TYPE_JSONL,
             "batch_size_bytes": bytes.len(),
         }),
         chrono::Utc::now(),
@@ -671,7 +832,7 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
             .receive(&cfg.buffer_queue_dlq, 1, Duration::from_secs(30))
             .await?;
         if !got.is_empty() {
-            pgq.ack(got[0].message_id).await?;
+            pgq.ack(&got[0].ack_token).await?;
             break;
         }
         if tokio::time::Instant::now() > deadline {
@@ -694,4 +855,398 @@ async fn poison_batch_goes_to_dlq_without_partial_writes() -> anyhow::Result<()>
     anyhow::ensure!(row.is_none(), "expected no partial insert for poison batch");
 
     Ok(())
+}
+
+#[tokio::test]
+async fn runner_claim_invoke_sink_inserts_once() -> anyhow::Result<()> {
+    #[derive(Debug, Deserialize)]
+    struct ClaimResponse {
+        task_id: Uuid,
+        attempt: i64,
+        lease_token: Uuid,
+        lease_expires_at: chrono::DateTime<chrono::Utc>,
+        capability_token: String,
+        work_payload: serde_json::Value,
+    }
+
+    let mut cfg = migrated_config().await?;
+    cfg.outbox_poll_ms = 50;
+    cfg.sink_poll_ms = 50;
+
+    let state_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+    let data_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.data_database_url)
+        .await
+        .context("connect data db")?;
+
+    let server = DispatcherServer::start(
+        state_pool.clone(),
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        true,
+        false,
+    )
+    .await?;
+    let base = format!("http://{}", server.addr);
+
+    let sink_cfg = cfg.clone();
+    let sink_task = tokio::spawn(async move { trace_harness::sink::run(&sink_cfg).await });
+
+    let result: anyhow::Result<()> = async {
+        let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
+        let object_store_arc: Arc<dyn ObjectStoreTrait> = Arc::new(object_store.clone());
+        let runner = FakeRunner::new(base.clone(), cfg.s3_bucket.clone(), object_store_arc);
+        let client = reqwest::Client::new();
+
+        let task_id = Uuid::new_v4();
+        let dedupe_key = format!("runner_test:{task_id}");
+        let bundle = serde_json::json!({
+            "alert_definition_id": DEFAULT_ALERT_DEFINITION_ID,
+            "dedupe_key": dedupe_key,
+            "chain_id": 1,
+            "block_number": 123,
+            "block_hash": "0xblockhash",
+            "tx_hash": "0xtxhash",
+            "payload": {"ok": true},
+        });
+
+        let bundle_key = format!("bundles/{task_id}.json");
+        object_store
+            .put_bytes(
+                &cfg.s3_bucket,
+                &bundle_key,
+                serde_json::to_vec(&bundle).context("encode bundle")?,
+                CONTENT_TYPE_JSON,
+            )
+            .await
+            .context("upload bundle")?;
+
+        let bundle_url = format!(
+            "{}/{}/{}",
+            cfg.s3_endpoint.trim_end_matches('/'),
+            cfg.s3_bucket,
+            bundle_key
+        );
+
+        sqlx::query(
+            r#"
+            INSERT INTO state.tasks (task_id, status, payload)
+            VALUES ($1, 'queued', $2)
+            ON CONFLICT (task_id) DO UPDATE
+            SET status = EXCLUDED.status,
+                payload = EXCLUDED.payload,
+                lease_token = NULL,
+                lease_expires_at = NULL,
+                updated_at = now()
+            "#,
+        )
+        .bind(task_id)
+        .bind(serde_json::json!({ "bundle_url": bundle_url }))
+        .execute(&state_pool)
+        .await
+        .context("insert task")?;
+
+        let claim: ClaimResponse = client
+            .post(format!("{base}/internal/task-claim"))
+            .json(&serde_json::json!({ "task_id": task_id }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        let bundle_url = claim.work_payload["bundle_url"]
+            .as_str()
+            .context("bundle_url")?
+            .to_string();
+
+        let invocation = UdfInvocationPayload {
+            task_id: claim.task_id,
+            attempt: claim.attempt,
+            lease_token: claim.lease_token,
+            lease_expires_at: claim.lease_expires_at,
+            capability_token: claim.capability_token,
+            bundle_url,
+            work_payload: claim.work_payload,
+        };
+
+        runner.run(&invocation).await?;
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let count: i64 = sqlx::query_scalar(
+                r#"
+                SELECT count(*)
+                FROM data.alert_events
+                WHERE dedupe_key = $1
+                "#,
+            )
+            .bind(&dedupe_key)
+            .fetch_one(&data_pool)
+            .await?;
+
+            if count == 1 {
+                break;
+            }
+
+            if tokio::time::Instant::now() > deadline {
+                anyhow::bail!("timed out waiting for sink insert");
+            }
+
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        runner.run(&invocation).await?;
+
+        let expected_batch_uri = format!(
+            "s3://{}/batches/{}/{}/udf.jsonl",
+            cfg.s3_bucket, invocation.task_id, invocation.attempt
+        );
+
+        let outbox_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM state.outbox
+            WHERE topic = $1
+              AND payload->>'batch_uri' = $2
+            "#,
+        )
+        .bind(&cfg.buffer_queue)
+        .bind(&expected_batch_uri)
+        .fetch_one(&state_pool)
+        .await?;
+
+        anyhow::ensure!(
+            outbox_count == 1,
+            "expected 1 outbox row for batch_uri, got {outbox_count}"
+        );
+
+        Ok(())
+    }
+    .await;
+
+    sink_task.abort();
+    server.shutdown().await?;
+    result
+}
+
+#[tokio::test]
+async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow::Result<()> {
+    #[derive(Debug, Deserialize)]
+    struct ClaimResponse {
+        attempt: i64,
+        capability_token: String,
+    }
+
+    let cfg = migrated_config().await?;
+
+    let state_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let data_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.data_database_url)
+        .await
+        .context("connect data db")?;
+
+    let server = DispatcherServer::start(
+        state_pool,
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
+        false,
+    )
+    .await?;
+
+    let mut qs_cfg = QueryServiceConfig::from_env().context("load query service config")?;
+    qs_cfg.data_database_url = cfg.data_database_url.clone();
+    qs_cfg.task_capability_iss = cfg.task_capability_iss.clone();
+    qs_cfg.task_capability_aud = cfg.task_capability_aud.clone();
+    qs_cfg.task_capability_kid = cfg.task_capability_kid.clone();
+    qs_cfg.task_capability_secret = cfg.task_capability_secret.clone();
+    qs_cfg.task_capability_next_kid = cfg.task_capability_next_kid.clone();
+    qs_cfg.task_capability_next_secret = cfg.task_capability_next_secret.clone();
+    qs_cfg.task_capability_ttl_secs = cfg.task_capability_ttl_secs;
+
+    let qs_state = build_query_state(qs_cfg)
+        .await
+        .context("build query service state")?;
+    let qs_app = query_router(qs_state);
+
+    let qs_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("bind query service")?;
+    let qs_addr = qs_listener.local_addr().context("query service local_addr")?;
+    let qs_base = format!("http://{qs_addr}");
+
+    let (qs_shutdown_tx, qs_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let qs_task = tokio::spawn(async move {
+        axum::serve(qs_listener, qs_app.into_make_service())
+            .with_graceful_shutdown(async move {
+                let _ = qs_shutdown_rx.await;
+            })
+            .await
+            .context("query service serve")
+    });
+
+    let result = async {
+        let dispatcher_base = format!("http://{}", server.addr);
+        let client = reqwest::Client::new();
+        let task_id = Uuid::new_v4();
+
+        let claim = client
+            .post(format!("{dispatcher_base}/internal/task-claim"))
+            .json(&serde_json::json!({ "task_id": task_id }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ClaimResponse>()
+            .await?;
+
+        let req = TaskQueryRequest {
+            task_id,
+            attempt: claim.attempt,
+            dataset_id: ALERTS_FIXTURE_DATASET_ID,
+            sql: "SELECT dedupe_key FROM alerts_fixture ORDER BY dedupe_key".to_string(),
+            limit: None,
+        };
+
+        let resp = client
+            .post(format!("{qs_base}/v1/task/query"))
+            .header(TASK_CAPABILITY_HEADER, &claim.capability_token)
+            .json(&req)
+            .send()
+            .await?;
+
+        anyhow::ensure!(
+            resp.status() == reqwest::StatusCode::OK,
+            "expected 200, got {}",
+            resp.status()
+        );
+
+        let body = resp.json::<serde_json::Value>().await?;
+        let rows = body["rows"]
+            .as_array()
+            .context("rows is array")?
+            .iter()
+            .map(|r| r[0].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+
+        anyhow::ensure!(
+            rows == vec!["dedupe-001", "dedupe-002", "dedupe-003"],
+            "unexpected rows: {rows:?}"
+        );
+
+        let unauthorized_dataset_id = Uuid::from_bytes([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x99,
+        ]);
+
+        let unauthorized_req = TaskQueryRequest {
+            task_id,
+            attempt: claim.attempt,
+            dataset_id: unauthorized_dataset_id,
+            sql: "SELECT 1".to_string(),
+            limit: None,
+        };
+
+        let unauthorized_resp = client
+            .post(format!("{qs_base}/v1/task/query"))
+            .header(TASK_CAPABILITY_HEADER, &claim.capability_token)
+            .json(&unauthorized_req)
+            .send()
+            .await?;
+
+        anyhow::ensure!(
+            unauthorized_resp.status() == reqwest::StatusCode::FORBIDDEN,
+            "expected 403, got {}",
+            unauthorized_resp.status()
+        );
+
+        let audit_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM data.query_audit
+            WHERE task_id = $1
+              AND dataset_id = $2
+            "#,
+        )
+        .bind(task_id)
+        .bind(ALERTS_FIXTURE_DATASET_ID)
+        .fetch_one(&data_pool)
+        .await?;
+
+        anyhow::ensure!(audit_count == 1, "expected 1 audit row, got {audit_count}");
+
+        let org_id: Uuid = sqlx::query_scalar(
+            r#"
+            SELECT org_id
+            FROM data.query_audit
+            WHERE task_id = $1
+              AND dataset_id = $2
+            ORDER BY query_time DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(task_id)
+        .bind(ALERTS_FIXTURE_DATASET_ID)
+        .fetch_one(&data_pool)
+        .await?;
+
+        anyhow::ensure!(org_id == cfg.org_id, "expected org_id {}, got {org_id}", cfg.org_id);
+
+        let result_row_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT result_row_count
+            FROM data.query_audit
+            WHERE task_id = $1
+              AND dataset_id = $2
+            ORDER BY query_time DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(task_id)
+        .bind(ALERTS_FIXTURE_DATASET_ID)
+        .fetch_one(&data_pool)
+        .await?;
+
+        anyhow::ensure!(
+            result_row_count == 3,
+            "expected result_row_count 3, got {result_row_count}"
+        );
+
+        let unauthorized_audit_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM data.query_audit
+            WHERE task_id = $1
+              AND dataset_id = $2
+            "#,
+        )
+        .bind(task_id)
+        .bind(unauthorized_dataset_id)
+        .fetch_one(&data_pool)
+        .await?;
+
+        anyhow::ensure!(
+            unauthorized_audit_count == 0,
+            "expected no audit rows for unauthorized dataset, got {unauthorized_audit_count}"
+        );
+
+        Ok(())
+    }
+    .await;
+
+    let _ = qs_shutdown_tx.send(());
+    let _ = qs_task.await;
+    let _ = server.shutdown().await;
+    result
 }
