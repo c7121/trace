@@ -25,3 +25,4 @@ trace-sink = { path = "../crates/trace-sink" }
 
 [dev-dependencies]
 trace-query-service = { path = "../crates/trace-query-service" }
+duckdb = { version = "1", features = ["bundled"] }
