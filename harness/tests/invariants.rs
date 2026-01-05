@@ -3,7 +3,8 @@ use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use trace_core::{
-    fixtures::ALERTS_FIXTURE_DATASET_ID, udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait,
+    fixtures::ALERTS_FIXTURE_DATASET_ID, runtime::RuntimeInvoker, udf::UdfInvocationPayload,
+    ObjectStore as ObjectStoreTrait,
 };
 use trace_harness::constants::{
     CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER,
@@ -975,7 +976,10 @@ async fn runner_claim_invoke_sink_inserts_once() -> anyhow::Result<()> {
             work_payload: claim.work_payload,
         };
 
-        runner.run(&invocation).await?;
+        runner
+            .invoke(&invocation)
+            .await
+            .map_err(anyhow::Error::from)?;
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         loop {
@@ -1001,7 +1005,10 @@ async fn runner_claim_invoke_sink_inserts_once() -> anyhow::Result<()> {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
-        runner.run(&invocation).await?;
+        runner
+            .invoke(&invocation)
+            .await
+            .map_err(anyhow::Error::from)?;
 
         let expected_batch_uri = format!(
             "s3://{}/batches/{}/{}/udf.jsonl",

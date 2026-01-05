@@ -9,7 +9,10 @@ use anyhow::Context;
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{sync::Arc, time::Duration};
-use trace_core::{udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
+use trace_core::{
+    runtime::RuntimeInvoker, udf::UdfInvocationPayload, ObjectStore as ObjectStoreTrait,
+    Queue as QueueTrait,
+};
 use uuid::Uuid;
 
 use crate::constants::{CONTENT_TYPE_JSON, DEFAULT_ALERT_DEFINITION_ID};
@@ -80,7 +83,7 @@ async fn handle_message(
     queue: &dyn QueueTrait,
     object_store: &dyn ObjectStoreTrait,
     dispatcher: &DispatcherClient,
-    runner: &FakeRunner,
+    invoker: &dyn RuntimeInvoker,
     msg: crate::pgqueue::Message,
     requeue_delay: Duration,
 ) -> anyhow::Result<()> {
@@ -118,7 +121,10 @@ async fn handle_message(
             work_payload: claim.work_payload,
         };
 
-        runner.run(&invocation).await?;
+        invoker
+            .invoke(&invocation)
+            .await
+            .map_err(anyhow::Error::from)?;
         queue.ack(&ack_token).await?;
         Ok(())
     }

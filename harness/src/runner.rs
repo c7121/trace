@@ -11,6 +11,9 @@ use crate::dispatcher_client::{
     BufferPublishRequest, CompleteRequest, DispatcherClient, WriteDisposition,
 };
 
+use async_trait::async_trait;
+use trace_core::runtime::RuntimeInvoker;
+
 fn default_payload() -> Value {
     Value::Object(Map::new())
 }
@@ -169,5 +172,12 @@ impl FakeRunner {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl RuntimeInvoker for FakeRunner {
+    async fn invoke(&self, invocation: &UdfInvocationPayload) -> trace_core::Result<()> {
+        self.run(invocation).await.map_err(trace_core::Error::from)
     }
 }
