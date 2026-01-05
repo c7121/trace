@@ -516,6 +516,9 @@ async fn task_complete(
     match req.outcome {
         TaskOutcome::Success => {
             register_dataset_publications(&mut tx, &req.datasets_published).await?;
+            if !req.datasets_published.is_empty() {
+                mark_chain_sync_range_completed(&mut tx, req.fence.task_id).await?;
+            }
             sqlx::query(
                 r#"
                 UPDATE state.tasks
@@ -654,6 +657,26 @@ async fn register_dataset_publications(
         }
     }
 
+    Ok(())
+}
+
+async fn mark_chain_sync_range_completed(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    task_id: Uuid,
+) -> ApiResult<()> {
+    sqlx::query(
+        r#"
+        UPDATE state.chain_sync_scheduled_ranges
+        SET status = 'completed',
+            updated_at = now()
+        WHERE task_id = $1
+          AND status <> 'completed'
+        "#,
+    )
+    .bind(task_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(ApiError::internal)?;
     Ok(())
 }
 
