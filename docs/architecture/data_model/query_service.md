@@ -4,8 +4,37 @@ Canonical DDL for Query Service tables.
 
 > These tables live in **Postgres data**. `org_id`/`user_id`/`task_id` are **soft references** to entities in **Postgres state** (no cross-DB foreign keys).
 
+## query_audit (implemented v1)
 
-## saved_queries
+Dataset-level audit log for task-scoped queries (`POST /v1/task/query`).
+
+Notes:
+- MUST NOT store raw SQL (store hashes/metadata only).
+- `columns_accessed` may be `NULL` when column-level attribution is not possible.
+
+```sql
+-- Query audit log (dataset-level only; no raw SQL stored).
+
+CREATE TABLE IF NOT EXISTS data.query_audit (
+  id               BIGSERIAL PRIMARY KEY,
+  org_id           UUID NOT NULL,
+  task_id          UUID NOT NULL,
+  dataset_id       UUID NOT NULL,
+  query_time       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  columns_accessed JSONB NULL,
+  result_row_count BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS query_audit_org_time_idx
+  ON data.query_audit (org_id, query_time DESC);
+
+CREATE INDEX IF NOT EXISTS query_audit_task_time_idx
+  ON data.query_audit (task_id, query_time DESC);
+```
+
+
+
+## saved_queries (future)
 
 ```sql
 CREATE TABLE saved_queries (
@@ -22,7 +51,7 @@ CREATE TABLE saved_queries (
 CREATE INDEX idx_saved_queries_org ON saved_queries(org_id);
 ```
 
-## query_results
+## query_results (future)
 
 ```sql
 CREATE TABLE query_results (

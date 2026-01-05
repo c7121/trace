@@ -9,6 +9,8 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::time::Duration;
 
+use crate::{runtime::RuntimeInvoker, udf::UdfInvocationPayload};
+
 #[derive(Debug, Clone)]
 pub struct SqsQueue {
     client: aws_sdk_sqs::Client,
@@ -273,5 +275,79 @@ impl Signer for KmsSigner {
 
     fn verify_task_capability(&self, _token: &str) -> Result<TaskCapabilityClaims> {
         Err(Error::msg("aws KmsSigner is stubbed (compile-only)"))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AwsLambdaInvoker {
+    client: aws_sdk_lambda::Client,
+    function_name: String,
+    qualifier: Option<String>,
+}
+
+impl AwsLambdaInvoker {
+    pub fn new(
+        client: aws_sdk_lambda::Client,
+        function_name: impl Into<String>,
+        qualifier: Option<String>,
+    ) -> Self {
+        Self {
+            client,
+            function_name: function_name.into(),
+            qualifier,
+        }
+    }
+
+    pub async fn from_env(
+        function_name: impl Into<String>,
+        qualifier: Option<String>,
+    ) -> Result<Self> {
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        Ok(Self {
+            client: aws_sdk_lambda::Client::new(&config),
+            function_name: function_name.into(),
+            qualifier,
+        })
+    }
+}
+
+#[async_trait]
+impl RuntimeInvoker for AwsLambdaInvoker {
+    async fn invoke(&self, invocation: &UdfInvocationPayload) -> Result<()> {
+        let payload = serde_json::to_vec(invocation)
+            .context("serialize lambda invocation payload json")
+            .map_err(Error::from)?;
+
+        let mut req = self
+            .client
+            .invoke()
+            .function_name(&self.function_name)
+            .invocation_type(aws_sdk_lambda::types::InvocationType::RequestResponse)
+            .payload(aws_sdk_lambda::primitives::Blob::new(payload));
+
+        if let Some(qualifier) = &self.qualifier {
+            req = req.qualifier(qualifier);
+        }
+
+        let resp = req
+            .send()
+            .await
+            .context("lambda Invoke")
+            .map_err(Error::from)?;
+
+        if let Some(function_error) = resp.function_error() {
+            return Err(Error::msg(format!(
+                "lambda invocation failed: function_error={function_error}"
+            )));
+        }
+
+        let status_code = resp.status_code();
+        if !(200..300).contains(&status_code) {
+            return Err(Error::msg(format!(
+                "lambda invocation failed: status_code={status_code}"
+            )));
+        }
+
+        Ok(())
     }
 }

@@ -268,6 +268,16 @@ For deploy/rematerialize cutover and rollback semantics, see [ADR 0009](../../ad
 
 
 
+## Audit logging (v1)
+
+v1 requires a dataset-level audit row for task-scoped queries.
+
+- Implemented table: `data.query_audit` (see `docs/architecture/data_model/query_service.md`).
+- Constraints:
+  - MUST NOT store raw SQL (store hashes/metadata only).
+  - Task-scoped queries record `{org_id, task_id, dataset_id, result_row_count}` at minimum.
+
+
 ## PII access auditing
 
 Query Service MUST emit `pii_access_log` entries when a query touches a dataset that has PII-classified columns.

@@ -22,6 +22,7 @@ pub mod aws;
 
 pub mod fixtures;
 pub mod query;
+pub mod runtime;
 pub mod udf;
 
 pub type Result<T> = std::result::Result<T, Error>;
