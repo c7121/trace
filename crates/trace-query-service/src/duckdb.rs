@@ -1,7 +1,6 @@
 use anyhow::Context;
 use duckdb::Connection;
 use serde_json::Value;
-use std::path::Path;
 use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
@@ -31,6 +30,7 @@ impl DuckDbSandbox {
             tokio::task::spawn_blocking(move || {
                 let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
                 apply_hardening(&conn).context("apply duckdb hardening")?;
+                lock_down_local_filesystem(&conn).context("lock down local filesystem")?;
                 lock_down_external_access(&conn).context("lock down external access")?;
                 run_query(&conn, &sql, max_rows).context("run query")
             });
@@ -41,27 +41,31 @@ impl DuckDbSandbox {
             .context("duckdb query failed")
     }
 
-    pub async fn query_with_dataset(
+    pub async fn query_with_dataset_urls(
         &self,
-        parquet_glob: &Path,
+        parquet_urls: &[String],
         sql: String,
         max_rows: usize,
     ) -> anyhow::Result<QueryResultSet> {
-        let glob = parquet_glob.to_string_lossy().to_string();
+        let parquet_urls = parquet_urls.to_vec();
         let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
             tokio::task::spawn_blocking(move || {
                 let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
                 apply_hardening(&conn).context("apply duckdb hardening")?;
 
-                let glob_escaped = glob.replace('\'', "''");
-                let create = format!(
-                    "CREATE TEMP TABLE dataset AS SELECT * FROM read_parquet('{glob_escaped}');"
-                );
-                conn.execute_batch(&create)
-                    .context("materialize dataset from parquet")?;
+                // Attach the dataset using a TEMP VIEW so DuckDB can push down filters/projections
+                // into the Parquet scan (including for remote HTTP/S3 reads).
+                attach_parquet_dataset(&conn, &parquet_urls).context("attach parquet dataset")?;
 
-                // Fail-closed: untrusted SQL executes with external access disabled.
-                lock_down_external_access(&conn).context("lock down external access")?;
+                // Runtime hardening for untrusted SQL:
+                // - disable host filesystem access (LocalFileSystem)
+                // - lock config to prevent re-enabling
+                //
+                // NOTE: We intentionally do *not* set `enable_external_access=false` here because
+                // the authorized dataset itself may require remote reads (HTTP range requests via
+                // DuckDB's httpfs file system). Authorization is enforced via capability token
+                // grants + manifest validation.
+                lock_down_local_filesystem(&conn).context("lock down local filesystem")?;
 
                 run_query(&conn, &sql, max_rows).context("run query")
             });
@@ -90,6 +94,49 @@ fn apply_hardening(conn: &Connection) -> anyhow::Result<()> {
 fn lock_down_external_access(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch("SET enable_external_access=false;")
         .context("disable external access")?;
+    Ok(())
+}
+
+fn lock_down_local_filesystem(conn: &Connection) -> anyhow::Result<()> {
+    // DuckDB hardening: disallow the LocalFileSystem so untrusted SQL cannot access the host
+    // filesystem even if the SQL gate misses a file-reading function.
+    //
+    // We also lock configuration to prevent changes at runtime.
+    conn.execute_batch(
+        "SET disabled_filesystems='LocalFileSystem';\nSET lock_configuration=true;",
+    )
+    .context("disable local filesystem")?;
+    Ok(())
+}
+
+fn attach_parquet_dataset(conn: &Connection, parquet_urls: &[String]) -> anyhow::Result<()> {
+    if parquet_urls.is_empty() {
+        return Err(anyhow::anyhow!("no parquet objects"));
+    }
+
+    // Enable remote file access for Parquet reads.
+    //
+    // NOTE: We intentionally do *not* run `INSTALL httpfs;` here. The service is expected to
+    // run with DuckDB built/bundled with httpfs available locally.
+    conn.execute_batch("LOAD httpfs;")
+        .context("load httpfs extension")?;
+
+    let scan = if parquet_urls.len() == 1 {
+        let url = parquet_urls[0].replace('\'', "''");
+        format!("read_parquet('{url}')")
+    } else {
+        let mut parts = Vec::with_capacity(parquet_urls.len());
+        for url in parquet_urls {
+            let url = url.replace('\'', "''");
+            parts.push(format!("'{url}'"));
+        }
+        format!("read_parquet([{}])", parts.join(","))
+    };
+
+    // Use a VIEW to preserve Parquet pushdown.
+    let create = format!("CREATE TEMP VIEW dataset AS SELECT * FROM {scan};");
+    conn.execute_batch(&create)
+        .context("create temp dataset view")?;
     Ok(())
 }
 

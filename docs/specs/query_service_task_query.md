@@ -46,7 +46,14 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
   - Gate: call `validate_sql(sql)` on every request.
   - Execute:
     - Trusted attach: resolve a pinned dataset manifest from object storage (MinIO/S3) and attach it as a DuckDB relation (`dataset`).
-    - Untrusted SQL: disable external access and execute gated SQL against attached relations only.
+      - Implementation note: attach as a TEMP VIEW over `read_parquet(...)` (do not materialize into a table) so Parquet predicate/projection pushdown is preserved.
+    - Untrusted SQL: execute gated SQL against attached relations only.
+
+      DuckDB runtime hardening MUST be applied in addition to SQL gating:
+      - disable host filesystem access (e.g. `SET disabled_filesystems='LocalFileSystem'`),
+      - lock configuration (`SET lock_configuration=true`),
+      - disable extension auto-install (no `INSTALL` from untrusted SQL; `autoinstall_known_extensions=false`),
+      - run in an OS/container sandbox with egress restricted to only the object-store endpoint(s).
   - Audit: insert dataset-level audit row into Postgres data DB.
 
 ### Data flow and trust boundaries
@@ -54,7 +61,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 - Validation points:
   - JWT signature + expiry + `{task_id, attempt}` match.
   - `validate_sql` fail-closed.
-  - DuckDB: external access disabled; writes prevented by `validate_sql` (DDL/DML rejected).
+  - DuckDB: disable host filesystem access and lock configuration; writes prevented by `validate_sql` (DDL/DML rejected). If the dataset itself is remote (HTTP/S3), DuckDB must be allowed to perform those authorized reads.
 - Sensitive data handling:
   - MUST NOT log raw SQL (only structured denial/execution outcomes).
 
@@ -69,7 +76,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_g
 
 ## Security considerations
 - Primary control: `validate_sql` denylist + single-statement requirement.
-- Defense-in-depth: DuckDB `enable_external_access=false` for untrusted SQL plus no extension auto-install.
+- Defense-in-depth: DuckDB runtime hardening (disable `LocalFileSystem`, lock configuration, no extension auto-install). If remote datasets are supported, pair with OS-level egress controls so DuckDB can only reach the configured object-store endpoint(s).
 - Residual risk: denylist incompleteness; mitigated by runtime sandboxing and tests.
 
 ## High risk addendum

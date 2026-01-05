@@ -221,11 +221,14 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 Query Service enforces a read-only SQL surface using **both**:
 
 - **Gate:** `trace-core::query::validate_sql` (single `SELECT` / CTE only; rejects DDL/DML and multi-statement SQL).
-- **Runtime hardening:** DuckDB settings such as `enable_external_access=false` (for untrusted SQL) and disabling extension auto-install.
+- **Runtime hardening:** DuckDB settings such as disabling the `LocalFileSystem`, locking configuration, and disabling extension auto-install.
 
 v1 attaches Parquet datasets via a **trusted attach** step:
-- Query Service resolves a pinned dataset manifest and materializes the Parquet objects into an attached relation (stable name: `dataset`).
-- Query Service then disables external access and executes gated SQL (untrusted) against only those attached relations.
+- Query Service resolves a pinned dataset manifest and validates it against capability-token S3 grants.
+- Query Service attaches the dataset as a stable relation (name: `dataset`) using a TEMP VIEW over `read_parquet(...)`.
+  - This preserves Parquet projection/predicate pushdown.
+  - The Parquet files may be remote (HTTP/S3). This means DuckDB needs network access for those authorized scans.
+- Query Service executes gated SQL (untrusted) against only those attached relations.
 
 ## SQL sandboxing (required)
 
@@ -242,12 +245,13 @@ v1 requirements:
 - Queries may reference only platform-attached relations for authorized datasets.
   - `/v1/query`: published datasets only.
   - `/v1/task/query`: dataset versions enumerated in the capability token only.
-- External access MUST be disabled for untrusted SQL:
-  - no filesystem reads/writes,
-  - no HTTP/URL reads,
-  - no user-supplied S3/URI reads,
+- Host filesystem access MUST be disabled for untrusted SQL (e.g. `SET disabled_filesystems='LocalFileSystem'` + `SET lock_configuration=true`).
+- Network egress MUST be restricted at the OS/container layer to only the configured object-store endpoint(s).
+  - Reason: if the dataset relation is backed by remote Parquet, DuckDB must be allowed to perform authorized HTTP/S3 reads.
+- User-supplied external reads MUST be blocked by SQL gating:
+  - no `read_parquet('http...')` / `read_csv('file...')` / string-literal relations in FROM,
   - no `ATTACH` with user-supplied connection strings,
-  - no extension install/load (or enforce a strict allowlist of built-in extensions only).
+  - no extension install/load (and disable auto-install).
 - Reject anything other than a single `SELECT` statement (no multi-statement batches).
 
 Verification (required):

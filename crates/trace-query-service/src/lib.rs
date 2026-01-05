@@ -4,7 +4,7 @@
 //! flows with a fail-closed SQL validator.
 
 use crate::config::QueryServiceConfig;
-use crate::dataset::{DatasetDownloadLimits, DatasetLoadError, DownloadedParquetDataset};
+use crate::dataset::{DatasetDownloadLimits, DatasetLoadError, RemoteParquetDataset};
 use crate::duckdb::{DuckDbSandbox, QueryResultSet};
 use anyhow::Context;
 use axum::{
@@ -153,7 +153,7 @@ async fn task_query(
 
     let mut results = state
         .duckdb
-        .query_with_dataset(&dataset.parquet_glob, req.sql, limit + 1)
+        .query_with_dataset_urls(&dataset.parquet_urls, req.sql, limit + 1)
         .await
         .map_err(|_err| {
             // Avoid logging raw SQL; DuckDB errors may embed the statement text.
@@ -273,7 +273,7 @@ async fn prepare_dataset(
     state: &AppState,
     s3: &S3Grants,
     grant: &DatasetGrant,
-) -> Result<DownloadedParquetDataset, ApiError> {
+) -> Result<RemoteParquetDataset, ApiError> {
     let storage_prefix = grant
         .storage_prefix
         .as_deref()
@@ -298,14 +298,14 @@ async fn prepare_dataset(
         }
     }
 
-    dataset::download_parquet_objects(
+    dataset::resolve_parquet_urls(
         &state.cfg.s3_endpoint,
         &state.http_client,
         &manifest.parquet_objects,
         &state.dataset_limits,
     )
     .await
-    .map_err(|err| map_dataset_error("parquet download failed", err))
+    .map_err(|err| map_dataset_error("parquet resolve failed", err))
 }
 
 async fn insert_query_audit(

@@ -1,13 +1,9 @@
 use crate::config::QueryServiceConfig;
 use anyhow::Context;
-use futures_util::StreamExt;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
-use tokio::io::AsyncWriteExt;
 use trace_core::lite::s3::parse_s3_uri;
 use trace_core::ObjectStore as ObjectStoreTrait;
-use uuid::Uuid;
 
 /// Dataset attach/download limits.
 ///
@@ -81,6 +77,15 @@ pub struct DatasetManifest {
     pub parquet_objects: Vec<String>,
 }
 
+/// Parquet dataset resolved from a pinned manifest.
+///
+/// This is intentionally *not* downloaded to local disk. Query Service attaches the dataset in
+/// DuckDB using remote URLs so DuckDB can do Parquet pushdown (projection + predicate) with
+/// HTTP range reads.
+pub struct RemoteParquetDataset {
+    pub parquet_urls: Vec<String>,
+}
+
 pub fn manifest_uri(storage_prefix: &str) -> String {
     let prefix = storage_prefix.trim_end_matches('/');
     format!("{prefix}/_manifest.json")
@@ -117,17 +122,12 @@ pub async fn fetch_manifest(
     Ok(manifest)
 }
 
-pub struct DownloadedParquetDataset {
-    _dir: TempDir,
-    pub parquet_glob: PathBuf,
-}
-
-pub async fn download_parquet_objects(
+pub async fn resolve_parquet_urls(
     s3_endpoint: &str,
     http_client: &reqwest::Client,
     parquet_objects: &[String],
     limits: &DatasetDownloadLimits,
-) -> Result<DownloadedParquetDataset, DatasetLoadError> {
+) -> Result<RemoteParquetDataset, DatasetLoadError> {
     if parquet_objects.is_empty() {
         return Err(DatasetLoadError::Invalid(anyhow::anyhow!(
             "manifest has no parquet objects"
@@ -142,12 +142,12 @@ pub async fn download_parquet_objects(
         )));
     }
 
-    let dir = TempDir::new("trace-query-service-parquet")
-        .map_err(DatasetLoadError::Retryable)?;
-
+    // Preflight object sizes via HEAD so we can enforce hard caps without downloading the data.
+    //
+    // NOTE: DuckDB will still read Parquet data during query execution (using HTTP range reads).
+    // These caps protect the service from accidentally attaching huge datasets.
     let mut remaining_budget = limits.max_total_bytes;
-
-    for (idx, uri) in parquet_objects.iter().enumerate() {
+    for uri in parquet_objects {
         if uri.len() > limits.max_uri_len {
             return Err(DatasetLoadError::Invalid(anyhow::anyhow!(
                 "parquet uri exceeds max_uri_len"
@@ -158,25 +158,30 @@ pub async fn download_parquet_objects(
             .context("parse parquet s3 uri")
             .map_err(DatasetLoadError::Invalid)?;
 
-        let file_name = format!("part-{idx:03}.parquet");
-        let path = dir.path().join(file_name);
-
-        download_object_to_file(
+        head_object_size(
             s3_endpoint,
             http_client,
             &bucket,
             &key,
-            &path,
             limits.max_object_bytes,
             &mut remaining_budget,
         )
         .await?;
     }
 
-    Ok(DownloadedParquetDataset {
-        parquet_glob: dir.path().join("*.parquet"),
-        _dir: dir,
-    })
+    // Convert s3://bucket/key URIs to HTTP URLs served by the configured endpoint.
+    // In Lite/harness the MinIO bucket is anonymous/public.
+    let mut parquet_urls = Vec::with_capacity(parquet_objects.len());
+    for uri in parquet_objects {
+        let (bucket, key) = parse_s3_uri(uri)
+            .context("parse parquet s3 uri")
+            .map_err(DatasetLoadError::Invalid)?;
+        let url = object_url(s3_endpoint, &bucket, &key)
+            .map_err(DatasetLoadError::Invalid)?;
+        parquet_urls.push(url.to_string());
+    }
+
+    Ok(RemoteParquetDataset { parquet_urls })
 }
 
 fn validate_manifest(
@@ -213,117 +218,56 @@ fn validate_manifest(
     Ok(())
 }
 
-async fn download_object_to_file(
+async fn head_object_size(
     s3_endpoint: &str,
     http_client: &reqwest::Client,
     bucket: &str,
     key: &str,
-    dest_path: &Path,
     max_object_bytes: u64,
     remaining_budget: &mut u64,
 ) -> Result<u64, DatasetLoadError> {
     let url = object_url(s3_endpoint, bucket, key).map_err(DatasetLoadError::Invalid)?;
 
     let resp = http_client
-        .get(url.clone())
+        .head(url.clone())
         .send()
         .await
-        .with_context(|| format!("GET {url}"))
+        .with_context(|| format!("HEAD {url}"))
         .map_err(DatasetLoadError::Retryable)?;
 
     let status = resp.status();
     if !status.is_success() {
-        let err = anyhow::anyhow!("GET {url} returned {status}");
+        let err = anyhow::anyhow!("HEAD {url} returned {status}");
         if status == StatusCode::NOT_FOUND || status.is_server_error() {
             return Err(DatasetLoadError::Retryable(err));
         }
         return Err(DatasetLoadError::Invalid(err));
     }
 
-    if let Some(content_len) = resp.content_length() {
-        if content_len > max_object_bytes {
-            return Err(DatasetLoadError::TooLarge(anyhow::anyhow!(
-                "object exceeds max_object_bytes: {content_len} > {max_object_bytes}"
-            )));
-        }
-        if content_len > *remaining_budget {
-            return Err(DatasetLoadError::TooLarge(anyhow::anyhow!(
-                "dataset exceeds max_total_bytes: {content_len} > {remaining_budget}"
-            )));
-        }
+    let Some(content_len) = resp.content_length() else {
+        // Fail closed: without Content-Length we cannot safely enforce hard limits.
+        return Err(DatasetLoadError::Invalid(anyhow::anyhow!(
+            "object missing Content-Length"
+        )));
+    };
+
+    if content_len > max_object_bytes {
+        return Err(DatasetLoadError::TooLarge(anyhow::anyhow!(
+            "object exceeds max_object_bytes: {content_len} > {max_object_bytes}"
+        )));
+    }
+    if content_len > *remaining_budget {
+        return Err(DatasetLoadError::TooLarge(anyhow::anyhow!(
+            "dataset exceeds max_total_bytes: {content_len} > {remaining_budget}"
+        )));
     }
 
-    let tmp_path = dest_path.with_extension("parquet.part");
-    let mut file = tokio::fs::File::create(&tmp_path)
-        .await
-        .with_context(|| format!("create temp file {}", tmp_path.display()))
-        .map_err(DatasetLoadError::Retryable)?;
-
-    let mut written: u64 = 0;
-    let mut stream = resp.bytes_stream();
-    while let Some(next) = stream.next().await {
-        let chunk = next
-            .context("read object chunk")
-            .map_err(DatasetLoadError::Retryable)?;
-
-        written = written.saturating_add(chunk.len() as u64);
-        if written > max_object_bytes {
-            let _ = tokio::fs::remove_file(&tmp_path).await;
-            return Err(DatasetLoadError::TooLarge(anyhow::anyhow!(
-                "object exceeds max_object_bytes"
-            )));
-        }
-        if written > *remaining_budget {
-            let _ = tokio::fs::remove_file(&tmp_path).await;
-            return Err(DatasetLoadError::TooLarge(anyhow::anyhow!(
-                "dataset exceeds max_total_bytes"
-            )));
-        }
-
-        file.write_all(&chunk)
-            .await
-            .context("write object chunk")
-            .map_err(DatasetLoadError::Retryable)?;
-    }
-    file.flush()
-        .await
-        .context("flush parquet file")
-        .map_err(DatasetLoadError::Retryable)?;
-
-    tokio::fs::rename(&tmp_path, dest_path)
-        .await
-        .with_context(|| format!("rename {} -> {}", tmp_path.display(), dest_path.display()))
-        .map_err(DatasetLoadError::Retryable)?;
-
-    *remaining_budget = remaining_budget.saturating_sub(written);
-    Ok(written)
+    *remaining_budget = remaining_budget.saturating_sub(content_len);
+    Ok(content_len)
 }
 
 fn object_url(endpoint: &str, bucket: &str, key: &str) -> anyhow::Result<reqwest::Url> {
     let base = endpoint.trim_end_matches('/');
     let full = format!("{base}/{bucket}/{key}");
     Ok(full.parse().context("build object url")?)
-}
-
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(prefix: &str) -> anyhow::Result<Self> {
-        let dir = std::env::temp_dir().join(format!("{prefix}-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&dir)
-            .with_context(|| format!("create temp dir {}", dir.display()))?;
-        Ok(Self { path: dir })
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
-    }
 }
