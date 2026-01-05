@@ -9,6 +9,7 @@ use trace_core::{
     udf::UdfInvocationPayload,
     DatasetGrant, S3Grants, TaskCapabilityIssueRequest,
     ObjectStore as ObjectStoreTrait,
+    Signer as _,
 };
 use trace_dispatcher::planner::{plan_chain_sync, PlanChainSyncRequest};
 use trace_harness::constants::{
