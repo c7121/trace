@@ -148,7 +148,7 @@ CREATE TABLE dataset_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- dataset_version
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     created_at TIMESTAMPTZ DEFAULT now(),
-    storage_location TEXT NOT NULL,                -- S3: version-addressed prefix/manifest; Postgres data (v1): stable table/view name
+    storage_location TEXT NOT NULL,                -- S3/Parquet: version-addressed `s3://bucket/prefix/` containing `_manifest.json`; Postgres data (v1): stable table/view name
     config_hash TEXT,
     schema_hash TEXT,
     UNIQUE (dataset_uuid, id)
@@ -162,6 +162,9 @@ CREATE TABLE dag_version_datasets (
     PRIMARY KEY (dag_version_id, dataset_uuid)
 );
 ```
+
+For S3/Parquet datasets, `storage_location` is a version-resolved prefix (ending with `/`) that contains `_manifest.json`.
+The manifest lists the Parquet objects (S3 URIs) that make up the pinned `dataset_version` (see ADR 0009 query pinning).
 
 ### Runtime Execution Model
 

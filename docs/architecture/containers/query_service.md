@@ -10,7 +10,7 @@ Stateless service for interactive and batch SQL queries across hot and cold stor
 | **Runtime** | Rust + embedded DuckDB |
 | **Deployment** | ECS Fargate, behind ALB |
 
-**Implementation note (v1):** Only `POST /v1/task/query` is implemented today, and it executes against a deterministic **in-memory DuckDB fixture** (no Postgres/S3 federation yet). The federation diagram below reflects the intended future topology; the implemented v1 contract is specified in `docs/specs/query_service_task_query.md`.
+**Implementation note (v1):** Only `POST /v1/task/query` is implemented today. It executes against Parquet datasets that Query Service attaches via a pinned manifest referenced by the **task capability token** (Lite/harness uses a deterministic fixture dataset in MinIO). The federation diagram below reflects the intended future topology; the implemented v1 contract is specified in `docs/specs/query_service_task_query.md`.
 
 
 ## Component View (future topology)
@@ -205,11 +205,11 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 Query Service enforces a read-only SQL surface using **both**:
 
 - **Gate:** `trace-core::query::validate_sql` (single `SELECT` / CTE only; rejects DDL/DML and multi-statement SQL).
-- **Runtime hardening:** DuckDB settings such as `enable_external_access=false` and disabling extension autoload/autoinstall.
+- **Runtime hardening:** DuckDB settings such as `enable_external_access=false` (for untrusted SQL) and disabling extension auto-install.
 
-Because v1 uses an **in-memory** DuckDB database for the fixture dataset, file-backed `AccessMode::ReadOnly` is not applicable.
-When Query Service begins attaching file-backed datasets (e.g., downloaded manifests, local scratch DBs), it SHOULD additionally
-open those attachments read-only where possible.
+v1 attaches Parquet datasets via a **trusted attach** step:
+- Query Service resolves a pinned dataset manifest and materializes the Parquet objects into an attached relation (stable name: `dataset`).
+- Query Service then disables external access and executes gated SQL (untrusted) against only those attached relations.
 
 ## SQL sandboxing (required)
 

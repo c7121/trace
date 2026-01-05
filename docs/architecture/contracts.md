@@ -40,7 +40,9 @@ User-facing `/v1/*` endpoints reachable via the Gateway are enumerated in `user_
   - `org_id`: UUID (deployment org; v1 is single-org but the claim is still required)
   - `task_id`: UUID
   - `attempt`: int
-  - `datasets`: list of `{dataset_uuid, dataset_version}` grants for `/v1/task/query` (may be empty)
+  - `datasets`: list of `{dataset_uuid, dataset_version, storage_prefix}` grants for `/v1/task/query` (may be empty)
+    - `storage_prefix` is a version-resolved `s3://bucket/prefix/` that contains `_manifest.json` listing Parquet objects for the pinned `dataset_version`.
+    - Query Service uses this to attach authorized datasets as DuckDB relations (trusted attach), then executes gated SQL (untrusted).
   - `s3`: `{read_prefixes[], write_prefixes[]}` where prefixes are canonical `s3://bucket/prefix/` strings for `/v1/task/credentials` (may be empty in Lite)
 
 **Verifier rules (v1):**
@@ -403,4 +405,3 @@ Notes:
 - Duplicates across attempts are expected. Batch artifacts may be written per-attempt to avoid S3 key collisions; correctness comes from sink-side row dedupe, not from attempt numbers.
 - **Multi-tenant safety:** the sink must assign `org_id` from the trusted publish record / queue message and must not trust `org_id` values embedded inside batch rows.
 - Producers do not need direct access to the queue backend; the Dispatcher owns queue publishing via the outbox.
-
