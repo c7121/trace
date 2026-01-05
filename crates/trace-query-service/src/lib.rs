@@ -4,7 +4,7 @@
 //! flows with a fail-closed SQL validator.
 
 use crate::config::QueryServiceConfig;
-use crate::dataset::DownloadedParquetDataset;
+use crate::dataset::{DatasetDownloadLimits, DatasetLoadError, DownloadedParquetDataset};
 use crate::duckdb::{DuckDbSandbox, QueryResultSet};
 use anyhow::Context;
 use axum::{
@@ -42,6 +42,8 @@ pub struct AppState {
     pub duckdb: DuckDbSandbox,
     pub data_pool: sqlx::PgPool,
     pub object_store: Arc<dyn ObjectStoreTrait>,
+    pub http_client: reqwest::Client,
+    pub dataset_limits: DatasetDownloadLimits,
 }
 
 impl std::fmt::Debug for AppState {
@@ -77,12 +79,21 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     let object_store =
         Arc::new(trace_core::lite::s3::ObjectStore::new(&cfg.s3_endpoint).context("init s3")?);
 
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .context("init http client")?;
+
+    let dataset_limits = DatasetDownloadLimits::from(&cfg);
+
     Ok(AppState {
         cfg,
         signer,
         duckdb,
         data_pool,
         object_store,
+        http_client,
+        dataset_limits,
     })
 }
 
@@ -242,6 +253,22 @@ fn s3_read_allowed(grants: &S3Grants, uri: &str) -> bool {
     })
 }
 
+fn map_dataset_error(operation: &'static str, err: DatasetLoadError) -> ApiError {
+    tracing::warn!(
+        event = "query_service.dataset.error",
+        category = err.category(),
+        operation = operation,
+        error = %err,
+        "dataset load failed"
+    );
+
+    match err {
+        DatasetLoadError::Invalid(_) => ApiError::unprocessable("dataset manifest invalid"),
+        DatasetLoadError::TooLarge(_) => ApiError::payload_too_large("dataset too large"),
+        DatasetLoadError::Retryable(_) => ApiError::unavailable("dataset temporarily unavailable"),
+    }
+}
+
 async fn prepare_dataset(
     state: &AppState,
     s3: &S3Grants,
@@ -257,20 +284,13 @@ async fn prepare_dataset(
         return Err(ApiError::forbidden("dataset storage not authorized"));
     }
 
-    let manifest = dataset::fetch_manifest(state.object_store.as_ref(), storage_prefix)
+    let manifest = dataset::fetch_manifest(
+        state.object_store.as_ref(),
+        storage_prefix,
+        &state.dataset_limits,
+    )
         .await
-        .map_err(|err| {
-            tracing::warn!(
-                event = "query_service.dataset.manifest_fetch_failed",
-                error = %err,
-                "dataset manifest fetch failed"
-            );
-            ApiError::internal("dataset manifest fetch failed")
-        })?;
-
-    if manifest.parquet_objects.is_empty() {
-        return Err(ApiError::internal("dataset manifest invalid"));
-    }
+        .map_err(|err| map_dataset_error("manifest fetch failed", err))?;
 
     for uri in &manifest.parquet_objects {
         if !s3_read_allowed(s3, uri) {
@@ -278,16 +298,14 @@ async fn prepare_dataset(
         }
     }
 
-    dataset::download_parquet_objects(state.object_store.as_ref(), &manifest.parquet_objects)
-        .await
-        .map_err(|err| {
-            tracing::warn!(
-                event = "query_service.dataset.parquet_download_failed",
-                error = %err,
-                "dataset parquet download failed"
-            );
-            ApiError::internal("dataset parquet download failed")
-        })
+    dataset::download_parquet_objects(
+        &state.cfg.s3_endpoint,
+        &state.http_client,
+        &manifest.parquet_objects,
+        &state.dataset_limits,
+    )
+    .await
+    .map_err(|err| map_dataset_error("parquet download failed", err))
 }
 
 async fn insert_query_audit(
@@ -350,6 +368,27 @@ impl ApiError {
     fn forbidden(message: &'static str) -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
+            message,
+        }
+    }
+
+    fn unprocessable(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message,
+        }
+    }
+
+    fn payload_too_large(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+            message,
+        }
+    }
+
+    fn unavailable(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
             message,
         }
     }

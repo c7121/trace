@@ -86,6 +86,22 @@ The request/response shape is a constrained subset of the Query Service contract
 - **AWS/prod:** cache the Dispatcher’s internal task-JWKS (e.g., `GET /internal/jwks/task`) and refresh on `kid` miss.
 - Query Service does not call Dispatcher per request for authorization; the token contents are the authorization.
 
+### Dataset attach hardening
+
+Even though dataset manifests are produced by Trace components, Query Service treats `_manifest.json` as **untrusted input**.
+
+Hard limits (defaults) are enforced to prevent accidental or adversarial resource exhaustion:
+
+- `DATASET_MAX_MANIFEST_BYTES` (default: 1 MiB)
+- `DATASET_MAX_PARQUET_OBJECTS` (default: 2048)
+- `DATASET_MAX_PARQUET_OBJECT_BYTES` (default: 256 MiB)
+- `DATASET_MAX_TOTAL_PARQUET_BYTES` (default: 1 GiB)
+
+Failure modes are classified:
+
+- **Permanent**: malformed manifest, exceeds size limits, structural violations.
+- **Retryable**: object store temporarily unavailable (network errors, server 5xx, missing objects).
+
 ## Future: User Query API
 
 This user-facing endpoint is not implemented yet.
