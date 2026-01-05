@@ -115,7 +115,7 @@ async fn run_dispatcher(
     app: Router,
     state: Arc<AppState>,
     shutdown_tx: watch::Sender<bool>,
-    mut shutdown_rx: watch::Receiver<bool>,
+    shutdown_rx: watch::Receiver<bool>,
     enable_outbox: bool,
     enable_lease_reaper: bool,
 ) -> anyhow::Result<()> {
