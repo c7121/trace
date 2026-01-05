@@ -32,7 +32,7 @@ If a milestone adds or edits any docs/specs/contracts, update its Context links 
 
 ## Current status
 
-Milestones **ms/1** through **ms/8** are complete (see `docs/plan/milestones.md`).
+Milestones **ms/1** through **ms/9** are complete (see `docs/plan/milestones.md`).
 
 If you're starting new work, begin with the **Planned milestones** section in `docs/plan/milestones.md`.
 This file is still useful for the general harness gates + STOP packaging, but the milestone-by-milestone
