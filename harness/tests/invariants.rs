@@ -14,7 +14,9 @@ use trace_harness::constants::{
 };
 use trace_harness::{
     config::HarnessConfig,
+    cryo_worker::{derive_dataset_publication, CryoIngestPayload},
     dispatcher::DispatcherServer,
+    dispatcher_client::DispatcherClient,
     migrate,
     pgqueue::PgQueue,
     runner::FakeRunner,
@@ -1376,5 +1378,152 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
     let _ = qs_shutdown_tx.send(());
     let _ = qs_task.await;
     let _ = server.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<()> {
+    let cfg = migrated_config().await?;
+    let state_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let server = DispatcherServer::start(
+        state_pool.clone(),
+        cfg.clone(),
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
+        false,
+    )
+    .await?;
+    let base = format!("http://{}", server.addr);
+
+    let result: anyhow::Result<()> = async {
+        let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
+        let dispatcher = DispatcherClient::new(base);
+
+        let payload = CryoIngestPayload {
+            dataset_uuid: Uuid::new_v4(),
+            chain_id: 1,
+            range_start: 100,
+            range_end: 102,
+            config_hash: "cfg_hash_v1".to_string(),
+        };
+        let expected = derive_dataset_publication(&cfg.s3_bucket, &payload);
+
+        for task_id in [Uuid::new_v4(), Uuid::new_v4()] {
+            sqlx::query(
+                r#"
+                INSERT INTO state.tasks (task_id, status, payload)
+                VALUES ($1, 'queued', $2)
+                ON CONFLICT (task_id) DO UPDATE
+                SET status = EXCLUDED.status,
+                    payload = EXCLUDED.payload,
+                    lease_token = NULL,
+                    lease_expires_at = NULL,
+                    updated_at = now()
+                "#,
+            )
+            .bind(task_id)
+            .bind(serde_json::to_value(&payload).context("encode payload")?)
+            .execute(&state_pool)
+            .await
+            .context("insert cryo task")?;
+
+            let res = trace_harness::cryo_worker::run_task(
+                &cfg,
+                &object_store as &dyn ObjectStoreTrait,
+                &dispatcher,
+                task_id,
+            )
+            .await?;
+            anyhow::ensure!(res.is_some(), "expected cryo task to complete");
+        }
+
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM state.dataset_versions
+            WHERE dataset_uuid = $1
+              AND config_hash = $2
+              AND range_start = $3
+              AND range_end = $4
+            "#,
+        )
+        .bind(expected.dataset_uuid)
+        .bind(&expected.config_hash)
+        .bind(expected.range_start)
+        .bind(expected.range_end)
+        .fetch_one(&state_pool)
+        .await
+        .context("count dataset_versions")?;
+
+        anyhow::ensure!(
+            count == 1,
+            "expected 1 dataset_versions row, got {count}"
+        );
+
+        let (dataset_version, storage_prefix): (Uuid, String) = sqlx::query_as(
+            r#"
+            SELECT dataset_version, storage_prefix
+            FROM state.dataset_versions
+            WHERE dataset_uuid = $1
+              AND config_hash = $2
+              AND range_start = $3
+              AND range_end = $4
+            LIMIT 1
+            "#,
+        )
+        .bind(expected.dataset_uuid)
+        .bind(&expected.config_hash)
+        .bind(expected.range_start)
+        .bind(expected.range_end)
+        .fetch_one(&state_pool)
+        .await
+        .context("fetch dataset_versions row")?;
+
+        anyhow::ensure!(
+            dataset_version == expected.dataset_version,
+            "expected dataset_version {}, got {dataset_version}",
+            expected.dataset_version
+        );
+        anyhow::ensure!(
+            storage_prefix == expected.storage_prefix,
+            "expected storage_prefix {}, got {storage_prefix}",
+            expected.storage_prefix
+        );
+
+        let (bucket, prefix_key) =
+            parse_s3_uri(&storage_prefix).context("parse storage prefix")?;
+        let manifest_key = join_key(&prefix_key, "_manifest.json");
+        let manifest_bytes = object_store
+            .get_bytes(&bucket, &manifest_key)
+            .await
+            .context("read manifest")?;
+
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&manifest_bytes).context("decode manifest json")?;
+        let parquet_objects = manifest["parquet_objects"]
+            .as_array()
+            .context("manifest.parquet_objects")?;
+
+        let parquet_key = join_key(
+            &prefix_key,
+            &format!("cryo_{}_{}.parquet", payload.range_start, payload.range_end),
+        );
+        let expected_parquet_uri = serde_json::Value::String(format!("s3://{bucket}/{parquet_key}"));
+
+        anyhow::ensure!(
+            parquet_objects == &[expected_parquet_uri],
+            "expected manifest parquet_objects to be stable"
+        );
+
+        Ok(())
+    }
+    .await;
+
+    server.shutdown().await?;
     result
 }
