@@ -4,6 +4,7 @@
 //! flows with a fail-closed SQL validator.
 
 use crate::config::QueryServiceConfig;
+use crate::dataset::DownloadedParquetDataset;
 use crate::duckdb::{DuckDbSandbox, QueryResultSet};
 use anyhow::Context;
 use axum::{
@@ -18,10 +19,14 @@ use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use std::{sync::Arc, time::Duration};
 use trace_core::lite::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
+use trace_core::lite::s3::parse_s3_uri;
+use trace_core::ObjectStore as ObjectStoreTrait;
 use trace_core::Signer as SignerTrait;
+use trace_core::{DatasetGrant, S3Grants};
 use uuid::Uuid;
 
 pub mod config;
+mod dataset;
 mod duckdb;
 
 pub const TASK_CAPABILITY_HEADER: &str = "X-Trace-Task-Capability";
@@ -36,6 +41,7 @@ pub struct AppState {
     pub signer: TaskCapability,
     pub duckdb: DuckDbSandbox,
     pub data_pool: sqlx::PgPool,
+    pub object_store: Arc<dyn ObjectStoreTrait>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -44,6 +50,7 @@ impl std::fmt::Debug for AppState {
             .field("cfg", &self.cfg)
             .field("data_pool", &"<PgPool>")
             .field("signer", &"<TaskCapability>")
+            .field("object_store", &"<ObjectStore>")
             .finish()
     }
 }
@@ -66,13 +73,16 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     })
     .context("init task capability signer")?;
 
-    let duckdb = DuckDbSandbox::new_in_memory_fixture().context("init duckdb sandbox")?;
+    let duckdb = DuckDbSandbox::new();
+    let object_store =
+        Arc::new(trace_core::lite::s3::ObjectStore::new(&cfg.s3_endpoint).context("init s3")?);
 
     Ok(AppState {
         cfg,
         signer,
         duckdb,
         data_pool,
+        object_store,
     })
 }
 
@@ -111,7 +121,7 @@ async fn task_query(
     Json(req): Json<TaskQueryRequest>,
 ) -> Result<Json<TaskQueryResponse>, ApiError> {
     let claims = require_task_capability(&state.signer, &headers, req.task_id, req.attempt)?;
-    require_dataset_grant(&claims, req.dataset_id)?;
+    let grant = require_dataset_grant(&claims, req.dataset_id)?;
 
     trace_core::query::validate_sql(&req.sql).map_err(|err| {
         tracing::info!(
@@ -122,6 +132,8 @@ async fn task_query(
         ApiError::bad_request("invalid sql")
     })?;
 
+    let dataset = prepare_dataset(&state, &claims.s3, &grant).await?;
+
     let limit = req
         .limit
         .map(|v| v as usize)
@@ -130,7 +142,7 @@ async fn task_query(
 
     let mut results = state
         .duckdb
-        .query(req.sql, limit + 1)
+        .query_with_dataset(&dataset.parquet_glob, req.sql, limit + 1)
         .await
         .map_err(|_err| {
             // Avoid logging raw SQL; DuckDB errors may embed the statement text.
@@ -208,16 +220,74 @@ fn require_task_capability(
 fn require_dataset_grant(
     claims: &trace_core::TaskCapabilityClaims,
     dataset_id: Uuid,
-) -> Result<(), ApiError> {
-    if claims
+) -> Result<DatasetGrant, ApiError> {
+    claims
         .datasets
         .iter()
-        .any(|grant| grant.dataset_uuid == dataset_id)
-    {
-        return Ok(());
+        .find(|grant| grant.dataset_uuid == dataset_id)
+        .cloned()
+        .ok_or_else(|| ApiError::forbidden("dataset not authorized"))
+}
+
+fn s3_read_allowed(grants: &S3Grants, uri: &str) -> bool {
+    let Ok((uri_bucket, uri_key)) = parse_s3_uri(uri) else {
+        return false;
+    };
+
+    grants.read_prefixes.iter().any(|prefix| {
+        let Ok((prefix_bucket, prefix_key)) = parse_s3_uri(prefix) else {
+            return false;
+        };
+        prefix_bucket == uri_bucket && uri_key.starts_with(&prefix_key)
+    })
+}
+
+async fn prepare_dataset(
+    state: &AppState,
+    s3: &S3Grants,
+    grant: &DatasetGrant,
+) -> Result<DownloadedParquetDataset, ApiError> {
+    let storage_prefix = grant
+        .storage_prefix
+        .as_deref()
+        .ok_or_else(|| ApiError::forbidden("dataset storage not authorized"))?;
+
+    let manifest_uri = dataset::manifest_uri(storage_prefix);
+    if !s3_read_allowed(s3, &manifest_uri) {
+        return Err(ApiError::forbidden("dataset storage not authorized"));
     }
 
-    Err(ApiError::forbidden("dataset not authorized"))
+    let manifest = dataset::fetch_manifest(state.object_store.as_ref(), storage_prefix)
+        .await
+        .map_err(|err| {
+            tracing::warn!(
+                event = "query_service.dataset.manifest_fetch_failed",
+                error = %err,
+                "dataset manifest fetch failed"
+            );
+            ApiError::internal("dataset manifest fetch failed")
+        })?;
+
+    if manifest.parquet_objects.is_empty() {
+        return Err(ApiError::internal("dataset manifest invalid"));
+    }
+
+    for uri in &manifest.parquet_objects {
+        if !s3_read_allowed(s3, uri) {
+            return Err(ApiError::forbidden("dataset storage not authorized"));
+        }
+    }
+
+    dataset::download_parquet_objects(state.object_store.as_ref(), &manifest.parquet_objects)
+        .await
+        .map_err(|err| {
+            tracing::warn!(
+                event = "query_service.dataset.parquet_download_failed",
+                error = %err,
+                "dataset parquet download failed"
+            );
+            ApiError::internal("dataset parquet download failed")
+        })
 }
 
 async fn insert_query_audit(

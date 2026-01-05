@@ -50,6 +50,10 @@ pub struct QueryServiceConfig {
     /// Task capability token TTL in seconds.
     #[arg(long, env = "TASK_CAPABILITY_TTL_SECS", default_value_t = 300)]
     pub task_capability_ttl_secs: u64,
+
+    /// MinIO/S3 endpoint for dataset manifests and Parquet objects (Lite mode).
+    #[arg(long, env = "S3_ENDPOINT", default_value = "http://localhost:9000")]
+    pub s3_endpoint: String,
 }
 
 impl std::fmt::Debug for QueryServiceConfig {
@@ -68,6 +72,7 @@ impl std::fmt::Debug for QueryServiceConfig {
             .field("task_capability_next_kid", &self.task_capability_next_kid)
             .field("task_capability_next_secret", &task_capability_next_secret)
             .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
+            .field("s3_endpoint", &self.s3_endpoint)
             .finish()
     }
 }

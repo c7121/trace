@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use duckdb::Connection;
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
+use std::path::Path;
 use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
@@ -18,26 +18,52 @@ pub struct QueryResultSet {
 
 #[derive(Clone)]
 pub struct DuckDbSandbox {
-    conn: Arc<Mutex<Connection>>,
+    _private: (),
 }
 
 impl DuckDbSandbox {
-    pub fn new_in_memory_fixture() -> anyhow::Result<Self> {
-        let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
-        init_fixture(&conn).context("init fixture dataset")?;
-        apply_hardening(&conn).context("apply duckdb hardening")?;
-
-        Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
-        })
+    pub fn new() -> Self {
+        Self { _private: () }
     }
 
     pub async fn query(&self, sql: String, max_rows: usize) -> anyhow::Result<QueryResultSet> {
-        let conn = self.conn.clone();
         let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
             tokio::task::spawn_blocking(move || {
-                let guard = conn.lock().map_err(|_| anyhow!("duckdb lock poisoned"))?;
-                run_query(&guard, &sql, max_rows).context("run query")
+                let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+                apply_hardening(&conn).context("apply duckdb hardening")?;
+                lock_down_external_access(&conn).context("lock down external access")?;
+                run_query(&conn, &sql, max_rows).context("run query")
+            });
+
+        handle
+            .await
+            .context("join duckdb worker")?
+            .context("duckdb query failed")
+    }
+
+    pub async fn query_with_dataset(
+        &self,
+        parquet_glob: &Path,
+        sql: String,
+        max_rows: usize,
+    ) -> anyhow::Result<QueryResultSet> {
+        let glob = parquet_glob.to_string_lossy().to_string();
+        let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
+            tokio::task::spawn_blocking(move || {
+                let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+                apply_hardening(&conn).context("apply duckdb hardening")?;
+
+                let glob_escaped = glob.replace('\'', "''");
+                let create = format!(
+                    "CREATE TEMP TABLE dataset AS SELECT * FROM read_parquet('{glob_escaped}');"
+                );
+                conn.execute_batch(&create)
+                    .context("materialize dataset from parquet")?;
+
+                // Fail-closed: untrusted SQL executes with external access disabled.
+                lock_down_external_access(&conn).context("lock down external access")?;
+
+                run_query(&conn, &sql, max_rows).context("run query")
             });
 
         handle
@@ -47,74 +73,23 @@ impl DuckDbSandbox {
     }
 }
 
-fn init_fixture(conn: &Connection) -> anyhow::Result<()> {
-    // Deterministic, in-memory fixture dataset (exactly 3 rows).
-    conn.execute_batch(
-        r#"
-        BEGIN;
-        CREATE TABLE alerts_fixture (
-          alert_definition_id VARCHAR NOT NULL,
-          dedupe_key          VARCHAR NOT NULL,
-          event_time          TIMESTAMP NOT NULL,
-          chain_id            BIGINT NOT NULL,
-          block_number        BIGINT NOT NULL,
-          block_hash          VARCHAR NOT NULL,
-          tx_hash             VARCHAR NOT NULL,
-          payload             VARCHAR NOT NULL
-        );
-
-        INSERT INTO alerts_fixture VALUES
-          (
-            'alert_definition_1',
-            'dedupe-001',
-            '2025-01-01T00:00:00Z',
-            1,
-            100,
-            '0xblockhash001',
-            '0xtxhash001',
-            '{"severity":"low","msg":"fixture-1"}'
-          ),
-          (
-            'alert_definition_1',
-            'dedupe-002',
-            '2025-01-01T00:00:01Z',
-            1,
-            101,
-            '0xblockhash002',
-            '0xtxhash002',
-            '{"severity":"medium","msg":"fixture-2"}'
-          ),
-          (
-            'alert_definition_2',
-            'dedupe-003',
-            '2025-01-01T00:00:02Z',
-            10,
-            202,
-            '0xblockhash003',
-            '0xtxhash003',
-            '{"severity":"high","msg":"fixture-3"}'
-          );
-        COMMIT;
-        "#,
-    )
-    .context("create fixture table and rows")?;
-
-    Ok(())
-}
-
 fn apply_hardening(conn: &Connection) -> anyhow::Result<()> {
     // Fail-closed: if we can't apply these settings, refuse to run queries.
     //
     // NOTE: We still rely on `trace_core::query::validate_sql` as the primary gate.
     conn.execute_batch(
         r#"
-        SET enable_external_access=false;
         SET autoinstall_known_extensions=false;
-        SET autoload_known_extensions=false;
         "#,
     )
     .context("set hardening defaults")?;
 
+    Ok(())
+}
+
+fn lock_down_external_access(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch("SET enable_external_access=false;")
+        .context("disable external access")?;
     Ok(())
 }
 
