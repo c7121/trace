@@ -5,12 +5,18 @@ edition = "2021"
 publish = false
 
 [features]
-aws = ["dep:aws-config", "dep:aws-sdk-s3", "dep:aws-sdk-sqs"]
+aws = [
+    "dep:aws-config",
+    "dep:aws-sdk-lambda",
+    "dep:aws-sdk-s3",
+    "dep:aws-sdk-sqs",
+]
 
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
 aws-config = { version = "1", optional = true }
+aws-sdk-lambda = { version = "1", optional = true }
 aws-sdk-s3 = { version = "1", optional = true }
 aws-sdk-sqs = { version = "1", optional = true }
 chrono = { version = "0.4", features = ["serde"] }
