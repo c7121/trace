@@ -23,6 +23,7 @@ Each completed milestone is pinned by an annotated git tag `ms/<N>` pointing at 
 | 8 | ms/8 | 2334ae5 | Dispatcher extracted into `crates/trace-dispatcher` (harness wrapper kept) |
 | 9 | ms/9 | 3892487 | Sink extracted into `crates/trace-sink` (harness wrapper kept) |
 | 10 | ms/10 | 07a08df | RuntimeInvoker interface (lite + AWS Lambda feature-gated); harness routes UDF invocation via invoker |
+| 11 | ms/11 | 319df13 | Parquet dataset versions pinned in task capability tokens; Query Service attaches via trusted manifest |
 
 ### How to review a milestone
 
@@ -36,7 +37,7 @@ Then run the milestone gates described in `docs/plan/plan.md`.
 
 ## Planned milestones (next)
 
-Milestones **after ms/10** are sequenced to prove a full **Lite** deployment that can:
+Milestones **after ms/11** are sequenced to prove a full **Lite** deployment that can:
 
 - run the platform services locally,
 - sync a chain locally using **Cryo**,
@@ -48,7 +49,6 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 
 | Milestone | Title | Notes |
 |----------:|-------|-------|
-| 11 | Parquet dataset versions + safe Query Service attach | Dataset grants pin versions; QS attaches to relations; untrusted SQL never reads paths/URLs |
 | 12 | Cryo local sync worker (Lite) | Run `cryo_ingest` locally to write Parquet+manifest to MinIO; register `dataset_versions` |
 | 13 | Lite chain sync planner (genesis → tip) | Generate range tasks, track cursor/progress in Postgres state, parallelize via queue + rpc_pool |
 | 14 | Alert evaluation over Parquet datasets | Evaluation reads Parquet via QS attached relations; emits buffered alert events; E2E invariant |
@@ -60,6 +60,8 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 ---
 
 ## Milestone 11: Parquet dataset versions + safe Query Service attach
+
+Status: **complete** (tag: `ms/11`).
 
 ### Goal
 Make Parquet the canonical dataset artifact while keeping the SQL sandbox intact: untrusted SQL must **not** be able to reference file paths, URLs, or S3 keys directly.
@@ -89,7 +91,7 @@ This milestone introduces the minimum “dataset attach” machinery so Query Se
   - `read_parquet(...)`, `parquet_scan(...)`, `FROM 'file'`, URL readers, `ATTACH`, `INSTALL/LOAD` remain blocked
   - querying an attached dataset relation succeeds
 
-**Docs updates required as part of ms/11 (do not defer):**
+**Docs updates done as part of ms/11:**
 - `docs/architecture/contracts.md`: clarify dataset grants in the capability token (pinned versions + storage refs) and how QS consumes them.
 - `docs/architecture/data_model/orchestration.md`: tighten `dataset_versions.storage_location` semantics for Parquet datasets (manifest vs prefix, and pinning rules).
 - `docs/architecture/containers/query_service.md`: document the attach strategy and the boundary: “trusted attach, untrusted SQL”.
