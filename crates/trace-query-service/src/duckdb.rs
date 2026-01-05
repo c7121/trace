@@ -1,6 +1,7 @@
 use anyhow::Context;
 use duckdb::Connection;
 use serde_json::Value;
+use std::path::PathBuf;
 use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
@@ -43,28 +44,26 @@ impl DuckDbSandbox {
 
     pub async fn query_with_dataset_urls(
         &self,
-        parquet_urls: &[String],
+        parquet_paths: &[PathBuf],
         sql: String,
         max_rows: usize,
     ) -> anyhow::Result<QueryResultSet> {
-        let parquet_urls = parquet_urls.to_vec();
+        let parquet_paths = parquet_paths
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
         let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
             tokio::task::spawn_blocking(move || {
                 let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
                 apply_hardening(&conn).context("apply duckdb hardening")?;
 
-                // Attach the dataset using a TEMP VIEW so DuckDB can push down filters/projections
-                // into the Parquet scan (including for remote HTTP/S3 reads).
-                attach_parquet_dataset(&conn, &parquet_urls).context("attach parquet dataset")?;
+                // Attach the dataset by materializing Parquet into an in-memory TEMP TABLE. This
+                // avoids requiring DuckDB extensions (e.g. httpfs) and lets us fail-closed by
+                // disabling both local filesystem and external access for untrusted SQL.
+                attach_local_parquet_dataset(&conn, &parquet_paths)
+                    .context("attach parquet dataset")?;
 
-                // Runtime hardening for untrusted SQL:
-                // - disable host filesystem access (LocalFileSystem)
-                // - lock config to prevent re-enabling
-                //
-                // NOTE: We intentionally do *not* set `enable_external_access=false` here because
-                // the authorized dataset itself may require remote reads (HTTP range requests via
-                // DuckDB's httpfs file system). Authorization is enforced via capability token
-                // grants + manifest validation.
+                lock_down_external_access(&conn).context("lock down external access")?;
                 lock_down_local_filesystem(&conn).context("lock down local filesystem")?;
 
                 run_query(&conn, &sql, max_rows).context("run query")
@@ -101,7 +100,6 @@ fn lock_down_local_filesystem(conn: &Connection) -> anyhow::Result<()> {
     // DuckDB hardening: disallow the LocalFileSystem so untrusted SQL cannot access the host
     // filesystem even if the SQL gate misses a file-reading function.
     //
-    // We also lock configuration to prevent changes at runtime.
     conn.execute_batch(
         "SET disabled_filesystems='LocalFileSystem';\nSET lock_configuration=true;",
     )
@@ -109,34 +107,28 @@ fn lock_down_local_filesystem(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn attach_parquet_dataset(conn: &Connection, parquet_urls: &[String]) -> anyhow::Result<()> {
-    if parquet_urls.is_empty() {
+fn attach_local_parquet_dataset(conn: &Connection, parquet_paths: &[String]) -> anyhow::Result<()> {
+    if parquet_paths.is_empty() {
         return Err(anyhow::anyhow!("no parquet objects"));
     }
 
-    // Enable remote file access for Parquet reads.
-    //
-    // NOTE: We intentionally do *not* run `INSTALL httpfs;` here. The service is expected to
-    // run with DuckDB built/bundled with httpfs available locally.
-    conn.execute_batch("LOAD httpfs;")
-        .context("load httpfs extension")?;
-
-    let scan = if parquet_urls.len() == 1 {
-        let url = parquet_urls[0].replace('\'', "''");
-        format!("read_parquet('{url}')")
+    let scan = if parquet_paths.len() == 1 {
+        let path = parquet_paths[0].replace('\'', "''");
+        format!("read_parquet('{path}')")
     } else {
-        let mut parts = Vec::with_capacity(parquet_urls.len());
-        for url in parquet_urls {
-            let url = url.replace('\'', "''");
-            parts.push(format!("'{url}'"));
+        let mut parts = Vec::with_capacity(parquet_paths.len());
+        for path in parquet_paths {
+            let path = path.replace('\'', "''");
+            parts.push(format!("'{path}'"));
         }
         format!("read_parquet([{}])", parts.join(","))
     };
 
-    // Use a VIEW to preserve Parquet pushdown.
-    let create = format!("CREATE TEMP VIEW dataset AS SELECT * FROM {scan};");
+    // Materialize into a TEMP TABLE so query execution does not require filesystem access once
+    // we lock down DuckDB settings.
+    let create = format!("CREATE TEMP TABLE dataset AS SELECT * FROM {scan};");
     conn.execute_batch(&create)
-        .context("create temp dataset view")?;
+        .context("create temp dataset table")?;
     Ok(())
 }
 
