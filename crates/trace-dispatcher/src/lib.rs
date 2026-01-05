@@ -26,6 +26,8 @@ use uuid::Uuid;
 
 pub const TASK_CAPABILITY_HEADER: &str = "X-Trace-Task-Capability";
 
+pub mod planner;
+
 // UUIDv5 namespace for deterministic outbox message IDs (task fencing/idempotency).
 const OUTBOX_NAMESPACE: Uuid = Uuid::from_bytes([
     0x6c, 0x07, 0x30, 0x87, 0x5b, 0x7c, 0x4c, 0x55, 0xb0, 0x7a, 0x1e, 0x2c, 0x7a, 0x01, 0x5a, 0xe2,
@@ -660,7 +662,7 @@ fn outbox_id_for_buffer_publish(task_id: Uuid, attempt: i64, batch_uri: &str) ->
     Uuid::new_v5(&OUTBOX_NAMESPACE, name.as_bytes())
 }
 
-fn outbox_id_for_task_wakeup(task_id: Uuid, attempt: i64) -> Uuid {
+pub(crate) fn outbox_id_for_task_wakeup(task_id: Uuid, attempt: i64) -> Uuid {
     let name = format!("task_wakeup:{task_id}:{attempt}");
     Uuid::new_v5(&OUTBOX_NAMESPACE, name.as_bytes())
 }
