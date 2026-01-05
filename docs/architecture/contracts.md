@@ -289,6 +289,11 @@ X-Trace-Task-Capability: <capability_token>
 
 Task completion includes an `outputs` array so a single task can materialize multiple outputs. Outputs are referenced internally by `dataset_uuid` (and optionally `output_index`).
 
+For Parquet dataset publishing (replace-style outputs), tasks MAY also include a `datasets_published` list. This is the minimal publication shape needed to register `dataset_versions` deterministically:
+- `dataset_uuid`, `dataset_version` (pinned)
+- `storage_prefix` (version-addressed `s3://bucket/prefix/` containing `_manifest.json`)
+- optional metadata such as `config_hash` and `{range_start, range_end}` for range-based datasets (e.g., Cryo bootstrap).
+
 ```json
 {
   "task_id": "uuid",
@@ -301,6 +306,16 @@ Task completion includes an `outputs` array so a single task can materialize mul
   "outputs": [
     { "output_index": 0, "dataset_uuid": "uuid", "dataset_version": "uuid", "location": "postgres_table:dataset_{dataset_uuid}", "cursor": 12345, "row_count": 1000 },
     { "output_index": 1, "dataset_uuid": "uuid", "dataset_version": "uuid", "location": "postgres_table:dataset_{dataset_uuid}", "cursor": 12345, "row_count": 20000 }
+  ],
+  "datasets_published": [
+    {
+      "dataset_uuid": "uuid",
+      "dataset_version": "uuid",
+      "storage_prefix": "s3://bucket/cold/datasets/{dataset_uuid}/{dataset_version}/",
+      "config_hash": "string",
+      "range_start": 100,
+      "range_end": 200
+    }
   ],
   "error_message": null
 }

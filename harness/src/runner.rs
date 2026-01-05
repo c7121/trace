@@ -160,6 +160,7 @@ impl FakeRunner {
             attempt: invocation.attempt,
             lease_token: invocation.lease_token,
             outcome: "success",
+            datasets_published: Vec::new(),
         };
 
         if self

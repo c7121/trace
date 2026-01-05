@@ -168,6 +168,16 @@ pub struct DatasetGrant {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetPublication {
+    pub dataset_uuid: Uuid,
+    pub dataset_version: Uuid,
+    pub storage_prefix: String,
+    pub config_hash: String,
+    pub range_start: i64,
+    pub range_end: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct S3Grants {
     pub read_prefixes: Vec<String>,
     pub write_prefixes: Vec<String>,

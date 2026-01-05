@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod constants;
+pub mod cryo_worker;
 pub mod dispatcher;
 pub mod dispatcher_client;
 pub mod enqueue;
