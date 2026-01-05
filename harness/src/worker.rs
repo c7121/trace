@@ -145,6 +145,7 @@ async fn handle_message(
             attempt: claim.attempt,
             lease_token: claim.lease_token,
             outcome: "success",
+            datasets_published: Vec::new(),
         };
         if dispatcher
             .complete(&claim.capability_token, &complete_req)

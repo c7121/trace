@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use trace_core::DatasetPublication;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -33,6 +34,9 @@ pub struct CompleteRequest {
     pub attempt: i64,
     pub lease_token: Uuid,
     pub outcome: &'static str,
+
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub datasets_published: Vec<DatasetPublication>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

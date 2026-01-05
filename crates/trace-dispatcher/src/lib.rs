@@ -19,7 +19,8 @@ use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use trace_core::{
-    DatasetGrant, Queue as QueueTrait, S3Grants, Signer as SignerTrait, TaskCapabilityIssueRequest,
+    DatasetGrant, DatasetPublication, Queue as QueueTrait, S3Grants, Signer as SignerTrait,
+    TaskCapabilityIssueRequest,
 };
 use uuid::Uuid;
 
@@ -134,13 +135,14 @@ async fn run_dispatcher(
     }
 
     let mut server_shutdown = shutdown_rx.clone();
-    let server = axum::serve(listener, app.into_make_service()).with_graceful_shutdown(async move {
-        while !*server_shutdown.borrow() {
-            if server_shutdown.changed().await.is_err() {
-                break;
+    let server =
+        axum::serve(listener, app.into_make_service()).with_graceful_shutdown(async move {
+            while !*server_shutdown.borrow() {
+                if server_shutdown.changed().await.is_err() {
+                    break;
+                }
             }
-        }
-    });
+        });
 
     // Ensure the background loops always stop when the server ends (including error paths).
     let server_res = server.await;
@@ -449,6 +451,13 @@ struct CompleteRequest {
     #[serde(flatten)]
     fence: TaskFence,
     outcome: TaskOutcome,
+
+    /// Optional dataset publications produced by this task attempt.
+    ///
+    /// This field is used by Lite ingestion workers to register version-addressed Parquet artifacts
+    /// in the state DB on successful completion.
+    #[serde(default)]
+    datasets_published: Vec<DatasetPublication>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -492,7 +501,8 @@ async fn task_complete(
 
     let current_attempt: i64 = row.try_get("attempt").map_err(ApiError::internal)?;
     let current_status: String = row.try_get("status").map_err(ApiError::internal)?;
-    let current_lease_token: Option<Uuid> = row.try_get("lease_token").map_err(ApiError::internal)?;
+    let current_lease_token: Option<Uuid> =
+        row.try_get("lease_token").map_err(ApiError::internal)?;
 
     if current_attempt != req.fence.attempt
         || current_status != "running"
@@ -503,6 +513,7 @@ async fn task_complete(
 
     match req.outcome {
         TaskOutcome::Success => {
+            register_dataset_publications(&mut tx, &req.datasets_published).await?;
             sqlx::query(
                 r#"
                 UPDATE state.tasks
@@ -573,6 +584,75 @@ async fn task_complete(
 
     tx.commit().await.map_err(ApiError::internal)?;
     Ok(StatusCode::OK)
+}
+
+async fn register_dataset_publications(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    datasets: &[DatasetPublication],
+) -> ApiResult<()> {
+    for pubd in datasets {
+        let inserted = sqlx::query(
+            r#"
+            INSERT INTO state.dataset_versions (
+              dataset_version,
+              dataset_uuid,
+              storage_prefix,
+              config_hash,
+              range_start,
+              range_end
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (dataset_version) DO NOTHING
+            "#,
+        )
+        .bind(pubd.dataset_version)
+        .bind(pubd.dataset_uuid)
+        .bind(&pubd.storage_prefix)
+        .bind(&pubd.config_hash)
+        .bind(pubd.range_start)
+        .bind(pubd.range_end)
+        .execute(&mut **tx)
+        .await
+        .map_err(ApiError::internal)?;
+
+        if inserted.rows_affected() == 1 {
+            continue;
+        }
+
+        // Idempotency under at-least-once: if the dataset version already exists, require that
+        // all metadata matches (fail closed on divergence).
+        let row = sqlx::query(
+            r#"
+            SELECT dataset_uuid, storage_prefix, config_hash, range_start, range_end
+            FROM state.dataset_versions
+            WHERE dataset_version = $1
+            "#,
+        )
+        .bind(pubd.dataset_version)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(ApiError::internal)?;
+
+        let existing_dataset_uuid: Uuid =
+            row.try_get("dataset_uuid").map_err(ApiError::internal)?;
+        let existing_storage_prefix: String =
+            row.try_get("storage_prefix").map_err(ApiError::internal)?;
+        let existing_config_hash: String =
+            row.try_get("config_hash").map_err(ApiError::internal)?;
+        let existing_range_start: i64 = row.try_get("range_start").map_err(ApiError::internal)?;
+        let existing_range_end: i64 = row.try_get("range_end").map_err(ApiError::internal)?;
+
+        let matches = existing_dataset_uuid == pubd.dataset_uuid
+            && existing_storage_prefix == pubd.storage_prefix
+            && existing_config_hash == pubd.config_hash
+            && existing_range_start == pubd.range_start
+            && existing_range_end == pubd.range_end;
+
+        if !matches {
+            return Err(ApiError::conflict("dataset version conflict"));
+        }
+    }
+
+    Ok(())
 }
 
 fn outbox_id_for_buffer_publish(task_id: Uuid, attempt: i64, batch_uri: &str) -> Uuid {
