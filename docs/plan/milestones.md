@@ -24,6 +24,7 @@ Each completed milestone is pinned by an annotated git tag `ms/<N>` pointing at 
 | 9 | ms/9 | 3892487 | Sink extracted into `crates/trace-sink` (harness wrapper kept) |
 | 10 | ms/10 | 07a08df | RuntimeInvoker interface (lite + AWS Lambda feature-gated); harness routes UDF invocation via invoker |
 | 11 | ms/11 | 319df13 | Parquet dataset versions pinned in task capability tokens; Query Service attaches via trusted manifest |
+| 12 | ms/12 | 339bef6 | Cryo ingest worker writes Parquet+manifest to MinIO; registers dataset_versions idempotently |
 
 ### How to review a milestone
 
@@ -37,7 +38,7 @@ Then run the milestone gates described in `docs/plan/plan.md`.
 
 ## Planned milestones (next)
 
-Milestones **after ms/11** are sequenced to prove a full **Lite** deployment that can:
+Milestones **after ms/12** are sequenced to prove a full **Lite** deployment that can:
 
 - run the platform services locally,
 - sync a chain locally using **Cryo**,
@@ -49,13 +50,13 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 
 | Milestone | Title | Notes |
 |----------:|-------|-------|
-| 12 | Cryo local sync worker (Lite) | Run `cryo_ingest` locally to write Parquet+manifest to MinIO; register `dataset_versions` |
 | 13 | Lite chain sync planner (genesis → tip) | Generate range tasks, track cursor/progress in Postgres state, parallelize via queue + rpc_pool |
 | 14 | Alert evaluation over Parquet datasets | Evaluation reads Parquet via QS attached relations; emits buffered alert events; E2E invariant |
 | 15 | `trace-lite` runnable local stack | Docker Compose + runbook + minimal CLI wrappers to “bring up + sync” |
 | 16 | Bundle manifest + real multi-language UDF runtime | Signed bundle manifests + hash/size checks; Node/Python first; Rust via common tooling |
 | 17 | Minimal user API v1 | Bundle upload + DAG registration + publish datasets + alert definition CRUD |
 | 18 | AWS deployable MVP | IaC + IAM/network boundaries + S3/SQS/Lambda wiring + smoke tests |
+| S1 | Security gate: Query Service egress allowlist | Mandatory before any non-dev deployment that allows remote Parquet scans |
 
 ---
 
@@ -104,6 +105,8 @@ This milestone introduces the minimum “dataset attach” machinery so Query Se
 ---
 
 ## Milestone 12: Cryo local sync worker (Lite)
+
+Status: **complete** (tag: `ms/12`).
 
 ### Goal
 Run Cryo locally to produce Parquet datasets and register dataset versions in Postgres state — no AWS required.
@@ -217,3 +220,42 @@ Goal: expose only the smallest stable public surface (everything else remains in
 ## Milestone 18: AWS deployable MVP
 
 Goal: move the proven Lite semantics to AWS adapters + deployable infra (S3/SQS/Lambda/IAM/VPC).
+---
+
+## Security Gate S1: Query Service egress allowlist
+
+### Why this exists
+If Query Service is allowed to scan *authorized* remote Parquet datasets (HTTP/S3) during query execution, DuckDB becomes a **network-capable** process.
+
+If the SQL gate is ever bypassed (bug, misconfiguration, future feature), an attacker could try to use Query Service as an SSRF / exfiltration primitive.
+
+This gate makes the trust boundary enforceable by requiring **OS/container-level egress allowlists**.
+
+### Scope
+This gate applies to **Query Service** only.
+
+(It does **not** replace the existing “no third-party internet egress” requirement for untrusted UDF runtimes; that requirement remains and is tracked elsewhere.)
+
+### Context links
+- `docs/specs/query_sql_gating.md` (notes on remote Parquet + sandbox)
+- `docs/specs/query_service_task_query.md` (task query threat model)
+- `docs/architecture/containers/query_service.md` (DuckDB hardening + attach strategy)
+- `docs/adr/0002-networking.md` (no egress by default + egress services)
+- `docs/standards/security_hardening.md` (egress allowlists)
+
+### Deliverables
+- **Lite/local** (ms/15): document the local posture explicitly:
+  - By default, Lite/dev may not enforce strict egress controls.
+  - If remote Parquet scans are enabled, provide a recommended enforcement approach (container network policy / host firewall) and a verification checklist.
+- **AWS** (ms/18): enforce a strict egress allowlist:
+  - Query Service must run in private subnets with **no general NAT egress**.
+  - Allow egress only to:
+    - the configured object store endpoint(s) (S3 via VPC endpoint), and
+    - internal platform services as required.
+  - “Only Delivery Service and RPC Egress Gateway have outbound internet egress” remains true.
+
+### Verification
+- From inside the Query Service container/task:
+  - Object store endpoint is reachable.
+  - An arbitrary public endpoint is **not** reachable (fail closed).
+- Keep the SQL gate tests green (this gate is defense-in-depth, not a replacement).
