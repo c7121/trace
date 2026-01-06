@@ -93,9 +93,15 @@ Even though dataset manifests are produced by Trace components, Query Service tr
 Hard limits (defaults) are enforced to prevent accidental or adversarial resource exhaustion:
 
 - `DATASET_MAX_MANIFEST_BYTES` (default: 1 MiB)
-- `DATASET_MAX_PARQUET_OBJECTS` (default: 2048)
-- `DATASET_MAX_PARQUET_OBJECT_BYTES` (default: 256 MiB)
-- `DATASET_MAX_TOTAL_PARQUET_BYTES` (default: 1 GiB)
+- `DATASET_MAX_OBJECTS` (default: 2048)
+- `DATASET_MAX_OBJECT_BYTES` (default: 256 MiB)
+- `DATASET_MAX_TOTAL_BYTES` (default: 1 GiB)
+
+Remote scan stance (v1):
+- Query Service MUST NOT download Parquet objects into memory or local disk as part of dataset attach.
+- Query Service attaches datasets as a stable relation named `dataset` via a TEMP VIEW over remote Parquet URIs using `httpfs`, preserving Parquet predicate and projection pushdown.
+- Because remote scans require network access, the Query Service runtime MUST enforce an egress allowlist that permits only the configured object store endpoint(s) (and required in-VPC services) and does not allow arbitrary internet egress.
+  - See: `docs/adr/0002-networking.md`
 
 Failure modes are classified:
 
