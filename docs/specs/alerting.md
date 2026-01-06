@@ -109,6 +109,9 @@ Validation + refusal behavior:
 - This is intentional: malformed alert outputs should fail loudly, not corrupt data silently.
 
 ### Idempotency and retries
+
+General buffered dataset idempotency rules are defined in [ADR 0006](../adr/0006-buffered-postgres-datasets.md#idempotency-requirements). Alerting-specific bindings:
+
 - `alert_events` MUST be idempotent via a deterministic `dedupe_key`. The table enforces `UNIQUE (org_id, dedupe_key)`. See `docs/architecture/data_model/alerting.md`.
 - `alert_deliveries` MUST be idempotent per channel via `UNIQUE (org_id, alert_event_id, channel)`.
 - Delivery semantics are at-least-once: providers may see duplicates on timeouts; include a stable provider idempotency key where supported (use `alert_deliveries.id`).
