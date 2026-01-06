@@ -16,9 +16,11 @@
   },
   {
     "id": 3,
-    "action": "delete",
+    "status": "complete",
+    "action": "extract-and-delete",
     "path": "docs/plan/plan.md",
-    "rationale": "Self-declares as non-normative and 'may lag behind implementation'; execution sequencing doesn't belong in build docs"
+    "extractTo": "AGENTS.md",
+    "rationale": "Moved agent workflow instructions (harness command, STOP gates, context links) to root AGENTS.md; deleted plan.md"
   },
   {
     "id": 4,

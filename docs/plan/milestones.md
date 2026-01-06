@@ -5,7 +5,7 @@ This file is the canonical ledger for:
 - completed milestones (with immutable git tags), and
 - planned milestones (next work).
 
-Milestones are defined in more detail (gates, STOP points, scope) in `docs/plan/plan.md`.
+See `AGENTS.md` in the repo root for milestone workflow rules (STOP gates, context links, harness commands).
 
 ## Completed milestones
 

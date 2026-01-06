@@ -15,3 +15,42 @@ Before doing anything else, the agent MUST read and follow:
 
 Notes:
 - Shared standards and templates are in docs/* and SHOULD be treated as normative unless explicitly overridden here.
+
+## Milestone workflow
+
+Milestones are tracked in `docs/milestones.md`. Completed milestones are tagged as `ms/<N>` (e.g., `ms/7`).
+
+### Source of truth hierarchy
+
+The source of truth for behavior and invariants is (in order):
+1. `docs/architecture/*` (contracts, lifecycle, containers)
+2. `docs/specs/*` (feature surfaces)
+3. `docs/adr/*` (decisions)
+4. `docs/standards/*` (security + ops invariants)
+
+### Context links requirement
+
+Every milestone MUST include a **Context links** list (repo-relative paths) to the docs/specs/contracts that define the milestone's intended behavior. If a milestone adds or edits any docs, update its Context links.
+
+### Harness "green" command
+
+From `harness/`:
+
+```bash
+docker compose down -v
+docker compose up -d
+cargo run -- migrate
+cargo test -- --nocapture
+```
+
+Keep the harness green. If it breaks, fix it before adding features.
+
+### STOP gates
+
+- Treat each milestone as a review gate.
+- Make changes in **small commits** with a clear verification command each.
+- At each 🛑 STOP point, share:
+  - a zip of the repo including `.git`
+  - output of `cd harness && cargo test -- --nocapture`
+  - `git log --oneline -n 30`
+  - a short note: "what changed" + "what you want reviewed"
