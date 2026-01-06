@@ -24,20 +24,22 @@
   },
   {
     "id": 4,
-    "status": "blocked",
+    "status": "skipped",
     "action": "delete",
     "path": "docs/plan/backlog.md",
-    "rationale": "Deferred items list is not build instruction; belongs in issue tracker or roadmap, not docs. BLOCKED: need to assess if content should be preserved elsewhere"
+    "rationale": "KEPT: backlog contains v2+/post-MVP items not covered by milestones; serves as deferred-work parking lot"
   },
   {
     "id": 5,
+    "status": "skipped",
     "action": "keep-and-rename",
     "path": "docs/plan/milestones.md",
     "newPath": "docs/milestones.md",
-    "rationale": "Ledger of completed work has archival value; move up one level and delete empty plan/ folder"
+    "rationale": "SKIPPED: keeping plan/ folder with backlog.md, so milestones stays alongside"
   },
   {
     "id": 6,
+    "status": "complete",
     "action": "dedupe",
     "path": "docs/standards/operations.md",
     "lines": "35-50",

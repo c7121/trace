@@ -1,12 +1,8 @@
 # Planning
 
-This directory contains implementation sequencing notes.
+This directory contains implementation sequencing.
 
-Start here:
-- [Plan](plan.md)
+- [Milestones](milestones.md) — completed + planned work ledger
+- [Backlog](backlog.md) — deferred v2+ items
 
-Milestones ledger:
-- [Milestones](milestones.md)
-
-Also:
-- [Backlog](backlog.md)
+See `AGENTS.md` (repo root) for milestone workflow rules.

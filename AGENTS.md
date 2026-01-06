@@ -18,7 +18,7 @@ Notes:
 
 ## Milestone workflow
 
-Milestones are tracked in `docs/milestones.md`. Completed milestones are tagged as `ms/<N>` (e.g., `ms/7`).
+Milestones are tracked in `docs/plan/milestones.md`. Completed milestones are tagged as `ms/<N>` (e.g., `ms/7`).
 
 ### Source of truth hierarchy
 
