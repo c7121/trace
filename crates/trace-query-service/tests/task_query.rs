@@ -22,6 +22,69 @@ use uuid::Uuid;
 const CONTENT_TYPE_JSON: &str = "application/json";
 const CONTENT_TYPE_PARQUET: &str = "application/octet-stream";
 
+#[derive(Clone)]
+struct RecordingObjectStore {
+    inner: std::sync::Arc<dyn trace_core::ObjectStore>,
+    gets: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
+}
+
+impl RecordingObjectStore {
+    fn wrap(
+        inner: std::sync::Arc<dyn trace_core::ObjectStore>,
+    ) -> (Self, std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>) {
+        let gets = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        (
+            Self {
+                inner,
+                gets: gets.clone(),
+            },
+            gets,
+        )
+    }
+}
+
+impl trace_core::ObjectStore for RecordingObjectStore {
+    fn put_bytes<'a>(
+        &'a self,
+        bucket: &'a str,
+        key: &'a str,
+        bytes: Vec<u8>,
+        content_type: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = trace_core::Result<()>> + Send + 'a>,
+    > {
+        let inner = self.inner.clone();
+        let bucket = bucket.to_string();
+        let key = key.to_string();
+        let content_type = content_type.to_string();
+        Box::pin(async move {
+            inner
+                .put_bytes(&bucket, &key, bytes, &content_type)
+                .await
+        })
+    }
+
+    fn get_bytes<'a>(
+        &'a self,
+        bucket: &'a str,
+        key: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = trace_core::Result<Vec<u8>>> + Send + 'a>,
+    > {
+        let inner = self.inner.clone();
+        let gets = self.gets.clone();
+        let bucket = bucket.to_string();
+        let key = key.to_string();
+        Box::pin(async move {
+            {
+                let mut log = gets.lock().expect("lock gets log");
+                log.push((bucket.clone(), key.clone()));
+            }
+            inner.get_bytes(&bucket, &key).await
+        })
+    }
+}
+
 fn join_key(prefix: &str, leaf: &str) -> String {
     let prefix = prefix.trim_end_matches('/');
     format!("{prefix}/{leaf}")
@@ -501,5 +564,54 @@ async fn dataset_manifest_cannot_escape_s3_grants() -> anyhow::Result<()> {
 
     let (status, _body) = send_query(app, Some(token), &req).await?;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn query_service_fetches_manifest_only() -> anyhow::Result<()> {
+    let cfg = QueryServiceConfig::from_env()?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.data_database_url)
+        .await?;
+
+    sqlx::migrate!("../../harness/migrations/data")
+        .run(&pool)
+        .await?;
+
+    let mut state = build_state(cfg.clone()).await?;
+    let (store, gets) = RecordingObjectStore::wrap(state.object_store.clone());
+    state.object_store = std::sync::Arc::new(store);
+
+    let app = router(state);
+    seed_fixture_dataset(&cfg, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX).await?;
+
+    let task_id = Uuid::new_v4();
+    let attempt = 1;
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
+
+    let req = TaskQueryRequest {
+        task_id,
+        attempt,
+        dataset_id,
+        sql: "SELECT count(*) FROM dataset".to_string(),
+        limit: None,
+    };
+
+    let (status, body) = send_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+
+    let reads = gets.lock().expect("lock gets log").clone();
+    assert!(
+        !reads.is_empty(),
+        "expected manifest fetch via object store"
+    );
+    assert!(
+        reads.iter().all(|(_bucket, key)| key.ends_with("_manifest.json")),
+        "expected only manifest get_bytes calls, got: {reads:?}"
+    );
+
     Ok(())
 }
