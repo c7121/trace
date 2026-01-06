@@ -26,6 +26,7 @@ Each completed milestone is pinned by an annotated git tag `ms/<N>` pointing at 
 | 11 | ms/11 | 319df13 | Parquet dataset versions pinned in task capability tokens; Query Service attaches via trusted manifest |
 | 12 | ms/12 | 339bef6 | Cryo ingest worker writes Parquet+manifest to MinIO; registers dataset_versions idempotently |
 | 13 | ms/13 | 93e74da | Lite chain sync planner (cursor + scheduled ranges) + harness E2E |
+| 14 | ms/14 | 005036d | Alert evaluation over Parquet datasets (QS -> UDF -> sink) + harness E2E |
 
 ### How to review a milestone
 
@@ -39,7 +40,7 @@ Then run the milestone gates described in `AGENTS.md` (root of repo).
 
 ## Planned milestones (next)
 
-Milestones **after ms/13** are sequenced to prove a full **Lite** deployment that can:
+Milestones **after ms/14** are sequenced to prove a full **Lite** deployment that can:
 
 - run the platform services locally,
 - sync a chain locally using **Cryo**,
@@ -51,7 +52,6 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 
 | Milestone | Title | Notes |
 |----------:|-------|-------|
-| 14 | Alert evaluation over Parquet datasets | Evaluation reads Parquet via QS attached relations; emits buffered alert events; E2E invariant |
 | 15 | `trace-lite` runnable local stack | Docker Compose + runbook + minimal CLI wrappers to “bring up + sync” |
 | 16 | Bundle manifest + real multi-language UDF runtime | Signed bundle manifests + hash/size checks; Node/Python first; Rust via common tooling |
 | 17 | Minimal user API v1 | Bundle upload + DAG registration + publish datasets + alert definition CRUD |
@@ -169,6 +169,8 @@ End-to-end local chain sync planning: schedule bounded Cryo ingestion ranges, en
 ---
 
 ## Milestone 14: Alert evaluation over Parquet datasets
+
+Status: **complete** (tag: `ms/14`).
 
 ### Goal
 Prove the data path from “synced Parquet datasets” → “Query Service” → “alert event sink (idempotent)”.
