@@ -93,29 +93,26 @@ Full model: [security_model.md](standards/security_model.md)
 
 ---
 
-## Reading Order
+## Where to Look
 
-For developers and agents implementing features:
+**Start here** (in order):
 
-1. **[invariants.md](architecture/invariants.md)** — Correctness guarantees (read first)
-2. **[contracts.md](architecture/contracts.md)** — Wire formats, JWT claims, API fencing
-3. **[task_lifecycle.md](architecture/task_lifecycle.md)** — Leasing, retries, outbox
-4. **Relevant spec** in [specs/](specs/) — Feature-specific surface and acceptance criteria
-5. **Relevant ADR** in [adr/](adr/) — Decision rationale if changing boundaries
+1. [invariants.md](architecture/invariants.md) — Correctness guarantees
+2. [contracts.md](architecture/contracts.md) — Wire formats, JWT claims, API fencing
+3. [task_lifecycle.md](architecture/task_lifecycle.md) — Leasing, retries, outbox
 
----
+**Then** find the relevant [spec](specs/) or [ADR](adr/) for your feature.
 
-## Documentation Map
+**Canonical sources** — one file per concept; link, don't restate:
 
-| Area | Documents |
-|------|-----------|
-| Architecture | [architecture/](architecture/), [ADRs](adr/) |
-| Containers | [containers/](architecture/containers/) |
-| Data model | [data_model/](architecture/data_model/) |
-| Operators | [operators/](architecture/operators/) |
-| Specs | [specs/](specs/) |
-| Deploy | [deploy/](deploy/) |
-| Standards | [standards/](standards/) |
+| Concept | Owner |
+|---------|-------|
+| DB boundaries (state vs data) | [db_boundaries.md](architecture/db_boundaries.md) |
+| Dataset versioning, S3 commit | [data_versioning.md](architecture/data_versioning.md) |
+| Buffered datasets pattern | [ADR 0006](adr/0006-buffered-postgres-datasets.md) |
+| Query SQL gating | [query_sql_gating.md](specs/query_sql_gating.md) |
+| Trust boundaries | [security_model.md](standards/security_model.md) |
+| Operational targets | [operations.md](standards/operations.md) |
 
 When updating docs, follow [docs_hygiene.md](standards/docs_hygiene.md).
 

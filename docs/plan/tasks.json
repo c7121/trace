@@ -48,14 +48,16 @@
   },
   {
     "id": 7,
+    "status": "skipped",
     "action": "dedupe",
     "path": "docs/architecture/event_flow.md",
     "section": "Notes section",
     "duplicatesFrom": "docs/architecture/invariants.md",
-    "rationale": "Replace prose restatement of at-least-once/idempotency with link to invariants.md"
+    "rationale": "SKIPPED: notes provide diagram context, not redundant prose; readers need inline context when viewing sequence diagram"
   },
   {
     "id": 8,
+    "status": "complete",
     "action": "add-section",
     "path": "docs/readme.md",
     "section": "Reading Order",
@@ -64,6 +66,7 @@
   },
   {
     "id": 9,
+    "status": "in-progress",
     "action": "add-section",
     "path": "docs/readme.md",
     "section": "Canonical Sources",
