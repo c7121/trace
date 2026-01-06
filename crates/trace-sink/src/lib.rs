@@ -31,7 +31,7 @@ pub struct SinkConfig {
 #[derive(Debug, Deserialize)]
 struct BufferPointerMessage {
     batch_uri: String,
-    content_type: Option<String>,
+    content_type: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,7 +44,7 @@ struct AlertEventRow {
     block_number: i64,
     block_hash: String,
     tx_hash: String,
-    payload: Option<Value>,
+    payload: Value,
 }
 
 pub struct Sink {
@@ -106,10 +106,11 @@ impl Sink {
             let pointer: BufferPointerMessage =
                 serde_json::from_value(msg.payload.clone()).context("decode buffer pointer")?;
 
-            if let Some(ct) = &pointer.content_type {
-                if ct != CONTENT_TYPE_JSONL {
-                    return Err(anyhow!("unsupported content_type={ct}"));
-                }
+            if pointer.content_type != CONTENT_TYPE_JSONL {
+                return Err(anyhow!(
+                    "unsupported content_type={}",
+                    pointer.content_type
+                ));
             }
 
             let (bucket, key) = parse_s3_uri(&pointer.batch_uri).context("parse batch_uri")?;
@@ -173,11 +174,8 @@ fn parse_jsonl(bytes: &[u8]) -> anyhow::Result<Vec<AlertEventRow>> {
 
         let row: AlertEventRow =
             serde_json::from_str(line).with_context(|| format!("jsonl line {}", idx + 1))?;
-
-        if let Some(payload) = &row.payload {
-            if !payload.is_object() {
-                return Err(anyhow!("payload must be an object"));
-            }
+        if !row.payload.is_object() {
+            return Err(anyhow!("payload must be an object"));
         }
 
         rows.push(row);
@@ -190,7 +188,7 @@ async fn insert_alert_events(pool: &PgPool, rows: Vec<AlertEventRow>) -> anyhow:
     let mut tx = pool.begin().await.context("begin data tx")?;
 
     for row in rows {
-        let payload = row.payload.unwrap_or_else(|| serde_json::json!({}));
+        let payload = row.payload;
         sqlx::query(
             r#"
             INSERT INTO data.alert_events (

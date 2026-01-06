@@ -75,7 +75,7 @@ struct AlertEventRowWire {
     block_number: i64,
     block_hash: String,
     tx_hash: String,
-    payload: Option<Value>,
+    payload: Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -199,6 +199,7 @@ impl FakeRunner {
                 "chain_id": 1,
                 "block_number": 1,
                 "block_hash": "0xdeadbeef",
+                "tx_hash": "0xdeadbeef",
                 "payload": "not-an-object",
             });
             let mut bytes = serde_json::to_vec(&bad_line).context("encode malformed row")?;
@@ -410,10 +411,8 @@ fn validate_alert_events_jsonl(bytes: &[u8]) -> anyhow::Result<()> {
         let row: AlertEventRowWire =
             serde_json::from_str(line).with_context(|| format!("jsonl line {}", idx + 1))?;
 
-        if let Some(payload) = &row.payload {
-            if !payload.is_object() {
-                return Err(anyhow!("payload must be an object"));
-            }
+        if !row.payload.is_object() {
+            return Err(anyhow!("payload must be an object"));
         }
     }
     Ok(())

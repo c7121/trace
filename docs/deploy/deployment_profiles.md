@@ -101,7 +101,7 @@ Poison handling:
 Keep payloads small and typed:
 
 - Task wake-up: `{"task_id":"<uuid>"}`
-- Buffered batch: `{"dataset_uuid":"<uuid>","dataset_version":"<uuid>","batch_uri":"s3://...","record_count":123}`
+- Buffered batch: `{"task_id":"<uuid>","attempt":1,"lease_token":"<uuid>","batch_uri":"s3://...","content_type":"application/jsonl","batch_size_bytes":123,"dedupe_scope":"alert_events"}`
 
 ## pgqueue backend (Trace Lite)
 

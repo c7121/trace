@@ -248,10 +248,10 @@ Request:
   "task_id": "uuid",
   "attempt": 1,
   "lease_token": "uuid",
-  "dataset_uuid": "uuid",
-  "dataset_version": "uuid",
-  "batch_uri": "s3://trace-scratch/buffers/{dataset_uuid}/{task_id}/{attempt}/batch.jsonl",
-  "record_count": 1000
+  "batch_uri": "s3://trace-scratch/buffers/{task_id}/{attempt}/batch.jsonl",
+  "content_type": "application/jsonl",
+  "batch_size_bytes": 123456,
+  "dedupe_scope": "alert_events"
 }
 ```
 
@@ -259,7 +259,7 @@ Dispatcher behavior:
 
 - Persist a buffered publish record and enqueue a Buffer Queue message via the outbox (atomic with Postgres state).
 - Reject if `(task_id, attempt, lease_token)` does not match the current lease.
-- Treat duplicate publishes as idempotent (same `(task_id, attempt, dataset_uuid, batch_uri)`).
+- Treat duplicate publishes as idempotent (same `(task_id, attempt, batch_uri)`).
 
 ### Heartbeat (`/v1/task/heartbeat`)
 
@@ -403,13 +403,13 @@ Queue message (example):
 
 ```json
 {
-  "kind": "buffer_batch",
-  "org_id": "uuid",
-  "dataset_uuid": "uuid",
-  "dataset_version": "uuid",
-  "batch_uri": "s3://trace-scratch/buffers/{dataset_uuid}/{task_id}/{attempt}/batch.jsonl",
-  "record_count": 1000,
-  "producer": { "task_id": "uuid", "attempt": 1 }
+  "task_id": "uuid",
+  "attempt": 1,
+  "lease_token": "uuid",
+  "batch_uri": "s3://trace-scratch/buffers/{task_id}/{attempt}/batch.jsonl",
+  "content_type": "application/jsonl",
+  "batch_size_bytes": 123456,
+  "dedupe_scope": "alert_events"
 }
 ```
 
@@ -418,5 +418,5 @@ Notes:
 - Queue messages must remain small (<256KB). **Do not embed full records** in queue messages.
 - **Row-level idempotency is required.** Buffered dataset rows must include a deterministic idempotency key (e.g., `dedupe_key`) or a natural unique key that is stable across retries. The sink enforces this with `UNIQUE(...)` + `ON CONFLICT DO NOTHING/UPDATE`.
 - Duplicates across attempts are expected. Batch artifacts may be written per-attempt to avoid S3 key collisions; correctness comes from sink-side row dedupe, not from attempt numbers.
-- **Multi-tenant safety:** the sink must assign `org_id` from the trusted publish record / queue message and must not trust `org_id` values embedded inside batch rows.
+- **Multi-tenant safety (future AWS profile):** the sink must assign `org_id` from a trusted publish record / queue message and must not trust `org_id` values embedded inside batch rows.
 - Producers do not need direct access to the queue backend; the Dispatcher owns queue publishing via the outbox.
