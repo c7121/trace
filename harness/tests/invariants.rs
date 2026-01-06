@@ -7,14 +7,14 @@ use trace_core::{
     fixtures::{ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX},
     runtime::RuntimeInvoker,
     udf::UdfInvocationPayload,
-    DatasetGrant, S3Grants, TaskCapabilityIssueRequest,
-    ObjectStore as ObjectStoreTrait,
-    Signer as _,
+    DatasetGrant, ObjectStore as ObjectStoreTrait, S3Grants, Signer as SignerTrait,
+    TaskCapabilityIssueRequest,
 };
 use trace_dispatcher::planner::{plan_chain_sync, PlanChainSyncRequest};
 use trace_harness::constants::{
     CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER,
 };
+use trace_harness::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_harness::{
     config::HarnessConfig,
     cryo_worker::{derive_dataset_publication, CryoIngestPayload},
@@ -25,7 +25,6 @@ use trace_harness::{
     runner::FakeRunner,
     s3::{parse_s3_uri, ObjectStore},
 };
-use trace_harness::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_query_service::{
     build_state as build_query_state, config::QueryServiceConfig, router as query_router,
     TaskQueryRequest,
@@ -1020,7 +1019,12 @@ async fn runner_claim_invoke_sink_inserts_once() -> anyhow::Result<()> {
     let result: anyhow::Result<()> = async {
         let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
         let object_store_arc: Arc<dyn ObjectStoreTrait> = Arc::new(object_store.clone());
-        let runner = FakeRunner::new(base.clone(), cfg.s3_bucket.clone(), object_store_arc);
+        let runner = FakeRunner::new(
+            base.clone(),
+            cfg.query_service_url.clone(),
+            cfg.s3_bucket.clone(),
+            object_store_arc,
+        );
         let client = reqwest::Client::new();
 
         let task_id = Uuid::new_v4();
@@ -1386,6 +1390,395 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
 }
 
 #[tokio::test]
+async fn alert_evaluate_over_parquet_dataset_emits_idempotent_events_and_rejects_malformed(
+) -> anyhow::Result<()> {
+    #[derive(Debug, Deserialize)]
+    struct ClaimResponse {
+        task_id: Uuid,
+        attempt: i64,
+        lease_token: Uuid,
+        lease_expires_at: chrono::DateTime<chrono::Utc>,
+        capability_token: String,
+        work_payload: serde_json::Value,
+    }
+
+    let mut cfg = migrated_config().await?;
+    cfg.outbox_poll_ms = 50;
+    cfg.sink_poll_ms = 50;
+
+    let state_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.state_database_url)
+        .await
+        .context("connect state db")?;
+    let data_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.data_database_url)
+        .await
+        .context("connect data db")?;
+
+    let dataset_payload = CryoIngestPayload {
+        dataset_uuid: Uuid::new_v4(),
+        chain_id: 1,
+        range_start: 0,
+        range_end: 2,
+        config_hash: "cryo_ingest.blocks:v1".to_string(),
+    };
+    let dataset_pubd = derive_dataset_publication(&cfg.s3_bucket, &dataset_payload);
+
+    let capability: Arc<dyn SignerTrait> = Arc::new(TaskCapability::from_hs256_config(
+        Hs256TaskCapabilityConfig {
+            issuer: cfg.task_capability_iss.clone(),
+            audience: cfg.task_capability_aud.clone(),
+            current_kid: cfg.task_capability_kid.clone(),
+            current_secret: cfg.task_capability_secret.clone(),
+            next_kid: cfg.task_capability_next_kid.clone(),
+            next_secret: cfg.task_capability_next_secret.clone(),
+            ttl: Duration::from_secs(cfg.task_capability_ttl_secs),
+        },
+    )?);
+
+    let queue: Arc<dyn trace_core::Queue> = Arc::new(PgQueue::new(state_pool.clone()));
+    let dispatcher_cfg = trace_dispatcher::DispatcherConfig {
+        org_id: cfg.org_id,
+        lease_duration_secs: cfg.lease_duration_secs,
+        outbox_poll_ms: cfg.outbox_poll_ms,
+        lease_reaper_poll_ms: cfg.lease_reaper_poll_ms,
+        outbox_batch_size: cfg.outbox_batch_size,
+        task_wakeup_queue: cfg.task_wakeup_queue.clone(),
+        buffer_queue: cfg.buffer_queue.clone(),
+        default_datasets: vec![DatasetGrant {
+            dataset_uuid: dataset_pubd.dataset_uuid,
+            dataset_version: dataset_pubd.dataset_version,
+            storage_prefix: Some(dataset_pubd.storage_prefix.clone()),
+        }],
+        default_s3: S3Grants {
+            read_prefixes: vec![dataset_pubd.storage_prefix.clone()],
+            write_prefixes: Vec::new(),
+        },
+    };
+
+    let dispatcher = trace_dispatcher::DispatcherServer::start(
+        state_pool.clone(),
+        dispatcher_cfg,
+        capability,
+        queue,
+        "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        true,
+        false,
+    )
+    .await?;
+    let dispatcher_base = format!("http://{}", dispatcher.addr);
+
+    let mut qs_cfg = QueryServiceConfig::from_env().context("load query service config")?;
+    qs_cfg.data_database_url = cfg.data_database_url.clone();
+    qs_cfg.task_capability_iss = cfg.task_capability_iss.clone();
+    qs_cfg.task_capability_aud = cfg.task_capability_aud.clone();
+    qs_cfg.task_capability_kid = cfg.task_capability_kid.clone();
+    qs_cfg.task_capability_secret = cfg.task_capability_secret.clone();
+    qs_cfg.task_capability_next_kid = cfg.task_capability_next_kid.clone();
+    qs_cfg.task_capability_next_secret = cfg.task_capability_next_secret.clone();
+    qs_cfg.task_capability_ttl_secs = cfg.task_capability_ttl_secs;
+    qs_cfg.s3_endpoint = cfg.s3_endpoint.clone();
+
+    let qs_state = build_query_state(qs_cfg)
+        .await
+        .context("build query service state")?;
+    let qs_app = query_router(qs_state);
+    let qs_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("bind query service")?;
+    let qs_addr = qs_listener
+        .local_addr()
+        .context("query service local_addr")?;
+    let qs_base = format!("http://{qs_addr}");
+
+    let (qs_shutdown_tx, qs_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let qs_task = tokio::spawn(async move {
+        axum::serve(qs_listener, qs_app.into_make_service())
+            .with_graceful_shutdown(async move {
+                let _ = qs_shutdown_rx.await;
+            })
+            .await
+            .context("query service serve")
+    });
+
+    let sink_cfg = cfg.clone();
+    let sink_task = tokio::spawn(async move { trace_harness::sink::run(&sink_cfg).await });
+
+    let result: anyhow::Result<()> = async {
+        let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
+        let object_store_arc: Arc<dyn ObjectStoreTrait> = Arc::new(object_store.clone());
+        let runner = FakeRunner::new(
+            dispatcher_base.clone(),
+            qs_base.clone(),
+            cfg.s3_bucket.clone(),
+            object_store_arc,
+        );
+        let dispatcher_client = DispatcherClient::new(dispatcher_base.clone());
+
+        // Produce a real Parquet dataset version via the trusted Cryo worker path.
+        let cryo_task_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO state.tasks (task_id, status, payload)
+            VALUES ($1, 'queued', $2)
+            ON CONFLICT (task_id) DO UPDATE
+            SET status = EXCLUDED.status,
+                payload = EXCLUDED.payload,
+                lease_token = NULL,
+                lease_expires_at = NULL,
+                updated_at = now()
+            "#,
+        )
+        .bind(cryo_task_id)
+        .bind(serde_json::to_value(&dataset_payload).context("encode cryo payload")?)
+        .execute(&state_pool)
+        .await
+        .context("insert cryo task")?;
+
+        let res = trace_harness::cryo_worker::run_task(
+            &cfg,
+            &object_store as &dyn ObjectStoreTrait,
+            &dispatcher_client,
+            cryo_task_id,
+        )
+        .await?;
+        anyhow::ensure!(res.is_some(), "expected cryo task to complete");
+
+        // Alert evaluation task: query the attached dataset and emit one alert event per row.
+        let eval_task_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO state.tasks (task_id, status, payload)
+            VALUES ($1, 'queued', $2)
+            ON CONFLICT (task_id) DO UPDATE
+            SET status = EXCLUDED.status,
+                payload = EXCLUDED.payload,
+                lease_token = NULL,
+                lease_expires_at = NULL,
+                updated_at = now()
+            "#,
+        )
+        .bind(eval_task_id)
+        .bind(serde_json::json!({
+            "bundle_url": format!("s3://{}/bundles/{}.json", cfg.s3_bucket, eval_task_id),
+            "alert_evaluate": {
+                "alert_definition_id": DEFAULT_ALERT_DEFINITION_ID,
+                "dataset_id": dataset_pubd.dataset_uuid,
+                "dataset_version": dataset_pubd.dataset_version,
+                "sql": "SELECT chain_id, block_number, block_hash FROM dataset ORDER BY block_number",
+                "retry_once": true
+            }
+        }))
+        .execute(&state_pool)
+        .await
+        .context("insert eval task")?;
+
+        let claim1: ClaimResponse = reqwest::Client::new()
+            .post(format!("{dispatcher_base}/internal/task-claim"))
+            .json(&serde_json::json!({ "task_id": eval_task_id }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        let invocation1 = UdfInvocationPayload {
+            task_id: claim1.task_id,
+            attempt: claim1.attempt,
+            lease_token: claim1.lease_token,
+            lease_expires_at: claim1.lease_expires_at,
+            capability_token: claim1.capability_token,
+            bundle_url: claim1.work_payload["bundle_url"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            work_payload: claim1.work_payload,
+        };
+        runner
+            .invoke(&invocation1)
+            .await
+            .map_err(anyhow::Error::from)?;
+
+        let claim2: ClaimResponse = reqwest::Client::new()
+            .post(format!("{dispatcher_base}/internal/task-claim"))
+            .json(&serde_json::json!({ "task_id": eval_task_id }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        let invocation2 = UdfInvocationPayload {
+            task_id: claim2.task_id,
+            attempt: claim2.attempt,
+            lease_token: claim2.lease_token,
+            lease_expires_at: claim2.lease_expires_at,
+            capability_token: claim2.capability_token,
+            bundle_url: claim2.work_payload["bundle_url"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            work_payload: claim2.work_payload,
+        };
+        runner
+            .invoke(&invocation2)
+            .await
+            .map_err(anyhow::Error::from)?;
+
+        let expected_keys = [0_i64, 1_i64, 2_i64]
+            .into_iter()
+            .map(|block_number| {
+                format!(
+                    "alert_eval:{}:{}:{}",
+                    DEFAULT_ALERT_DEFINITION_ID, dataset_pubd.dataset_version, block_number
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let count: i64 = sqlx::query_scalar(
+                r#"
+                SELECT count(*)
+                FROM data.alert_events
+                WHERE dedupe_key = ANY($1)
+                "#,
+            )
+            .bind(&expected_keys)
+            .fetch_one(&data_pool)
+            .await?;
+
+            if count == expected_keys.len() as i64 {
+                break;
+            }
+
+            if tokio::time::Instant::now() > deadline {
+                anyhow::bail!("timed out waiting for alert_events insert");
+            }
+
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let audit_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM data.query_audit
+            WHERE task_id = $1
+              AND dataset_id = $2
+            "#,
+        )
+        .bind(eval_task_id)
+        .bind(dataset_pubd.dataset_uuid)
+        .fetch_one(&data_pool)
+        .await?;
+        anyhow::ensure!(audit_count >= 1, "expected at least 1 audit row");
+
+        // Malformed UDF output is rejected before buffer publish; no outbox/sink writes occur.
+        let bad_task_id = Uuid::new_v4();
+        let bad_alert_definition_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO state.tasks (task_id, status, payload)
+            VALUES ($1, 'queued', $2)
+            ON CONFLICT (task_id) DO UPDATE
+            SET status = EXCLUDED.status,
+                payload = EXCLUDED.payload,
+                lease_token = NULL,
+                lease_expires_at = NULL,
+                updated_at = now()
+            "#,
+        )
+        .bind(bad_task_id)
+        .bind(serde_json::json!({
+            "bundle_url": format!("s3://{}/bundles/{}.json", cfg.s3_bucket, bad_task_id),
+            "alert_evaluate": {
+                "alert_definition_id": bad_alert_definition_id,
+                "dataset_id": dataset_pubd.dataset_uuid,
+                "dataset_version": dataset_pubd.dataset_version,
+                "sql": "SELECT chain_id, block_number, block_hash FROM dataset ORDER BY block_number",
+                "emit_malformed_output": true
+            }
+        }))
+        .execute(&state_pool)
+        .await
+        .context("insert malformed eval task")?;
+
+        let bad_claim: ClaimResponse = reqwest::Client::new()
+            .post(format!("{dispatcher_base}/internal/task-claim"))
+            .json(&serde_json::json!({ "task_id": bad_task_id }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        let bad_invocation = UdfInvocationPayload {
+            task_id: bad_claim.task_id,
+            attempt: bad_claim.attempt,
+            lease_token: bad_claim.lease_token,
+            lease_expires_at: bad_claim.lease_expires_at,
+            capability_token: bad_claim.capability_token,
+            bundle_url: bad_claim.work_payload["bundle_url"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            work_payload: bad_claim.work_payload,
+        };
+        runner
+            .invoke(&bad_invocation)
+            .await
+            .map_err(anyhow::Error::from)?;
+
+        let malformed_dedupe_key = format!(
+            "alert_eval:{}:{}:malformed",
+            bad_alert_definition_id, dataset_pubd.dataset_version
+        );
+        let bad_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM data.alert_events
+            WHERE dedupe_key = $1
+            "#,
+        )
+        .bind(&malformed_dedupe_key)
+        .fetch_one(&data_pool)
+        .await?;
+        anyhow::ensure!(
+            bad_count == 0,
+            "expected no alert_events rows for malformed output"
+        );
+
+        let outbox_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM state.outbox
+            WHERE topic = $1
+              AND payload->>'task_id' = $2
+            "#,
+        )
+        .bind(&cfg.buffer_queue)
+        .bind(bad_task_id.to_string())
+        .fetch_one(&state_pool)
+        .await?;
+        anyhow::ensure!(
+            outbox_count == 0,
+            "expected no outbox buffer publish rows for malformed task"
+        );
+
+        Ok(())
+    }
+    .await;
+
+    sink_task.abort();
+    let _ = qs_shutdown_tx.send(());
+    let _ = qs_task.await;
+    let _ = dispatcher.shutdown().await;
+    result
+}
+
+#[tokio::test]
 async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<()> {
     let cfg = migrated_config().await?;
     let state_pool = PgPoolOptions::new()
@@ -1464,10 +1857,7 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
         .await
         .context("count dataset_versions")?;
 
-        anyhow::ensure!(
-            count == 1,
-            "expected 1 dataset_versions row, got {count}"
-        );
+        anyhow::ensure!(count == 1, "expected 1 dataset_versions row, got {count}");
 
         let (dataset_version, storage_prefix): (Uuid, String) = sqlx::query_as(
             r#"
@@ -1499,8 +1889,7 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
             expected.storage_prefix
         );
 
-        let (bucket, prefix_key) =
-            parse_s3_uri(&storage_prefix).context("parse storage prefix")?;
+        let (bucket, prefix_key) = parse_s3_uri(&storage_prefix).context("parse storage prefix")?;
         let manifest_key = join_key(&prefix_key, "_manifest.json");
         let manifest_bytes = object_store
             .get_bytes(&bucket, &manifest_key)
@@ -1517,7 +1906,8 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
             &prefix_key,
             &format!("cryo_{}_{}.parquet", payload.range_start, payload.range_end),
         );
-        let expected_parquet_uri = serde_json::Value::String(format!("s3://{bucket}/{parquet_key}"));
+        let expected_parquet_uri =
+            serde_json::Value::String(format!("s3://{bucket}/{parquet_key}"));
 
         anyhow::ensure!(
             parquet_objects == &[expected_parquet_uri],
@@ -1574,7 +1964,10 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
         let r1 = plan_chain_sync(&state_pool, &cfg.task_wakeup_queue, req.clone()).await?;
         let r2 = plan_chain_sync(&state_pool, &cfg.task_wakeup_queue, req.clone()).await?;
         anyhow::ensure!(r1.scheduled_ranges == 3, "expected 3 scheduled ranges");
-        anyhow::ensure!(r2.scheduled_ranges == 0, "expected idempotent planner restart");
+        anyhow::ensure!(
+            r2.scheduled_ranges == 0,
+            "expected idempotent planner restart"
+        );
 
         let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
         let dispatcher = DispatcherClient::new(base.clone());
@@ -1658,7 +2051,10 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
         .await
         .context("count dataset_versions")?;
 
-        anyhow::ensure!(dataset_rows == 3, "expected 3 dataset versions, got {dataset_rows}");
+        anyhow::ensure!(
+            dataset_rows == 3,
+            "expected 3 dataset versions, got {dataset_rows}"
+        );
 
         // Prove Query Service can attach+query one produced dataset version.
         let signer = TaskCapability::from_hs256_config(Hs256TaskCapabilityConfig {
@@ -1734,7 +2130,11 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
                 .send()
                 .await?;
 
-            anyhow::ensure!(resp.status().is_success(), "expected 200, got {}", resp.status());
+            anyhow::ensure!(
+                resp.status().is_success(),
+                "expected 200, got {}",
+                resp.status()
+            );
             let body = resp.json::<serde_json::Value>().await?;
             let count = body["rows"][0][0].as_i64().context("count")?;
             anyhow::ensure!(count == 3, "expected 3 rows, got {count}");
@@ -1772,7 +2172,10 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
         .fetch_one(&state_pool)
         .await?;
 
-        anyhow::ensure!(cursor_next == to_block, "expected cursor next_block={to_block}, got {cursor_next}");
+        anyhow::ensure!(
+            cursor_next == to_block,
+            "expected cursor next_block={to_block}, got {cursor_next}"
+        );
 
         Ok(())
     }
