@@ -60,7 +60,7 @@ Offchain feeds (price data, labels, external APIs) enter via **source jobs at DA
 ### Reorg and correctness
 Ingestion operators MUST:
 - emit deterministic idempotency keys for append-style sinks,
-- integrate with invalidation/versioning where applicable (see `docs/architecture/data_versioning.md`),
+- integrate with invalidation/versioning where applicable (see [data_versioning.md](../architecture/data_versioning.md)),
 - tolerate task retries and duplicate scheduling.
 
 ## Contract requirements
@@ -69,7 +69,7 @@ Ingestion operators MUST:
 - For Parquet outputs (replace-style datasets), the ingestion task MUST report dataset publications on task completion so the Dispatcher can register `dataset_versions` idempotently (Lite: `datasets_published` on `POST /v1/task/complete`).
 
 ## Security considerations
-- Ingestion code may need provider credentials (RPC keys). Credentials are injected via platform secret handling; untrusted code must not gain broad AWS perms (see `docs/standards/security_model.md`).
+- Ingestion code may need provider credentials (RPC keys). Credentials are injected via platform secret handling; untrusted code must not gain broad AWS perms (see [security_model.md](../standards/security_model.md)).
 
 ## Alternatives considered
 - Hardcode ingestion into the platform.
@@ -93,8 +93,8 @@ Trace does not have a special historical-ingestion primitive. Bootstrap sync is 
 
 ## Related
 - Operator docs:
-  - `docs/architecture/operators/block_follower.md`
-  - `docs/architecture/operators/cryo_ingest.md`
-  - `docs/architecture/operators/parquet_compact.md`
-  - `docs/architecture/operators/integrity_check.md`
-- Versioning: `docs/architecture/data_versioning.md`
+  - [block_follower.md](../architecture/operators/block_follower.md)
+  - [cryo_ingest.md](../architecture/operators/cryo_ingest.md)
+  - [parquet_compact.md](../architecture/operators/parquet_compact.md)
+  - [integrity_check.md](../architecture/operators/integrity_check.md)
+- Versioning: [data_versioning.md](../architecture/data_versioning.md)

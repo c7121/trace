@@ -11,7 +11,8 @@ Before doing anything else, the agent MUST read and follow:
   - Harness: `cd harness && cargo test` (deps: `docker compose up -d`, then `cargo run -- migrate`)
 
 - Repo-specific constraints (optional):
-  - …
+  - No em dashes (—) in docs; use hyphens (-) or colons
+  - Mermaid labels: no parentheses, brackets, or curly braces
 
 Notes:
 - Shared standards and templates are in docs/* and SHOULD be treated as normative unless explicitly overridden here.

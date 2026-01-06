@@ -15,13 +15,6 @@ Start here if you are implementing Trace.
 9. **Operators**: `operators/` (built-in job implementations and recipes)
 
 
-## Doc ownership rules (keep this repo coherent)
+## Doc ownership
 
-- **`task_lifecycle.md`** owns correctness under failure (retries, leases, outbox).
-- **`contracts.md`** owns wire-level contracts (payload fields, required auth, fencing).
-- **`user_api_contracts.md`** owns the list of user-facing routes and their authz invariants.
-- **`standards/security_model.md`** owns trust boundaries and identity contexts.
-- **Specs (`docs/specs/`)** own product/feature intent and public surface; they SHOULD NOT duplicate wire contracts.
-- **ADRs (`docs/adr/`)** own the “why” and scope-limiting decisions.
-
-If you need to explain the same thing twice, pick one owner doc and link to it.
+See [docs_hygiene.md](../standards/docs_hygiene.md#doc-ownership) for the canonical ownership table.

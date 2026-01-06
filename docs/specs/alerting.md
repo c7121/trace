@@ -32,11 +32,11 @@ Constraints:
 ## Public surface changes
 Public surface includes API endpoints, schemas, config semantics, and persistence formats.
 
-- Endpoints/RPC: Alert CRUD + delivery status endpoints (see `docs/architecture/user_api_contracts.md`); task buffer publish for `alert_events` (see `docs/architecture/contracts.md`).
-- Events/schemas: `alert_events` buffered dataset batch format (see `docs/adr/0006-buffered-postgres-datasets.md`).
+- Endpoints/RPC: Alert CRUD + delivery status endpoints (see [user_api_contracts.md](../architecture/user_api_contracts.md)); task buffer publish for `alert_events` (see [contracts.md](../architecture/contracts.md)).
+- Events/schemas: `alert_events` buffered dataset batch format (see [ADR 0006](../adr/0006-buffered-postgres-datasets.md)).
 - CLI: None.
-- Config semantics: DAG jobs `alert_evaluate` and `alert_route` (see `docs/specs/dag_configuration.md` and operator docs).
-- Persistence format/migration: Postgres data tables `alert_definitions`, `alert_events`, `alert_deliveries` (DDL in `docs/architecture/data_model/alerting.md`).
+- Config semantics: DAG jobs `alert_evaluate` and `alert_route` (see [dag_configuration.md](dag_configuration.md) and operator docs).
+- Persistence format/migration: Postgres data tables `alert_definitions`, `alert_events`, `alert_deliveries` (DDL in [data_model/alerting.md](../architecture/data_model/alerting.md)).
 - Intentionally not supported (surface area control): direct webhook calls from UDFs; custom provider integrations inside UDF runtime.
 
 ## Architecture (C4) - Mermaid-in-Markdown only
@@ -112,7 +112,7 @@ Validation + refusal behavior:
 
 General buffered dataset idempotency rules are defined in [ADR 0006](../adr/0006-buffered-postgres-datasets.md#idempotency-requirements). Alerting-specific bindings:
 
-- `alert_events` MUST be idempotent via a deterministic `dedupe_key`. The table enforces `UNIQUE (org_id, dedupe_key)`. See `docs/architecture/data_model/alerting.md`.
+- `alert_events` MUST be idempotent via a deterministic `dedupe_key`. The table enforces `UNIQUE (org_id, dedupe_key)`. See [data_model/alerting.md](../architecture/data_model/alerting.md).
 - `alert_deliveries` MUST be idempotent per channel via `UNIQUE (org_id, alert_event_id, channel)`.
 - Delivery semantics are at-least-once: providers may see duplicates on timeouts; include a stable provider idempotency key where supported (use `alert_deliveries.id`).
 
@@ -122,11 +122,11 @@ Alert events are at-least-once. Producers and sinks MUST tolerate duplicates.
 
 - Each emitted alert event MUST include a deterministic `dedupe_key` that is **stable across retries/attempts**.
 - The `dedupe_key` MUST be derived from event identity (e.g., `{alert_definition_id, partition_key, tx_hash}`) or a stable hash of canonicalized event content.
-- The sink enforces idempotency with a uniqueness constraint (see `docs/architecture/data_model/alerting.md`).
+- The sink enforces idempotency with a uniqueness constraint (see [data_model/alerting.md](../architecture/data_model/alerting.md)).
 
 ### Reorg / invalidation behavior
 - Reorg-safe producers should include reorg-relevant identifiers in the `dedupe_key` and event payload (e.g., `block_hash`).
-- Reorg correction uses the platform’s invalidation/versioning mechanisms (see `docs/architecture/data_versioning.md`). Alert routing should apply staleness gating based on `event_time` and/or cursor state.
+- Reorg correction uses the platform's invalidation/versioning mechanisms (see [data_versioning.md](../architecture/data_versioning.md)). Alert routing should apply staleness gating based on `event_time` and/or cursor state.
 
 ## Contract requirements
 - UDF evaluation code MUST be treated as untrusted, even if executed on Lambda.

@@ -19,7 +19,7 @@ This document does **not** restate payload schemas in full; feature specs under 
   - roles/permissions (if enabled)
 - All reads and writes MUST be scoped to `org_id`. Cross-org access is always forbidden.
 
-Claim mapping for the user JWT is defined in: `docs/standards/security_model.md`.
+Claim mapping for the user JWT is defined in: [security_model.md](../standards/security_model.md).
 
 ## Route allowlist
 
@@ -33,7 +33,7 @@ No user-facing query routes are implemented yet.
 - `GET /v1/datasets/{dataset_name}` - fetch dataset metadata and current version pointer.
 
 Owned by: Dispatcher (registry is in Postgres state).
-References: ADR `0008-dataset-registry-and-publishing.md`, `docs/architecture/data_model/orchestration.md`.
+References: [ADR 0008](../adr/0008-dataset-registry-and-publishing.md), [orchestration.md](data_model/orchestration.md).
 
 ### DAG deployment
 
@@ -41,7 +41,7 @@ References: ADR `0008-dataset-registry-and-publishing.md`, `docs/architecture/da
 - `GET /v1/dags/{dag_name}/versions` - list deployed versions.
 - `PUT /v1/dags/{dag_name}/active` - set the org+dag active pointer to a deployed version.
 
-Spec: `docs/specs/dag_configuration.md`.
+Spec: [dag_configuration.md](../specs/dag_configuration.md).
 
 ### UDF bundles
 
@@ -50,7 +50,7 @@ UDF bundle upload is a two-step control-plane flow to keep large payloads out of
 - `POST /v1/udf/bundles` - create an upload session and return a pre-signed upload URL.
 - `POST /v1/udf/bundles/{bundle_id}/finalize` - finalize metadata (content hash, runtime, entrypoint).
 
-Spec: `docs/specs/udf.md`.
+Spec: [udf.md](../specs/udf.md).
 
 ### Alerts
 
@@ -61,7 +61,7 @@ Spec: `docs/specs/udf.md`.
 - `DELETE /v1/alerts/{alert_id}` - disable/delete an alert definition.
 - `GET /v1/alerts/{alert_id}/deliveries` - list delivery attempts/status.
 
-Spec: `docs/specs/alerting.md`.
+Spec: [alerting.md](../specs/alerting.md).
 
 ## Explicit non-user routes
 
@@ -76,4 +76,4 @@ The following are planned but are **not** reachable via the Gateway today:
 
 - `POST /v1/query` - user-facing interactive query execution (Query Service).
   - Blocked on dataset registry + published dataset authz and a stable query results model.
-  - Reference: `docs/architecture/containers/query_service.md`
+  - Reference: [query_service.md](containers/query_service.md)
