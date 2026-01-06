@@ -4,7 +4,7 @@
 //! flows with a fail-closed SQL validator.
 
 use crate::config::QueryServiceConfig;
-use crate::dataset::{DatasetDownloadLimits, DatasetLoadError, DownloadedParquetDataset};
+use crate::dataset::{DatasetAttachLimits, DatasetLoadError};
 use crate::duckdb::{DuckDbSandbox, QueryResultSet};
 use anyhow::Context;
 use axum::{
@@ -41,8 +41,9 @@ pub struct AppState {
     pub signer: TaskCapability,
     pub duckdb: DuckDbSandbox,
     pub data_pool: sqlx::PgPool,
+    pub http: reqwest::Client,
     pub object_store: Arc<dyn ObjectStoreTrait>,
-    pub dataset_limits: DatasetDownloadLimits,
+    pub dataset_limits: DatasetAttachLimits,
 }
 
 impl std::fmt::Debug for AppState {
@@ -51,6 +52,7 @@ impl std::fmt::Debug for AppState {
             .field("cfg", &self.cfg)
             .field("data_pool", &"<PgPool>")
             .field("signer", &"<TaskCapability>")
+            .field("http", &"<reqwest::Client>")
             .field("object_store", &"<ObjectStore>")
             .finish()
     }
@@ -75,16 +77,18 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     .context("init task capability signer")?;
 
     let duckdb = DuckDbSandbox::new();
+    let http = reqwest::Client::new();
     let object_store =
         Arc::new(trace_core::lite::s3::ObjectStore::new(&cfg.s3_endpoint).context("init s3")?);
 
-    let dataset_limits = DatasetDownloadLimits::from(&cfg);
+    let dataset_limits = DatasetAttachLimits::from(&cfg);
 
     Ok(AppState {
         cfg,
         signer,
         duckdb,
         data_pool,
+        http,
         object_store,
         dataset_limits,
     })
@@ -136,7 +140,7 @@ async fn task_query(
         ApiError::bad_request("invalid sql")
     })?;
 
-    let dataset = prepare_dataset(&state, &claims.s3, &grant).await?;
+    let parquet_urls = prepare_dataset(&state, &claims.s3, &grant).await?;
 
     let limit = req
         .limit
@@ -146,7 +150,7 @@ async fn task_query(
 
     let mut results = state
         .duckdb
-        .query_with_dataset_urls(&dataset.parquet_paths, req.sql, limit + 1)
+        .query_with_dataset_urls(&parquet_urls, req.sql, limit + 1)
         .await
         .map_err(|_err| {
             // Avoid logging raw SQL; DuckDB errors may embed the statement text.
@@ -266,7 +270,7 @@ async fn prepare_dataset(
     state: &AppState,
     s3: &S3Grants,
     grant: &DatasetGrant,
-) -> Result<DownloadedParquetDataset, ApiError> {
+) -> Result<Vec<String>, ApiError> {
     let storage_prefix = grant
         .storage_prefix
         .as_deref()
@@ -277,7 +281,7 @@ async fn prepare_dataset(
         return Err(ApiError::forbidden("dataset storage not authorized"));
     }
 
-    let manifest = dataset::fetch_manifest(
+    let manifest = dataset::fetch_manifest_only(
         state.object_store.as_ref(),
         storage_prefix,
         &state.dataset_limits,
@@ -291,13 +295,14 @@ async fn prepare_dataset(
         }
     }
 
-    dataset::download_parquet_objects(
-        state.object_store.as_ref(),
+    dataset::s3_parquet_uris_to_http_urls(
+        &state.http,
+        &state.cfg.s3_endpoint,
         &manifest.parquet_objects,
         &state.dataset_limits,
     )
     .await
-    .map_err(|err| map_dataset_error("parquet download failed", err))
+    .map_err(|err| map_dataset_error("parquet url resolve failed", err))
 }
 
 async fn insert_query_audit(

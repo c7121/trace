@@ -66,10 +66,16 @@ pub struct QueryServiceConfig {
     pub dataset_max_objects: usize,
 
     /// Max allowed size of any single Parquet object in bytes.
+    ///
+    /// Lite implementation note: enforced via `HEAD` (Content-Length) on each manifest object,
+    /// before attaching the dataset for remote scanning.
     #[arg(long, env = "DATASET_MAX_OBJECT_BYTES", default_value_t = 268_435_456)]
     pub dataset_max_object_bytes: u64,
 
-    /// Max total bytes downloaded per dataset attachment (sum of Parquet objects).
+    /// Max total bytes for Parquet objects referenced by a manifest (sum of Content-Length).
+    ///
+    /// This is a defensive cap to avoid attaching a dataset that would exceed reasonable local
+    /// resource or cost expectations. Query Service does not download full objects up front.
     #[arg(long, env = "DATASET_MAX_TOTAL_BYTES", default_value_t = 1_073_741_824)]
     pub dataset_max_total_bytes: u64,
 }

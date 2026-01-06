@@ -1,17 +1,16 @@
 use crate::config::QueryServiceConfig;
 use anyhow::Context;
+use reqwest::Url;
 use serde::Deserialize;
 use trace_core::lite::s3::parse_s3_uri;
 use trace_core::ObjectStore as ObjectStoreTrait;
-use uuid::Uuid;
-use std::path::PathBuf;
 
-/// Dataset attach/download limits.
+/// Dataset attach limits.
 ///
 /// The `_manifest.json` document and referenced objects are treated as **untrusted input**.
 /// These limits are defensive (prevent unbounded disk/memory/CPU consumption).
 #[derive(Debug, Clone)]
-pub struct DatasetDownloadLimits {
+pub struct DatasetAttachLimits {
     pub max_manifest_bytes: usize,
     pub max_objects: usize,
     pub max_object_bytes: u64,
@@ -19,7 +18,7 @@ pub struct DatasetDownloadLimits {
     pub max_uri_len: usize,
 }
 
-impl From<&QueryServiceConfig> for DatasetDownloadLimits {
+impl From<&QueryServiceConfig> for DatasetAttachLimits {
     fn from(cfg: &QueryServiceConfig) -> Self {
         Self {
             max_manifest_bytes: cfg.dataset_max_manifest_bytes,
@@ -73,23 +72,10 @@ impl DatasetLoadError {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DatasetManifest {
     #[serde(default, alias = "objects")]
     pub parquet_objects: Vec<String>,
-}
-
-/// Parquet dataset downloaded to a local temp directory.
-///
-/// The temp directory is deleted on drop.
-pub struct DownloadedParquetDataset {
-    dir: PathBuf,
-    pub parquet_paths: Vec<PathBuf>,
-}
-
-impl Drop for DownloadedParquetDataset {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
 }
 
 pub fn manifest_uri(storage_prefix: &str) -> String {
@@ -97,10 +83,10 @@ pub fn manifest_uri(storage_prefix: &str) -> String {
     format!("{prefix}/_manifest.json")
 }
 
-pub async fn fetch_manifest(
+pub async fn fetch_manifest_only(
     object_store: &dyn ObjectStoreTrait,
     storage_prefix: &str,
-    limits: &DatasetDownloadLimits,
+    limits: &DatasetAttachLimits,
 ) -> Result<DatasetManifest, DatasetLoadError> {
     let uri = manifest_uri(storage_prefix);
     let (bucket, key) = parse_s3_uri(&uri)
@@ -128,11 +114,12 @@ pub async fn fetch_manifest(
     Ok(manifest)
 }
 
-pub async fn download_parquet_objects(
-    object_store: &dyn ObjectStoreTrait,
+pub async fn s3_parquet_uris_to_http_urls(
+    http: &reqwest::Client,
+    s3_endpoint: &str,
     parquet_objects: &[String],
-    limits: &DatasetDownloadLimits,
-) -> Result<DownloadedParquetDataset, DatasetLoadError> {
+    limits: &DatasetAttachLimits,
+) -> Result<Vec<String>, DatasetLoadError> {
     if parquet_objects.is_empty() {
         return Err(DatasetLoadError::Invalid(anyhow::anyhow!(
             "manifest has no parquet objects"
@@ -147,15 +134,11 @@ pub async fn download_parquet_objects(
         )));
     }
 
-    let dir = std::env::temp_dir().join(format!("trace-query-dataset-{}", Uuid::new_v4()));
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .context("create dataset temp dir")
-        .map_err(DatasetLoadError::Retryable)?;
-
     let mut remaining_budget = limits.max_total_bytes;
     let mut parquet_paths = Vec::with_capacity(parquet_objects.len());
-    for (idx, uri) in parquet_objects.iter().enumerate() {
+    let base = parse_endpoint_base(s3_endpoint)?;
+
+    for uri in parquet_objects {
         if uri.len() > limits.max_uri_len {
             return Err(DatasetLoadError::Invalid(anyhow::anyhow!(
                 "parquet uri exceeds max_uri_len"
@@ -166,13 +149,9 @@ pub async fn download_parquet_objects(
             .context("parse parquet s3 uri")
             .map_err(DatasetLoadError::Invalid)?;
 
-        let bytes = object_store
-            .get_bytes(&bucket, &key)
-            .await
-            .context("fetch parquet object")
-            .map_err(DatasetLoadError::Retryable)?;
+        let url = http_object_url(&base, &bucket, &key)?;
+        let object_len = head_content_length(http, &url).await?;
 
-        let object_len = bytes.len() as u64;
         if object_len > limits.max_object_bytes {
             return Err(DatasetLoadError::TooLarge(anyhow::anyhow!(
                 "object exceeds max_object_bytes: {object_len} > {}",
@@ -186,20 +165,68 @@ pub async fn download_parquet_objects(
         }
         remaining_budget = remaining_budget.saturating_sub(object_len);
 
-        let path = dir.join(format!("{idx}.parquet"));
-        tokio::fs::write(&path, bytes)
-            .await
-            .context("write parquet object")
-            .map_err(DatasetLoadError::Retryable)?;
-        parquet_paths.push(path);
+        if url.len() > limits.max_uri_len {
+            return Err(DatasetLoadError::Invalid(anyhow::anyhow!(
+                "parquet url exceeds max_uri_len"
+            )));
+        }
+        parquet_paths.push(url);
     }
 
-    Ok(DownloadedParquetDataset { dir, parquet_paths })
+    Ok(parquet_paths)
+}
+
+fn parse_endpoint_base(endpoint: &str) -> Result<String, DatasetLoadError> {
+    let endpoint: Url = endpoint
+        .parse()
+        .context("parse s3 endpoint url")
+        .map_err(DatasetLoadError::Invalid)?;
+
+    Ok(endpoint.as_str().trim_end_matches('/').to_string())
+}
+
+fn http_object_url(base: &str, bucket: &str, key: &str) -> Result<String, DatasetLoadError> {
+    let url = format!("{base}/{bucket}/{key}");
+    url.parse::<Url>()
+        .context("build http object url")
+        .map_err(DatasetLoadError::Invalid)?;
+
+    Ok(url)
+}
+
+async fn head_content_length(
+    http: &reqwest::Client,
+    url: &str,
+) -> Result<u64, DatasetLoadError> {
+    let resp = http
+        .head(url)
+        .send()
+        .await
+        .context("HEAD parquet object")
+        .map_err(DatasetLoadError::Retryable)?;
+
+    let resp = resp
+        .error_for_status()
+        .context("HEAD parquet object status")
+        .map_err(DatasetLoadError::Retryable)?;
+
+    let len = resp
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .ok_or_else(|| {
+            DatasetLoadError::Invalid(anyhow::anyhow!(
+                "parquet object missing Content-Length"
+            ))
+        })?;
+
+    Ok(len)
 }
 
 fn validate_manifest(
     manifest: &DatasetManifest,
-    limits: &DatasetDownloadLimits,
+    limits: &DatasetAttachLimits,
 ) -> Result<(), DatasetLoadError> {
     if manifest.parquet_objects.is_empty() {
         return Err(DatasetLoadError::Invalid(anyhow::anyhow!(
