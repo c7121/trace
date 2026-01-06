@@ -14,36 +14,36 @@ sequenceDiagram
     participant SinkW as Platform worker sink operator
     participant S as Storage - S3 or Postgres data
 
-    Src->>D: Emit upstream events (fenced; see contracts)
+    Src->>D: Emit upstream events, fenced
     D->>PG: Persist event and enqueue routing work
     D->>PG: Create downstream tasks dedupe
     alt runtime is lambda
         D->>L: Invoke with full task payload
         L->>S: Execute, write output to staging
-        L->>D: Report task completion (fenced; see contracts)
+        L->>D: Report task completion, fenced
         D->>PG: Commit outputs and advance cursor or record partition
         D->>D: Emit and route dataset events after commit
     else runtime is ecs
-        D->>TaskQ: Enqueue wake up {task_id}
-        TaskQ->>W: Deliver {task_id}
-        W->>D: Claim task / acquire lease (see contracts)
-        D->>PG: Acquire lease Queued -> Running
-        D->>W: {attempt, lease_token, task payload}
+        D->>TaskQ: Enqueue wake up task_id
+        TaskQ->>W: Deliver task_id
+        W->>D: Claim task, acquire lease
+        D->>PG: Acquire lease Queued to Running
+        D->>W: Return attempt, lease_token, task payload
         W->>S: Execute, write output to staging
-        W->>D: Report task completion (fenced; see contracts)
+        W->>D: Report task completion, fenced
         D->>PG: Commit outputs and advance cursor or record partition
         D->>D: Emit and route dataset events after commit
     end
 
     opt buffered Postgres dataset output
         W->>S: Write batch artifact to scratch
-        W->>D: Publish buffer batch pointer (fenced; see contracts)
+        W->>D: Publish buffer batch pointer, fenced
         L->>S: Write batch artifact to scratch
-        L->>D: Publish buffer batch pointer (fenced; see contracts)
+        L->>D: Publish buffer batch pointer, fenced
         D->>BufQ: Enqueue pointer message
         SinkW->>BufQ: Drain messages
         SinkW->>S: Write Postgres data
-        SinkW->>D: Emit dataset events after commit (fenced; see contracts)
+        SinkW->>D: Emit dataset events after commit, fenced
     end
 ```
 

@@ -50,8 +50,8 @@ Records when data needs reprocessing (reorgs, corrections, manual fixes).
 
 Reactive jobs declare their incremental mode via `execution_strategy` in the DAG YAML:
 
-- `PerPartition` — partition-key events (cold/batch)
-- `PerUpdate` — cursor or row-range events (hot/incremental)
+- `PerPartition` - partition-key events (cold/batch)
+- `PerUpdate` - cursor or row-range events (hot/incremental)
 
 Operator-specific details (e.g., cursor column, range size) live in the operator `config`.
 

@@ -14,8 +14,8 @@ High
 This adds a new endpoint that executes untrusted SQL (security/trust-boundary change).
 
 ## Context
-`docs/architecture/containers/query_service.md` defines DuckDB sandboxing requirements and a task-scoped `/v1/task/query` endpoint.
-The SQL gate is `trace_core::query::validate_sql` (spec: `docs/specs/query_sql_gating.md`).
+[query_service.md](../architecture/containers/query_service.md) defines DuckDB sandboxing requirements and a task-scoped `/v1/task/query` endpoint.
+The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](query_sql_gating.md)).
 
 ## Goals
 - Provide a runnable Query Service with one task-scoped endpoint.

@@ -145,7 +145,7 @@ Notes:
 - In v1, untrusted user code executes via the platform-managed `lambda` runner. `ecs_udf` is not scheduled unless explicitly enabled for development/testing.
 - Trust is determined by the **operator** (platform-managed vs user/UDF bundle), not by the compute primitive. Treat `lambda` as **untrusted by default**.
 - `lambda` UDFs have no wrapper boundary: do not inject long-lived secrets. They must use the per-attempt task capability token for task-scoped APIs and obtain scoped object-store access via credential minting.
-- The operator implementation may be Rust, Python, or Node — that is a build/deployment detail, not a user-facing runtime enum.
+- The operator implementation may be Rust, Python, or Node - that is a build/deployment detail, not a user-facing runtime enum.
 - `ecs_udf` is always treated as untrusted and must use Query Service + scoped object-store credentials (and must not have direct Postgres access).
 
 ## Execution Model

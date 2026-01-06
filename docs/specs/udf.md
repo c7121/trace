@@ -38,9 +38,9 @@ Constraints:
 ## Public surface changes
 - Config semantics: `runtime: lambda` is allowed for UDF jobs and is executed via a platform-managed runner.
 - Persistence format: UDF bundle format and provenance requirements.
-- User API: bundle upload and metadata routes are enumerated in `docs/architecture/user_api_contracts.md`.
+- User API: bundle upload and metadata routes are enumerated in [user_api_contracts.md](../architecture/user_api_contracts.md).
 
-## Architecture (C4) — Mermaid-in-Markdown only
+## Architecture (C4) - Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR
@@ -102,7 +102,7 @@ A DAG job that runs user code MUST include an `udf` block:
 - `entrypoint` is the handler function inside the bundle when the language runtime supports it.
 
 ### Bundle format and provenance
-- Bundle format and entrypoints are defined in `docs/adr/0003-udf-bundles.md`.
+- Bundle format and entrypoints are defined in [ADR 0003](../adr/0003-udf-bundles.md).
 - Bundles are immutable artifacts and MUST be pinned by a content hash (SHA-256).
 - Bundle upload associates the bundle with an org + user for auditability.
 

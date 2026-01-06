@@ -44,37 +44,16 @@ These controls exist to protect platform stability and costs. They are not secur
 - **Rate limits**: max concurrent jobs and jobs-per-hour per org.
 - **Cost alerts**: alert when an org approaches spend thresholds.
 
-## Retry safety and idempotency invariants
+## Retry safety and idempotency
 
-Trace assumes **at-least-once** delivery for both tasks and internal events. The system is correct if the following invariants hold.
+Trace assumes **at-least-once** delivery. The system is correct if the invariants in [invariants.md](../architecture/invariants.md) hold.
 
-### Task execution
-- **Postgres state is the source of truth** for task status and leases; queues are wake-ups only.
-- A task attempt is **single-runner** via leasing (claim → heartbeat → complete).
-- **Attempt fencing is strict**: stale attempts must not be able to commit outputs or advance pointers.
-
-### Replace-style S3 outputs
-For dataset outputs written to S3 (Parquet):
-- Workers write to a unique **staging location** for `(task_id, attempt, partition_key)`.
-- A separate **commit step** records the committed location/manifest in Postgres state.
-- Readers only read **committed** locations.
-- Cleaning up abandoned staging data is allowed, but must never delete committed outputs.
-
-### Buffered Postgres datasets
-For multi-writer or restricted-write datasets:
-- Producers publish records to **SQS dataset buffers**.
-- A trusted sink consumer writes to **Postgres data**.
-- Idempotency is enforced using a stable `dedupe_key` (unique constraint + upsert/do-nothing).
-
-### External delivery
-Delivery is the main intentional exception where duplicates may be externally visible:
-- Delivery is at-least-once; receivers should dedupe when possible.
-- The Delivery Service keeps a delivery ledger keyed by a stable idempotency key.
-- Webhooks are **POST-only** in v1.
-
-### Version retention
-- **Committed** dataset versions are retained by default; v1 uses **manual** purge only.
-- Staging cleanup (uncommitted attempt outputs) is a separate concern from committed version retention.
+Key operational implications:
+- **Task execution**: Postgres state is source of truth; queues are wake-ups only; attempt fencing is strict.
+- **S3 outputs**: Workers write to staging; commit step records in Postgres state; readers only see committed.
+- **Buffered datasets**: Idempotency via `dedupe_key` unique constraint.
+- **External delivery**: At-least-once; receivers should dedupe; Delivery Service keeps a ledger.
+- **Version retention**: Committed versions retained; v1 uses manual purge only.
 
 ## Failure drills (game day)
 

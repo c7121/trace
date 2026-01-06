@@ -37,7 +37,7 @@ Constraints:
 - Query surfaces: dataset registry + version pinning behaviors (see ADRs).
 - Persistence: metadata tables in Postgres state and (where applicable) Postgres data.
 
-## Architecture (C4) — Mermaid-in-Markdown only
+## Architecture (C4) - Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR
@@ -60,9 +60,9 @@ At minimum:
 - **Custom metadata** (JSON) emitted by operators and stored with materializations.
 
 ### Versioning and rollback semantics
-- Dataset registry and publishing: `docs/adr/0008-dataset-registry-and-publishing.md`
-- Atomic cutover and query pinning: `docs/adr/0009-atomic-cutover-and-query-pinning.md`
-- Partition versioning and invalidations: `docs/architecture/data_versioning.md`
+- Dataset registry and publishing: [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)
+- Atomic cutover and query pinning: [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md)
+- Partition versioning and invalidations: [data_versioning.md](../architecture/data_versioning.md)
 
 V1 constraint (be explicit):
 - Atomic cutover/rollback semantics apply to **version-addressed outputs** (e.g., S3 manifests + pointers).
@@ -70,15 +70,15 @@ V1 constraint (be explicit):
 
 ### Data model references
 Canonical DDL lives in:
-- `docs/architecture/data_model/orchestration.md`
-- `docs/architecture/data_model/data_versioning.md`
-- `docs/architecture/data_model/address_labels.md`
-- `docs/architecture/data_model/pii.md`
+- [orchestration.md](../architecture/data_model/orchestration.md)
+- [data_versioning.md](../architecture/data_model/data_versioning.md)
+- [address_labels.md](../architecture/data_model/address_labels.md)
+- [pii.md](../architecture/data_model/pii.md)
 
 ## Contract requirements
 - Dispatcher MUST be the system of record for task lifecycle and dataset version commits.
 - Task completion MUST be idempotent: duplicate completions MUST NOT create duplicate materializations/versions.
-- Cross-DB identifiers (`org_id`, `job_id`, `task_id`) stored in Postgres data MUST be treated as soft refs; trusted writers validate them at write time (see `docs/architecture/db_boundaries.md`).
+- Cross-DB identifiers (`org_id`, `job_id`, `task_id`) stored in Postgres data MUST be treated as soft refs; trusted writers validate them at write time (see [db_boundaries.md](../architecture/db_boundaries.md)).
 
 ## Security considerations
 - Metadata is multi-tenant and may contain sensitive derived fields. Apply the same authz rules as data access:

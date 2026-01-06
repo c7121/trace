@@ -76,6 +76,6 @@ CREATE INDEX idx_pii_access_log_dataset ON pii_access_log(dataset);
 
 ## Related
 
-- [Security](../../standards/security_model.md) — data access control model
-- [Orchestration Data Model](orchestration.md) — users and org roles
-- [address_labels operator](../operators/address_labels.md) — example dataset with PII
+- [Security](../../standards/security_model.md) - data access control model
+- [Orchestration Data Model](orchestration.md) - users and org roles
+- [address_labels operator](../operators/address_labels.md) - example dataset with PII

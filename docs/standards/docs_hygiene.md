@@ -30,9 +30,22 @@ Some Mermaid renderers are strict. Keep diagrams robust:
 
 Prefer linking to the canonical pages instead of re-explaining:
 
-- C4 diagrams: `docs/architecture/c4.md`
-- Task lifecycle + durability: `docs/architecture/task_lifecycle.md`
-- Data versioning + commit protocol: `docs/architecture/data_versioning.md`
+- C4 diagrams: [c4.md](../architecture/c4.md)
+- Task lifecycle + durability: [task_lifecycle.md](../architecture/task_lifecycle.md)
+- Data versioning + commit protocol: [data_versioning.md](../architecture/data_versioning.md)
+
+## Doc ownership
+
+If you need to explain the same thing twice, pick one owner and link to it.
+
+| Concept | Owner |
+|---------|-------|
+| Correctness under failure (retries, leases, outbox) | [task_lifecycle.md](../architecture/task_lifecycle.md) |
+| Wire-level contracts (payloads, auth, fencing) | [contracts.md](../architecture/contracts.md) |
+| User-facing routes and authz | [user_api_contracts.md](../architecture/user_api_contracts.md) |
+| Trust boundaries and identity | [security_model.md](security_model.md) |
+| Product/feature intent | specs/ (should not duplicate wire contracts) |
+| Decision rationale | adr/ |
 
 ## Links
 

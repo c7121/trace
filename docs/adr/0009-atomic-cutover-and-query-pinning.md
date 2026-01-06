@@ -52,10 +52,10 @@ Note: this manual GC policy applies to **committed** dataset versions. Temporary
 This ADR focuses on the *cutover/rollback model*, not full schema definitions.
 
 **Deploy/versioning pointers:**
-- `dag_versions` — immutable DAG definition versions (YAML hash)
-- `dag_current_versions` — current `dag_version` serving reads per `(org_id, dag_name)`
-- `dataset_versions` — per-dataset materialization generations (version-addressed storage locations; primarily S3/Parquet in v1)
-- `dag_version_datasets` — per-`dag_version` pointer set mapping `dataset_uuid` → `dataset_version`
+- `dag_versions` - immutable DAG definition versions (YAML hash)
+- `dag_current_versions` - current `dag_version` serving reads per `(org_id, dag_name)`
+- `dataset_versions` - per-dataset materialization generations (version-addressed storage locations; primarily S3/Parquet in v1)
+- `dag_version_datasets` - per-`dag_version` pointer set mapping `dataset_uuid` → `dataset_version`
 
 **Incremental processing within a `dataset_version`:**
 - `partition_versions`

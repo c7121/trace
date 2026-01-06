@@ -26,5 +26,5 @@ CREATE INDEX idx_address_labels_address ON address_labels(address);
 
 ## Related
 
-- [address_labels.md](../operators/address_labels.md) — operator behavior and inputs
-- [pii.md](pii.md) — visibility and audit rules
+- [address_labels.md](../operators/address_labels.md) - operator behavior and inputs
+- [pii.md](pii.md) - visibility and audit rules

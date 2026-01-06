@@ -5,7 +5,7 @@ This file is the canonical ledger for:
 - completed milestones (with immutable git tags), and
 - planned milestones (next work).
 
-Milestones are defined in more detail (gates, STOP points, scope) in `docs/plan/plan.md`.
+See `AGENTS.md` in the repo root for milestone workflow rules (STOP gates, context links, harness commands).
 
 ## Completed milestones
 
@@ -25,6 +25,7 @@ Each completed milestone is pinned by an annotated git tag `ms/<N>` pointing at 
 | 10 | ms/10 | 07a08df | RuntimeInvoker interface (lite + AWS Lambda feature-gated); harness routes UDF invocation via invoker |
 | 11 | ms/11 | 319df13 | Parquet dataset versions pinned in task capability tokens; Query Service attaches via trusted manifest |
 | 12 | ms/12 | 339bef6 | Cryo ingest worker writes Parquet+manifest to MinIO; registers dataset_versions idempotently |
+| 13 | ms/13 | 93e74da | Lite chain sync planner (cursor + scheduled ranges) + harness E2E |
 
 ### How to review a milestone
 
@@ -34,11 +35,11 @@ Given two milestone tags (example: ms/6 and ms/7):
     git log --oneline ms/6..ms/7
     git checkout ms/7
 
-Then run the milestone gates described in `docs/plan/plan.md`.
+Then run the milestone gates described in `AGENTS.md` (root of repo).
 
 ## Planned milestones (next)
 
-Milestones **after ms/12** are sequenced to prove a full **Lite** deployment that can:
+Milestones **after ms/13** are sequenced to prove a full **Lite** deployment that can:
 
 - run the platform services locally,
 - sync a chain locally using **Cryo**,
@@ -50,7 +51,6 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 
 | Milestone | Title | Notes |
 |----------:|-------|-------|
-| 13 | Lite chain sync planner (genesis → tip) | Generate range tasks, track cursor/progress in Postgres state, parallelize via queue + rpc_pool |
 | 14 | Alert evaluation over Parquet datasets | Evaluation reads Parquet via QS attached relations; emits buffered alert events; E2E invariant |
 | 15 | `trace-lite` runnable local stack | Docker Compose + runbook + minimal CLI wrappers to “bring up + sync” |
 | 16 | Bundle manifest + real multi-language UDF runtime | Signed bundle manifests + hash/size checks; Node/Python first; Rust via common tooling |
@@ -109,7 +109,7 @@ This milestone introduces the minimum “dataset attach” machinery so Query Se
 Status: **complete** (tag: `ms/12`).
 
 ### Goal
-Run Cryo locally to produce Parquet datasets and register dataset versions in Postgres state — no AWS required.
+Run Cryo locally to produce Parquet datasets and register dataset versions in Postgres state - no AWS required.
 
 ### Context links
 - `docs/architecture/operators/cryo_ingest.md`
@@ -134,28 +134,37 @@ Run Cryo locally to produce Parquet datasets and register dataset versions in Po
 
 ## Milestone 13: Lite chain sync planner (genesis → tip)
 
+Status: **complete** (tag: `ms/13`).
+
 ### Goal
-End-to-end local chain sync: plan ranges, enqueue tasks, parallelize work, advance progress cursor.
+End-to-end local chain sync planning: schedule bounded Cryo ingestion ranges, enqueue tasks, and advance progress safely under restarts.
 
 ### Context links
+- `docs/specs/lite_chain_sync_planner.md`
 - `docs/specs/ingestion.md`
 - `docs/architecture/task_lifecycle.md`
-- `docs/architecture/operators/range_splitter.md`
 - `docs/architecture/operators/cryo_ingest.md`
 - `docs/architecture/data_versioning.md` (cursors + invalidations)
 
 ### Deliverables
-- Planner loop (v1 simplicity: may live in the dispatcher binary):
-  - reads head block (RPC)
-  - reads cursor/progress from Postgres state
-  - emits bounded range tasks (`chunk_size`)
-  - parallelizes via queue + multiple workers (capped by `scaling.max_concurrency`)
-- RPC throughput strategy:
-  - use `rpc_pool` selection; keys remain owned by RPC egress gateway config (never in DAG YAML)
+- Planner entrypoint (in `trace-dispatcher`):
+  - CLI: `trace-dispatcher plan-chain-sync --chain-id ... --from-block ... --to-block ... --chunk-size ... --max-inflight ...`
+  - v1 simplicity: **no** RPC head lookup; the caller supplies an explicit `to_block` bound.
+- State tables (Postgres state DB):
+  - `state.chain_sync_cursor` stores the exclusive high-water mark `next_block`.
+  - `state.chain_sync_scheduled_ranges` tracks each planned inclusive range and its status (`scheduled` → `completed`).
+- Idempotency + correctness under failure:
+  - The planner is safe to re-run: it uses row locking on the cursor row and `ON CONFLICT DO NOTHING` on `(chain_id, range_start, range_end)` to avoid duplicates.
+  - It never schedules more than `max_inflight` ranges ahead of completion.
+- Parallelization model:
+  - Each planned range creates one `cryo_ingest` task and enqueues a single wakeup message.
+  - Any number of `cryo_ingest` workers may run concurrently; the queue provides fan-out.
+- Completion linkage:
+  - When a `cryo_ingest` task attempt completes successfully and publishes a dataset version, Dispatcher marks the corresponding scheduled range `completed`.
 
 ### STOP gate
-- Add a local runbook section: “bootstrap sync from block A to B with N workers”
-- Add a crash/retry test proving progress advances without duplication
+- `cd crates/trace-dispatcher && cargo test -- --nocapture`
+- `cd harness && cargo test -- --nocapture` (includes `planner_bootstrap_sync_schedules_and_completes_ranges`)
 
 ---
 

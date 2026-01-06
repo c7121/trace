@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1,
+    "status": "not-started",
+    "action": "fix-mermaid",
+    "path": "docs/architecture/event_flow.md",
+    "rationale": "Replace parentheses in sequence diagram labels with square brackets to fix parse errors (7 occurrences)"
+  },
+  {
+    "id": 2,
+    "status": "not-started",
+    "action": "replace-em-dashes",
+    "path": "docs/**/*.md",
+    "rationale": "Replace 116 em dashes (—) with standard hyphens or colons for consistency and tooling compatibility"
+  },
+  {
+    "id": 3,
+    "status": "not-started",
+    "action": "add-agent-rule",
+    "path": "AGENTS.md",
+    "rationale": "Add rule: do not use em dashes in docs (use hyphens or colons instead)"
+  },
+  {
+    "id": 4,
+    "status": "not-started",
+    "action": "audit-and-recommend",
+    "path": "docs/",
+    "rationale": "Second-pass review for additional documentation improvements"
+  }
+]

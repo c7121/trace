@@ -47,4 +47,4 @@ PII column: `address_labels.label` (user-provided). Mark it as PII in dataset me
 
 ## Related
 
-- [PII Handling](../data_model/pii.md) — visibility rules, audit logging
+- [PII Handling](../data_model/pii.md) - visibility rules, audit logging

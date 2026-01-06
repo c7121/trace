@@ -54,10 +54,10 @@ Constraints:
 
 ## Public surface changes
 - Config semantics: DAG YAML schema (this document).
-- Persistence: DAG versions and the active mapping (see `docs/architecture/data_model/orchestration.md`).
+- Persistence: DAG versions and the active mapping (see [orchestration.md](../architecture/data_model/orchestration.md)).
 - Intentionally not supported: per-job secret-slot leasing; implicit joins/fan-in behaviors.
 
-## Architecture (C4) — Mermaid-in-Markdown only
+## Architecture (C4) - Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR
@@ -130,7 +130,7 @@ Deploy/validation MUST reject configs that set these fields. This prevents “co
 | `inputs` | reactive | Upstream edges (`from: {job, output}` or `from: {dataset: dataset_name}`), optionally with `where` |
 | `execution_strategy` | reactive | `PerUpdate` or `PerPartition` |
 | `update_strategy` | reactive | `append` or `replace` |
-| `unique_key` | if append | Required when `update_strategy=append` — columns used for idempotent upserts |
+| `unique_key` | if append | Required when `update_strategy=append` - columns used for idempotent upserts |
 | `source` | source | Source config: `kind`, `schedule`/`webhook_path`, etc. |
 | `bootstrap` | source | Optional one-time bootstrap actions (v1: `reset_outputs`) |
 | `secrets` | | Logical secret names required by the operator |
@@ -140,7 +140,7 @@ Deploy/validation MUST reject configs that set these fields. This prevents “co
 | `udf` | | UDF bundle reference (required for `operator: udf` and any operator that executes user bundles) |
 
 Notes:
-- `runtime: lambda` is allowed for **untrusted** user code, but the runtime is a **platform-managed runner** (see `docs/specs/udf.md`).
+- `runtime: lambda` is allowed for **untrusted** user code, but the runtime is a **platform-managed runner** (see [udf.md](udf.md)).
 - `ecs_udf` is **reserved for v2** pending a zero-trust design that prevents untrusted code from inheriting privileged AWS credentials.
 
 ### Input filters (`where`)
@@ -198,17 +198,17 @@ Publishing registers a job output as a named dataset.
 | `schema` | buffered | Table schema for buffered Postgres datasets (`columns`, `unique`, `indexes`) |
 
 See:
-- `docs/adr/0008-dataset-registry-and-publishing.md`
-- `docs/adr/0006-buffered-postgres-datasets.md`
+- [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)
+- [ADR 0006](../adr/0006-buffered-postgres-datasets.md)
 
 ### Defaults and overrides
 - Values in `defaults` apply to all jobs unless overridden at job level.
-- Backpressure fields are hints; Dispatcher is the source of truth for throttling and pausing (see `docs/architecture/contracts.md`).
+- Backpressure fields are hints; Dispatcher is the source of truth for throttling and pausing (see [contracts.md](../architecture/contracts.md)).
 
 ### Deployment semantics
 - Deploying the same YAML again is idempotent: the system de-dupes by `yaml_hash`.
 - A deployed DAG version is immutable.
-- Activating a version updates the org+dag active pointer (see `dag_current_versions` in `docs/architecture/data_model/orchestration.md`).
+- Activating a version updates the org+dag active pointer (see `dag_current_versions` in [orchestration.md](../architecture/data_model/orchestration.md)).
 - Rollback is implemented by switching the active pointer to a prior version.
 
 ## Contract requirements

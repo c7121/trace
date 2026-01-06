@@ -36,5 +36,5 @@ It is intentionally small. Do not spread numeric thresholds across multiple file
 
 ## Related
 
-- [infrastructure.md](infrastructure.md) — CloudWatch, ECS, and AWS layout
-- [operations.md](../standards/operations.md) — defaults and runbooks
+- [infrastructure.md](infrastructure.md) - CloudWatch, ECS, and AWS layout
+- [operations.md](../standards/operations.md) - defaults and runbooks

@@ -123,4 +123,4 @@ Minimum audit requirements:
 
 ## Related
 
-- `docs/standards/security_hardening.md` — implementation checklist (non-normative)
+- `docs/standards/security_hardening.md` - implementation checklist (non-normative)
