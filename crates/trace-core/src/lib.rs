@@ -164,14 +164,36 @@ pub struct DatasetGrant {
     /// not yet carry storage references. Query Service MUST fail-closed if it requires attach and
     /// this is missing.
     #[serde(default)]
-    pub storage_prefix: Option<String>,
+    pub storage_ref: Option<DatasetStorageRef>,
+}
+
+fn default_parquet_glob() -> String {
+    "*.parquet".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "scheme", rename_all = "snake_case")]
+pub enum DatasetStorageRef {
+    S3 {
+        bucket: String,
+        /// Object key prefix (expected to end with `/`).
+        prefix: String,
+        #[serde(default = "default_parquet_glob")]
+        glob: String,
+    },
+    File {
+        /// Absolute directory prefix (expected to end with `/`).
+        prefix: String,
+        #[serde(default = "default_parquet_glob")]
+        glob: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetPublication {
     pub dataset_uuid: Uuid,
     pub dataset_version: Uuid,
-    pub storage_prefix: String,
+    pub storage_ref: DatasetStorageRef,
     pub config_hash: String,
     pub range_start: i64,
     pub range_end: i64,

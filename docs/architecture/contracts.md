@@ -40,8 +40,11 @@ User-facing `/v1/*` endpoints reachable via the Gateway are enumerated in `user_
   - `org_id`: UUID (deployment org; v1 is single-org but the claim is still required)
   - `task_id`: UUID
   - `attempt`: int
-  - `datasets`: list of `{dataset_uuid, dataset_version, storage_prefix}` grants for `/v1/task/query` (may be empty)
-    - `storage_prefix` is a version-resolved `s3://bucket/prefix/` that contains `_manifest.json` listing Parquet objects for the pinned `dataset_version`.
+  - `datasets`: list of dataset grants for `/v1/task/query` (may be empty)
+    - required: `{dataset_uuid, dataset_version}`
+    - required for Parquet attach: `storage_ref` (fail-closed if missing when attach is required)
+      - S3: `{scheme:"s3", bucket, prefix, glob}`
+      - local dev: `{scheme:"file", prefix, glob}`
     - Query Service uses this to attach authorized datasets as DuckDB relations (trusted attach), then executes gated SQL (untrusted).
   - `s3`: `{read_prefixes[], write_prefixes[]}` where prefixes are canonical `s3://bucket/prefix/` strings for `/v1/task/credentials` (may be empty in Lite)
 
@@ -291,7 +294,7 @@ Task completion includes an `outputs` array so a single task can materialize mul
 
 For Parquet dataset publishing (replace-style outputs), tasks MAY also include a `datasets_published` list. This is the minimal publication shape needed to register `dataset_versions` deterministically:
 - `dataset_uuid`, `dataset_version` (pinned)
-- `storage_prefix` (version-addressed `s3://bucket/prefix/` containing `_manifest.json`)
+- `storage_ref` (version-addressed storage reference for Parquet objects; manifest is optional and Trace-owned)
 - optional metadata such as `config_hash` and `{range_start, range_end}` for range-based datasets (e.g., Cryo bootstrap).
 
 ```json
@@ -311,7 +314,12 @@ For Parquet dataset publishing (replace-style outputs), tasks MAY also include a
     {
       "dataset_uuid": "uuid",
       "dataset_version": "uuid",
-      "storage_prefix": "s3://bucket/cold/datasets/{dataset_uuid}/{dataset_version}/",
+      "storage_ref": {
+        "scheme": "s3",
+        "bucket": "bucket",
+        "prefix": "cold/datasets/{dataset_uuid}/{dataset_version}/",
+        "glob": "*.parquet"
+      },
       "config_hash": "string",
       "range_start": 100,
       "range_end": 200

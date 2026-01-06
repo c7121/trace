@@ -4,8 +4,7 @@
 //! flows with a fail-closed SQL validator.
 
 use crate::config::QueryServiceConfig;
-use crate::dataset::{DatasetAttachLimits, DatasetLoadError};
-use crate::duckdb::{DuckDbSandbox, QueryResultSet};
+use crate::duckdb::{DuckDbQueryError, DuckDbSandbox, QueryResultSet};
 use anyhow::Context;
 use axum::{
     extract::State,
@@ -20,13 +19,11 @@ use sqlx::postgres::PgPoolOptions;
 use std::{sync::Arc, time::Duration};
 use trace_core::lite::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_core::lite::s3::parse_s3_uri;
-use trace_core::ObjectStore as ObjectStoreTrait;
 use trace_core::Signer as SignerTrait;
-use trace_core::{DatasetGrant, S3Grants};
+use trace_core::{DatasetGrant, DatasetStorageRef, S3Grants};
 use uuid::Uuid;
 
 pub mod config;
-mod dataset;
 mod duckdb;
 
 pub const TASK_CAPABILITY_HEADER: &str = "X-Trace-Task-Capability";
@@ -41,9 +38,6 @@ pub struct AppState {
     pub signer: TaskCapability,
     pub duckdb: DuckDbSandbox,
     pub data_pool: sqlx::PgPool,
-    pub http: reqwest::Client,
-    pub object_store: Arc<dyn ObjectStoreTrait>,
-    pub dataset_limits: DatasetAttachLimits,
 }
 
 impl std::fmt::Debug for AppState {
@@ -52,8 +46,6 @@ impl std::fmt::Debug for AppState {
             .field("cfg", &self.cfg)
             .field("data_pool", &"<PgPool>")
             .field("signer", &"<TaskCapability>")
-            .field("http", &"<reqwest::Client>")
-            .field("object_store", &"<ObjectStore>")
             .finish()
     }
 }
@@ -77,20 +69,12 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     .context("init task capability signer")?;
 
     let duckdb = DuckDbSandbox::new();
-    let http = reqwest::Client::new();
-    let object_store =
-        Arc::new(trace_core::lite::s3::ObjectStore::new(&cfg.s3_endpoint).context("init s3")?);
-
-    let dataset_limits = DatasetAttachLimits::from(&cfg);
 
     Ok(AppState {
         cfg,
         signer,
         duckdb,
         data_pool,
-        http,
-        object_store,
-        dataset_limits,
     })
 }
 
@@ -140,7 +124,7 @@ async fn task_query(
         ApiError::bad_request("invalid sql")
     })?;
 
-    let parquet_urls = prepare_dataset(&state, &claims.s3, &grant).await?;
+    let storage_ref = authorize_dataset_storage(&state.cfg, &claims.s3, &grant)?;
 
     let limit = req
         .limit
@@ -150,15 +134,25 @@ async fn task_query(
 
     let mut results = state
         .duckdb
-        .query_with_dataset_urls(&parquet_urls, req.sql, limit + 1)
+        .query_with_dataset_storage_ref(&state.cfg, &storage_ref, req.sql, limit + 1)
         .await
-        .map_err(|_err| {
-            // Avoid logging raw SQL; DuckDB errors may embed the statement text.
-            tracing::warn!(
-                event = "query_service.duckdb.query_failed",
-                "duckdb query failed"
-            );
-            ApiError::internal("query execution failed")
+        .map_err(|err| match err {
+            DuckDbQueryError::Attach(err) => {
+                tracing::warn!(
+                    event = "query_service.duckdb.attach_failed",
+                    error = ?err,
+                    "duckdb dataset attach failed"
+                );
+                ApiError::internal("query execution failed")
+            }
+            DuckDbQueryError::Query(_err) => {
+                // Avoid logging raw SQL; DuckDB errors may embed the statement text.
+                tracing::warn!(
+                    event = "query_service.duckdb.query_failed",
+                    "duckdb query failed"
+                );
+                ApiError::internal("query execution failed")
+            }
         })?;
 
     let truncated = results.rows.len() > limit;
@@ -250,59 +244,56 @@ fn s3_read_allowed(grants: &S3Grants, uri: &str) -> bool {
     })
 }
 
-fn map_dataset_error(operation: &'static str, err: DatasetLoadError) -> ApiError {
-    tracing::warn!(
-        event = "query_service.dataset.error",
-        category = err.category(),
-        operation = operation,
-        error = %err,
-        "dataset load failed"
-    );
-
-    match err {
-        DatasetLoadError::Invalid(_) => ApiError::unprocessable("dataset manifest invalid"),
-        DatasetLoadError::TooLarge(_) => ApiError::payload_too_large("dataset too large"),
-        DatasetLoadError::Retryable(_) => ApiError::unavailable("dataset temporarily unavailable"),
-    }
-}
-
-async fn prepare_dataset(
-    state: &AppState,
+fn authorize_dataset_storage(
+    cfg: &QueryServiceConfig,
     s3: &S3Grants,
     grant: &DatasetGrant,
-) -> Result<Vec<String>, ApiError> {
-    let storage_prefix = grant
-        .storage_prefix
-        .as_deref()
+) -> Result<DatasetStorageRef, ApiError> {
+    let storage_ref = grant
+        .storage_ref
+        .clone()
         .ok_or_else(|| ApiError::forbidden("dataset storage not authorized"))?;
 
-    let manifest_uri = dataset::manifest_uri(storage_prefix);
-    if !s3_read_allowed(s3, &manifest_uri) {
+    let storage_prefix = match &storage_ref {
+        DatasetStorageRef::S3 {
+            bucket,
+            prefix,
+            ..
+        } => format!("s3://{bucket}/{prefix}"),
+        DatasetStorageRef::File { prefix, .. } => {
+            if !cfg.allow_local_files {
+                return Err(ApiError::forbidden("dataset storage not authorized"));
+            }
+
+            let Some(root) = cfg.local_file_root.as_deref() else {
+                return Err(ApiError::forbidden("dataset storage not authorized"));
+            };
+
+            let root = std::path::Path::new(root);
+            let root = root
+                .canonicalize()
+                .map_err(|_| ApiError::forbidden("dataset storage not authorized"))?;
+
+            let prefix_path = std::path::Path::new(prefix);
+            let prefix_path = prefix_path
+                .canonicalize()
+                .map_err(|_| ApiError::forbidden("dataset storage not authorized"))?;
+
+            if !prefix_path.starts_with(&root) {
+                return Err(ApiError::forbidden("dataset storage not authorized"));
+            }
+
+            format!("file://{prefix}")
+        }
+    };
+
+    if matches!(storage_ref, DatasetStorageRef::S3 { .. })
+        && !s3_read_allowed(s3, &storage_prefix)
+    {
         return Err(ApiError::forbidden("dataset storage not authorized"));
     }
 
-    let manifest = dataset::fetch_manifest_only(
-        state.object_store.as_ref(),
-        storage_prefix,
-        &state.dataset_limits,
-    )
-        .await
-        .map_err(|err| map_dataset_error("manifest fetch failed", err))?;
-
-    for uri in &manifest.parquet_objects {
-        if !s3_read_allowed(s3, uri) {
-            return Err(ApiError::forbidden("dataset storage not authorized"));
-        }
-    }
-
-    dataset::s3_parquet_uris_to_http_urls(
-        &state.http,
-        &state.cfg.s3_endpoint,
-        &manifest.parquet_objects,
-        &state.dataset_limits,
-    )
-    .await
-    .map_err(|err| map_dataset_error("parquet url resolve failed", err))
+    Ok(storage_ref)
 }
 
 async fn insert_query_audit(
@@ -365,27 +356,6 @@ impl ApiError {
     fn forbidden(message: &'static str) -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
-            message,
-        }
-    }
-
-    fn unprocessable(message: &'static str) -> Self {
-        Self {
-            status: StatusCode::UNPROCESSABLE_ENTITY,
-            message,
-        }
-    }
-
-    fn payload_too_large(message: &'static str) -> Self {
-        Self {
-            status: StatusCode::PAYLOAD_TOO_LARGE,
-            message,
-        }
-    }
-
-    fn unavailable(message: &'static str) -> Self {
-        Self {
-            status: StatusCode::SERVICE_UNAVAILABLE,
             message,
         }
     }

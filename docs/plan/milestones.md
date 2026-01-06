@@ -118,8 +118,8 @@ Run Cryo locally to produce Parquet datasets and register dataset versions in Po
 
 ### Deliverables
 - Implement a **trusted platform worker** path for `cryo_ingest` in Lite:
-  - writes Parquet + `_manifest.json` to MinIO using deterministic object keys
-  - uses a version-addressed prefix: `s3://{bucket}/cold/datasets/{dataset_uuid}/{dataset_version}/`
+  - writes Parquet to MinIO using deterministic object keys (no Trace-owned manifest required)
+  - uses a version-addressed prefix: `s3://{bucket}/cryo/{chain_id}/{dataset_uuid}/{range_start}_{range_end}/{dataset_version}/`
   - registers dataset versions in Postgres state (`state.dataset_versions`) with stable `{dataset_uuid, dataset_version, storage_prefix, config_hash, range_start, range_end}`
   - idempotent under retries: the same `{chain_id, range, config_hash}` must map to the same deterministic `dataset_version` (conflicts must match or fail)
 - Explicitly **no** relational schema requirement for chain datasets in v1:

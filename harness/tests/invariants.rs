@@ -2,7 +2,12 @@ use anyhow::Context;
 use duckdb::Connection;
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 use trace_core::{
     fixtures::{ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX},
     runtime::RuntimeInvoker,
@@ -35,7 +40,34 @@ fn unique_queue(prefix: &str) -> String {
     format!("{prefix}_{}", Uuid::new_v4())
 }
 
+fn ensure_duckdb_httpfs_installed() -> anyhow::Result<()> {
+    static INIT: OnceLock<Result<(), String>> = OnceLock::new();
+    let res = INIT.get_or_init(|| {
+        (|| -> anyhow::Result<()> {
+            let mut ext_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            ext_dir.push("target");
+            ext_dir.push("duckdb_extensions");
+            std::fs::create_dir_all(&ext_dir).context("create duckdb extension dir")?;
+
+            std::env::set_var("DUCKDB_EXTENSION_DIRECTORY", &ext_dir);
+
+            let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+            conn.execute_batch("INSTALL httpfs;")
+                .context("INSTALL httpfs extension")?;
+            Ok(())
+        })()
+        .map_err(|err| format!("{err:#}"))
+    });
+
+    match res {
+        Ok(()) => Ok(()),
+        Err(msg) => Err(anyhow::anyhow!(msg.clone())),
+    }
+}
+
 async fn migrated_config() -> anyhow::Result<HarnessConfig> {
+    ensure_duckdb_httpfs_installed()?;
+
     let mut cfg = HarnessConfig::from_env().context("load harness config")?;
     cfg.task_wakeup_queue = unique_queue("task_wakeup_test");
     cfg.buffer_queue = unique_queue("buffer_queue_test");
@@ -131,20 +163,6 @@ async fn seed_alerts_fixture_dataset(cfg: &HarnessConfig) -> anyhow::Result<()> 
     let parquet_key = join_key(&prefix_key, "alerts_fixture.parquet");
     object_store
         .put_bytes(&bucket, &parquet_key, parquet_bytes, CONTENT_TYPE_PARQUET)
-        .await?;
-
-    let parquet_uri = format!("s3://{bucket}/{parquet_key}");
-    let manifest = serde_json::json!({
-        "parquet_objects": [parquet_uri],
-    });
-    let manifest_key = join_key(&prefix_key, "_manifest.json");
-    object_store
-        .put_bytes(
-            &bucket,
-            &manifest_key,
-            serde_json::to_vec(&manifest)?,
-            CONTENT_TYPE_JSON,
-        )
         .await?;
 
     Ok(())
@@ -1439,6 +1457,14 @@ async fn alert_evaluate_over_parquet_dataset_emits_idempotent_events_and_rejects
     )?);
 
     let queue: Arc<dyn trace_core::Queue> = Arc::new(PgQueue::new(state_pool.clone()));
+    let dataset_storage_prefix = match &dataset_pubd.storage_ref {
+        trace_core::DatasetStorageRef::S3 { bucket, prefix, .. } => {
+            format!("s3://{bucket}/{prefix}")
+        }
+        trace_core::DatasetStorageRef::File { .. } => {
+            anyhow::bail!("expected s3 dataset storage ref")
+        }
+    };
     let dispatcher_cfg = trace_dispatcher::DispatcherConfig {
         org_id: cfg.org_id,
         lease_duration_secs: cfg.lease_duration_secs,
@@ -1450,10 +1476,10 @@ async fn alert_evaluate_over_parquet_dataset_emits_idempotent_events_and_rejects
         default_datasets: vec![DatasetGrant {
             dataset_uuid: dataset_pubd.dataset_uuid,
             dataset_version: dataset_pubd.dataset_version,
-            storage_prefix: Some(dataset_pubd.storage_prefix.clone()),
+            storage_ref: Some(dataset_pubd.storage_ref.clone()),
         }],
         default_s3: S3Grants {
-            read_prefixes: vec![dataset_pubd.storage_prefix.clone()],
+            read_prefixes: vec![dataset_storage_prefix],
             write_prefixes: Vec::new(),
         },
     };
@@ -1859,9 +1885,10 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
 
         anyhow::ensure!(count == 1, "expected 1 dataset_versions row, got {count}");
 
-        let (dataset_version, storage_prefix): (Uuid, String) = sqlx::query_as(
+        let (dataset_version, storage_prefix, storage_glob): (Uuid, String, String) =
+            sqlx::query_as(
             r#"
-            SELECT dataset_version, storage_prefix
+            SELECT dataset_version, storage_prefix, storage_glob
             FROM state.dataset_versions
             WHERE dataset_uuid = $1
               AND config_hash = $2
@@ -1883,35 +1910,40 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
             "expected dataset_version {}, got {dataset_version}",
             expected.dataset_version
         );
+        let expected_storage_prefix = match &expected.storage_ref {
+            trace_core::DatasetStorageRef::S3 { bucket, prefix, .. } => {
+                format!("s3://{bucket}/{prefix}")
+            }
+            trace_core::DatasetStorageRef::File { prefix, .. } => format!("file://{prefix}"),
+        };
         anyhow::ensure!(
-            storage_prefix == expected.storage_prefix,
+            storage_prefix == expected_storage_prefix,
             "expected storage_prefix {}, got {storage_prefix}",
-            expected.storage_prefix
+            expected_storage_prefix
+        );
+        let expected_storage_glob = match &expected.storage_ref {
+            trace_core::DatasetStorageRef::S3 { glob, .. } => glob.clone(),
+            trace_core::DatasetStorageRef::File { glob, .. } => glob.clone(),
+        };
+        anyhow::ensure!(
+            storage_glob == expected_storage_glob,
+            "expected storage_glob {}, got {storage_glob}",
+            expected_storage_glob
         );
 
         let (bucket, prefix_key) = parse_s3_uri(&storage_prefix).context("parse storage prefix")?;
-        let manifest_key = join_key(&prefix_key, "_manifest.json");
-        let manifest_bytes = object_store
-            .get_bytes(&bucket, &manifest_key)
-            .await
-            .context("read manifest")?;
-
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&manifest_bytes).context("decode manifest json")?;
-        let parquet_objects = manifest["parquet_objects"]
-            .as_array()
-            .context("manifest.parquet_objects")?;
 
         let parquet_key = join_key(
             &prefix_key,
             &format!("cryo_{}_{}.parquet", payload.range_start, payload.range_end),
         );
-        let expected_parquet_uri =
-            serde_json::Value::String(format!("s3://{bucket}/{parquet_key}"));
-
+        let parquet_bytes = object_store
+            .get_bytes(&bucket, &parquet_key)
+            .await
+            .context("read parquet")?;
         anyhow::ensure!(
-            parquet_objects == &[expected_parquet_uri],
-            "expected manifest parquet_objects to be stable"
+            !parquet_bytes.is_empty(),
+            "expected parquet object to be non-empty"
         );
 
         Ok(())
@@ -1920,6 +1952,137 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
 
     server.shutdown().await?;
     result
+}
+
+#[tokio::test]
+async fn query_service_attaches_local_parquet_via_file_storage_ref() -> anyhow::Result<()> {
+    let cfg = migrated_config().await?;
+
+    let signer = TaskCapability::from_hs256_config(Hs256TaskCapabilityConfig {
+        issuer: cfg.task_capability_iss.clone(),
+        audience: cfg.task_capability_aud.clone(),
+        current_kid: cfg.task_capability_kid.clone(),
+        current_secret: cfg.task_capability_secret.clone(),
+        next_kid: cfg.task_capability_next_kid.clone(),
+        next_secret: cfg.task_capability_next_secret.clone(),
+        ttl: Duration::from_secs(cfg.task_capability_ttl_secs),
+    })?;
+
+    let root = std::env::temp_dir().join(format!("trace-qs-local-{}", Uuid::new_v4()));
+    let dataset_dir = root.join("datasets").join("alerts_fixture");
+    std::fs::create_dir_all(&dataset_dir).context("create dataset dir")?;
+
+    let parquet_path = dataset_dir.join("alerts_fixture.parquet");
+    tokio::task::spawn_blocking({
+        let parquet_path = parquet_path.clone();
+        move || -> anyhow::Result<()> {
+            let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+            conn.execute_batch(
+                r#"
+                BEGIN;
+                CREATE TABLE alerts_fixture (
+                  dedupe_key VARCHAR NOT NULL
+                );
+                INSERT INTO alerts_fixture VALUES
+                  ('dedupe-001'),
+                  ('dedupe-002'),
+                  ('dedupe-003');
+                COMMIT;
+                "#,
+            )
+            .context("create fixture table")?;
+
+            let parquet_escaped = parquet_path.to_string_lossy().replace('\'', "''");
+            conn.execute_batch(&format!(
+                "COPY alerts_fixture TO '{parquet_escaped}' (FORMAT PARQUET);"
+            ))
+            .context("copy to parquet")?;
+            Ok(())
+        }
+    })
+    .await
+    .context("join parquet builder")??;
+
+    let task_id = Uuid::new_v4();
+    let dataset_id = Uuid::new_v4();
+    let dataset_version = Uuid::new_v4();
+    let token = signer.issue_task_capability(&TaskCapabilityIssueRequest {
+        org_id: cfg.org_id,
+        task_id,
+        attempt: 1,
+        datasets: vec![DatasetGrant {
+            dataset_uuid: dataset_id,
+            dataset_version,
+            storage_ref: Some(trace_core::DatasetStorageRef::File {
+                prefix: format!("{}/", dataset_dir.to_string_lossy()),
+                glob: "*.parquet".to_string(),
+            }),
+        }],
+        s3: S3Grants::empty(),
+    })?;
+
+    let mut qs_cfg = QueryServiceConfig::from_env().context("load query service config")?;
+    qs_cfg.data_database_url = cfg.data_database_url.clone();
+    qs_cfg.task_capability_iss = cfg.task_capability_iss.clone();
+    qs_cfg.task_capability_aud = cfg.task_capability_aud.clone();
+    qs_cfg.task_capability_kid = cfg.task_capability_kid.clone();
+    qs_cfg.task_capability_secret = cfg.task_capability_secret.clone();
+    qs_cfg.task_capability_next_kid = cfg.task_capability_next_kid.clone();
+    qs_cfg.task_capability_next_secret = cfg.task_capability_next_secret.clone();
+    qs_cfg.task_capability_ttl_secs = cfg.task_capability_ttl_secs;
+    qs_cfg.allow_local_files = true;
+    qs_cfg.local_file_root = Some(root.to_string_lossy().to_string());
+
+    let qs_state = build_query_state(qs_cfg)
+        .await
+        .context("build query service state")?;
+    let qs_app = query_router(qs_state);
+    let qs_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("bind query service")?;
+    let qs_addr = qs_listener
+        .local_addr()
+        .context("query service local_addr")?;
+    let qs_base = format!("http://{qs_addr}");
+
+    let (qs_shutdown_tx, qs_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let qs_task = tokio::spawn(async move {
+        axum::serve(qs_listener, qs_app.into_make_service())
+            .with_graceful_shutdown(async move {
+                let _ = qs_shutdown_rx.await;
+            })
+            .await
+            .context("query service serve")
+    });
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{qs_base}/v1/task/query"))
+        .header(TASK_CAPABILITY_HEADER, token)
+        .json(&TaskQueryRequest {
+            task_id,
+            attempt: 1,
+            dataset_id,
+            sql: "SELECT dedupe_key FROM dataset ORDER BY dedupe_key".to_string(),
+            limit: None,
+        })
+        .send()
+        .await?
+        .error_for_status()?;
+
+    let body: serde_json::Value = resp.json().await?;
+    let rows = body["rows"]
+        .as_array()
+        .context("rows is array")?
+        .iter()
+        .map(|r| r[0].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(rows, vec!["dedupe-001", "dedupe-002", "dedupe-003"]);
+
+    let _ = qs_shutdown_tx.send(());
+    let _ = qs_task.await;
+    let _ = std::fs::remove_dir_all(&root);
+    Ok(())
 }
 
 #[tokio::test]
@@ -2024,9 +2187,10 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
-        let (dataset_uuid, dataset_version, storage_prefix): (Uuid, Uuid, String) = sqlx::query_as(
+        let (dataset_uuid, dataset_version, storage_prefix, storage_glob): (Uuid, Uuid, String, String) =
+            sqlx::query_as(
             r#"
-            SELECT dataset_uuid, dataset_version, storage_prefix
+            SELECT dataset_uuid, dataset_version, storage_prefix, storage_glob
             FROM state.dataset_versions
             WHERE config_hash = 'cryo_ingest.blocks:v1'
             ORDER BY range_start
@@ -2068,6 +2232,8 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
         })?;
 
         let query_task_id = Uuid::new_v4();
+        let (grant_bucket, grant_prefix) = trace_core::lite::s3::parse_s3_uri(&storage_prefix)
+            .context("parse storage prefix")?;
         let issue_req = TaskCapabilityIssueRequest {
             org_id: cfg.org_id,
             task_id: query_task_id,
@@ -2075,7 +2241,11 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
             datasets: vec![DatasetGrant {
                 dataset_uuid,
                 dataset_version,
-                storage_prefix: Some(storage_prefix.clone()),
+                storage_ref: Some(trace_core::DatasetStorageRef::S3 {
+                    bucket: grant_bucket,
+                    prefix: grant_prefix,
+                    glob: storage_glob.clone(),
+                }),
             }],
             s3: S3Grants {
                 read_prefixes: vec![storage_prefix.clone()],

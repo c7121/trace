@@ -6,11 +6,12 @@ use anyhow::Context;
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
-use trace_core::{DatasetPublication, ObjectStore as ObjectStoreTrait, Queue as QueueTrait};
+use std::{collections::BTreeSet, path::Path, path::PathBuf, sync::Arc, time::Duration};
+use trace_core::{
+    DatasetPublication, DatasetStorageRef, ObjectStore as ObjectStoreTrait, Queue as QueueTrait,
+};
 use uuid::Uuid;
 
-const CONTENT_TYPE_JSON: &str = "application/json";
 const CONTENT_TYPE_PARQUET: &str = "application/octet-stream";
 
 // UUIDv5 namespace for deterministic dataset version IDs.
@@ -21,6 +22,21 @@ const DATASET_VERSION_NAMESPACE: Uuid = Uuid::from_bytes([
 #[derive(Debug, Deserialize)]
 struct TaskWakeup {
     task_id: Uuid,
+}
+
+#[derive(Debug)]
+enum CryoArtifactError {
+    Retryable(anyhow::Error),
+    Fatal(anyhow::Error),
+}
+
+impl CryoArtifactError {
+    fn outcome(&self) -> &'static str {
+        match self {
+            CryoArtifactError::Retryable(_) => "retryable_error",
+            CryoArtifactError::Fatal(_) => "fatal_error",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,15 +50,23 @@ pub struct CryoIngestPayload {
 
 pub fn derive_dataset_publication(bucket: &str, payload: &CryoIngestPayload) -> DatasetPublication {
     let dataset_version = derive_dataset_version(payload);
-    let storage_prefix = format!(
-        "s3://{bucket}/cold/datasets/{}/{}/",
-        payload.dataset_uuid, dataset_version
+    let prefix = format!(
+        "cryo/{}/{}/{}_{}/{}/",
+        payload.chain_id,
+        payload.dataset_uuid,
+        payload.range_start,
+        payload.range_end,
+        dataset_version
     );
 
     DatasetPublication {
         dataset_uuid: payload.dataset_uuid,
         dataset_version,
-        storage_prefix,
+        storage_ref: DatasetStorageRef::S3 {
+            bucket: bucket.to_string(),
+            prefix,
+            glob: "*.parquet".to_string(),
+        },
         config_hash: payload.config_hash.clone(),
         range_start: payload.range_start,
         range_end: payload.range_end,
@@ -64,27 +88,55 @@ pub async fn run_task(
 
     let pubd = derive_dataset_publication(&cfg.s3_bucket, &payload);
 
-    write_dataset_artifacts(object_store, &pubd, &payload)
-        .await
-        .context("write dataset artifacts")?;
+    match write_dataset_artifacts(object_store, &pubd, &payload).await {
+        Ok(()) => {
+            let complete_req = CompleteRequest {
+                task_id: claim.task_id,
+                attempt: claim.attempt,
+                lease_token: claim.lease_token,
+                outcome: "success",
+                datasets_published: vec![pubd.clone()],
+            };
 
-    let complete_req = CompleteRequest {
-        task_id: claim.task_id,
-        attempt: claim.attempt,
-        lease_token: claim.lease_token,
-        outcome: "success",
-        datasets_published: vec![pubd.clone()],
-    };
+            if dispatcher
+                .complete(&claim.capability_token, &complete_req)
+                .await?
+                == WriteDisposition::Conflict
+            {
+                return Ok(None);
+            }
 
-    if dispatcher
-        .complete(&claim.capability_token, &complete_req)
-        .await?
-        == WriteDisposition::Conflict
-    {
-        return Ok(None);
+            Ok(Some(pubd))
+        }
+        Err(err) => {
+            tracing::warn!(
+                event = "harness.cryo_worker.task.failed",
+                outcome = err.outcome(),
+                task_id = %claim.task_id,
+                attempt = claim.attempt,
+                error = %match &err { CryoArtifactError::Retryable(e) | CryoArtifactError::Fatal(e) => e },
+                "cryo task failed"
+            );
+
+            let complete_req = CompleteRequest {
+                task_id: claim.task_id,
+                attempt: claim.attempt,
+                lease_token: claim.lease_token,
+                outcome: err.outcome(),
+                datasets_published: Vec::new(),
+            };
+
+            if dispatcher
+                .complete(&claim.capability_token, &complete_req)
+                .await?
+                == WriteDisposition::Conflict
+            {
+                return Ok(None);
+            }
+
+            Ok(None)
+        }
     }
-
-    Ok(Some(pubd))
 }
 
 pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
@@ -181,32 +233,45 @@ async fn write_dataset_artifacts(
     object_store: &dyn ObjectStoreTrait,
     pubd: &DatasetPublication,
     payload: &CryoIngestPayload,
-) -> anyhow::Result<()> {
-    let (bucket, prefix_key) =
-        crate::s3::parse_s3_uri(&pubd.storage_prefix).context("parse storage prefix")?;
+) -> Result<(), CryoArtifactError> {
+    let mode = std::env::var("TRACE_CRYO_MODE")
+        .unwrap_or_else(|_| "fake".to_string())
+        .to_ascii_lowercase();
+    if mode == "real" {
+        write_dataset_artifacts_real(object_store, pubd, payload).await
+    } else {
+        write_dataset_artifacts_fake(object_store, pubd, payload).await
+    }
+}
+
+async fn write_dataset_artifacts_fake(
+    object_store: &dyn ObjectStoreTrait,
+    pubd: &DatasetPublication,
+    payload: &CryoIngestPayload,
+) -> Result<(), CryoArtifactError> {
+    let (bucket, prefix_key) = match &pubd.storage_ref {
+        DatasetStorageRef::S3 {
+            bucket,
+            prefix,
+            ..
+        } => (bucket.clone(), prefix.clone()),
+        DatasetStorageRef::File { .. } => {
+            return Err(CryoArtifactError::Fatal(anyhow::anyhow!(
+                "cryo worker requires s3 storage ref"
+            )));
+        }
+    };
 
     let file_name = format!("cryo_{}_{}.parquet", payload.range_start, payload.range_end);
     let parquet_key = join_key(&prefix_key, &file_name);
-    let parquet_bytes = build_parquet_bytes(payload).await?;
+    let parquet_bytes = build_parquet_bytes(payload)
+        .await
+        .map_err(CryoArtifactError::Retryable)?;
     object_store
         .put_bytes(&bucket, &parquet_key, parquet_bytes, CONTENT_TYPE_PARQUET)
         .await
-        .context("upload parquet")?;
-
-    let parquet_uri = format!("s3://{bucket}/{parquet_key}");
-    let manifest = serde_json::json!({
-        "parquet_objects": [parquet_uri],
-    });
-    let manifest_key = join_key(&prefix_key, "_manifest.json");
-    object_store
-        .put_bytes(
-            &bucket,
-            &manifest_key,
-            serde_json::to_vec(&manifest).context("encode manifest")?,
-            CONTENT_TYPE_JSON,
-        )
-        .await
-        .context("upload manifest")?;
+        .context("upload parquet")
+        .map_err(CryoArtifactError::Retryable)?;
 
     Ok(())
 }
@@ -275,4 +340,190 @@ async fn build_parquet_bytes(payload: &CryoIngestPayload) -> anyhow::Result<Vec<
     })
     .await
     .context("join parquet builder")?
+}
+
+async fn write_dataset_artifacts_real(
+    object_store: &dyn ObjectStoreTrait,
+    pubd: &DatasetPublication,
+    payload: &CryoIngestPayload,
+) -> Result<(), CryoArtifactError> {
+    let rpc_url = std::env::var("TRACE_CRYO_RPC_URL")
+        .map_err(|_| CryoArtifactError::Fatal(anyhow::anyhow!("missing TRACE_CRYO_RPC_URL")))?;
+    let cryo_bin = std::env::var("TRACE_CRYO_BIN").unwrap_or_else(|_| "cryo".to_string());
+
+    let dataset_name = dataset_name_from_config_hash(&payload.config_hash).ok_or_else(|| {
+        CryoArtifactError::Fatal(anyhow::anyhow!(
+            "unrecognized config_hash for cryo dataset name"
+        ))
+    })?;
+
+    let (bucket, prefix_key) = match &pubd.storage_ref {
+        DatasetStorageRef::S3 {
+            bucket,
+            prefix,
+            ..
+        } => (bucket.clone(), prefix.clone()),
+        DatasetStorageRef::File { .. } => {
+            return Err(CryoArtifactError::Fatal(anyhow::anyhow!(
+                "cryo worker requires s3 storage ref"
+            )));
+        }
+    };
+
+    let out_dir = std::env::temp_dir().join(format!(
+        "trace-cryo-{}-{}",
+        payload.dataset_uuid,
+        Uuid::new_v4()
+    ));
+
+    run_cryo_cli(
+        &cryo_bin,
+        dataset_name,
+        &rpc_url,
+        payload.range_start,
+        payload.range_end,
+        &out_dir,
+    )
+    .await?;
+
+    let parquet_files = tokio::task::spawn_blocking({
+        let out_dir = out_dir.clone();
+        move || collect_parquet_files(&out_dir)
+    })
+    .await
+    .map_err(|err| CryoArtifactError::Retryable(anyhow::anyhow!(err)))?
+    .map_err(CryoArtifactError::Retryable)?;
+
+    if parquet_files.is_empty() {
+        return Err(CryoArtifactError::Fatal(anyhow::anyhow!(
+            "cryo produced no parquet files"
+        )));
+    }
+
+    for file_path in parquet_files {
+        let rel = file_path
+            .strip_prefix(&out_dir)
+            .unwrap_or(file_path.as_path());
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        let key = join_key(&prefix_key, &rel);
+
+        let bytes = tokio::fs::read(&file_path)
+            .await
+            .with_context(|| format!("read parquet file {}", file_path.display()))
+            .map_err(CryoArtifactError::Retryable)?;
+
+        object_store
+            .put_bytes(&bucket, &key, bytes, CONTENT_TYPE_PARQUET)
+            .await
+            .with_context(|| format!("upload parquet object {key}"))
+            .map_err(CryoArtifactError::Retryable)?;
+    }
+
+    let _ = tokio::fs::remove_dir_all(&out_dir).await;
+    Ok(())
+}
+
+fn dataset_name_from_config_hash(config_hash: &str) -> Option<&str> {
+    // Expected harness format: `cryo_ingest.<dataset>:<version>`
+    let without_prefix = config_hash.strip_prefix("cryo_ingest.")?;
+    Some(without_prefix.split(':').next()?)
+}
+
+async fn run_cryo_cli(
+    cryo_bin: &str,
+    dataset: &str,
+    rpc_url: &str,
+    start_block: i64,
+    end_block: i64,
+    output_dir: &Path,
+) -> Result<(), CryoArtifactError> {
+    let out = tokio::task::spawn_blocking({
+        let cryo_bin = cryo_bin.to_string();
+        let dataset = dataset.to_string();
+        let rpc_url = rpc_url.to_string();
+        let output_dir = output_dir.to_path_buf();
+        move || {
+            std::fs::create_dir_all(&output_dir).map_err(|err| {
+                CryoArtifactError::Fatal(anyhow::Error::new(err).context("create output dir"))
+            })?;
+
+            std::process::Command::new(&cryo_bin)
+                .arg(dataset)
+                .arg("--rpc-url")
+                .arg(rpc_url)
+                .arg("--start-block")
+                .arg(start_block.to_string())
+                .arg("--end-block")
+                .arg(end_block.to_string())
+                .arg("--output-dir")
+                .arg(output_dir.to_string_lossy().to_string())
+                .output()
+                .map_err(|err| {
+                    let kind = err.kind();
+                    let wrapped = anyhow::Error::new(err).context("run cryo");
+                    if kind == std::io::ErrorKind::NotFound {
+                        CryoArtifactError::Fatal(wrapped)
+                    } else {
+                        CryoArtifactError::Retryable(wrapped)
+                    }
+                })
+        }
+    })
+    .await
+    .map_err(|err| CryoArtifactError::Retryable(anyhow::anyhow!(err)))??;
+
+    if out.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stderr = stderr.trim();
+    let stderr = if stderr.len() > 1024 {
+        &stderr[..1024]
+    } else {
+        stderr
+    };
+
+    let msg = if stderr.is_empty() {
+        "cryo failed"
+    } else {
+        stderr
+    };
+
+    let err = anyhow::anyhow!("{msg}");
+    match out.status.code() {
+        Some(2) => Err(CryoArtifactError::Fatal(err)),
+        _ => Err(CryoArtifactError::Retryable(err)),
+    }
+}
+
+fn collect_parquet_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    collect_parquet_files_into(dir, &mut out)?;
+    Ok(out)
+}
+
+fn collect_parquet_files_into(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("read_dir {}", dir.display()))? {
+        let entry = entry.context("read_dir entry")?;
+        let path = entry.path();
+        let file_type = entry.file_type().context("file_type")?;
+
+        if file_type.is_dir() {
+            if path.file_name().is_some_and(|name| name == ".cryo") {
+                continue;
+            }
+            collect_parquet_files_into(&path, out)?;
+            continue;
+        }
+
+        if file_type.is_file()
+            && path
+                .extension()
+                .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("parquet"))
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
 }

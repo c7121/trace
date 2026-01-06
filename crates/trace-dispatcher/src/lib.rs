@@ -19,8 +19,8 @@ use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use trace_core::{
-    DatasetGrant, DatasetPublication, Queue as QueueTrait, S3Grants, Signer as SignerTrait,
-    TaskCapabilityIssueRequest,
+    DatasetGrant, DatasetPublication, DatasetStorageRef, Queue as QueueTrait, S3Grants,
+    Signer as SignerTrait, TaskCapabilityIssueRequest,
 };
 use uuid::Uuid;
 
@@ -596,22 +596,34 @@ async fn register_dataset_publications(
     datasets: &[DatasetPublication],
 ) -> ApiResult<()> {
     for pubd in datasets {
+        let (storage_prefix, storage_glob) = match &pubd.storage_ref {
+            DatasetStorageRef::S3 {
+                bucket,
+                prefix,
+                glob,
+                ..
+            } => (format!("s3://{bucket}/{prefix}"), glob.clone()),
+            DatasetStorageRef::File { prefix, glob } => (format!("file://{prefix}"), glob.clone()),
+        };
+
         let inserted = sqlx::query(
             r#"
             INSERT INTO state.dataset_versions (
               dataset_version,
               dataset_uuid,
               storage_prefix,
+              storage_glob,
               config_hash,
               range_start,
               range_end
-            ) VALUES ($1, $2, $3, $4, $5, $6)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (dataset_version) DO NOTHING
             "#,
         )
         .bind(pubd.dataset_version)
         .bind(pubd.dataset_uuid)
-        .bind(&pubd.storage_prefix)
+        .bind(&storage_prefix)
+        .bind(&storage_glob)
         .bind(&pubd.config_hash)
         .bind(pubd.range_start)
         .bind(pubd.range_end)
@@ -627,7 +639,7 @@ async fn register_dataset_publications(
         // all metadata matches (fail closed on divergence).
         let row = sqlx::query(
             r#"
-            SELECT dataset_uuid, storage_prefix, config_hash, range_start, range_end
+            SELECT dataset_uuid, storage_prefix, storage_glob, config_hash, range_start, range_end
             FROM state.dataset_versions
             WHERE dataset_version = $1
             "#,
@@ -641,13 +653,16 @@ async fn register_dataset_publications(
             row.try_get("dataset_uuid").map_err(ApiError::internal)?;
         let existing_storage_prefix: String =
             row.try_get("storage_prefix").map_err(ApiError::internal)?;
+        let existing_storage_glob: String =
+            row.try_get("storage_glob").map_err(ApiError::internal)?;
         let existing_config_hash: String =
             row.try_get("config_hash").map_err(ApiError::internal)?;
         let existing_range_start: i64 = row.try_get("range_start").map_err(ApiError::internal)?;
         let existing_range_end: i64 = row.try_get("range_end").map_err(ApiError::internal)?;
 
         let matches = existing_dataset_uuid == pubd.dataset_uuid
-            && existing_storage_prefix == pubd.storage_prefix
+            && existing_storage_prefix == storage_prefix
+            && existing_storage_glob == storage_glob
             && existing_config_hash == pubd.config_hash
             && existing_range_start == pubd.range_start
             && existing_range_end == pubd.range_end;

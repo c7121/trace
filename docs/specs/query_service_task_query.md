@@ -20,7 +20,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
 ## Goals
 - Provide a runnable Query Service with one task-scoped endpoint.
 - Enforce capability-token authn/authz (token must match `{task_id, attempt}`).
-- Enforce `validate_sql` and run queries against Parquet datasets attached via a pinned manifest referenced by the task capability token.
+- Enforce `validate_sql` and run queries against Parquet datasets attached via a pinned storage reference carried in the task capability token.
 - Emit a dataset-level query audit record (no raw SQL).
 
 ## Non-goals
@@ -45,9 +45,9 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
   - Auth: verify `X-Trace-Task-Capability` (HS256 dev secret in Lite).
   - Gate: call `validate_sql(sql)` on every request.
   - Execute:
-    - Trusted attach: resolve a pinned dataset manifest from object storage (MinIO/S3) and attach it as a DuckDB relation (`dataset`).
+    - Trusted attach: attach a pinned dataset version using a storage reference carried in the task capability token as a DuckDB relation (`dataset`).
       - Implementation note: attach as a TEMP VIEW over `read_parquet(...)` (do not materialize into a table) so Parquet predicate/projection pushdown is preserved.
-      - Query Service MUST NOT download Parquet objects into memory or local disk as part of attach. Parquet is scanned remotely via `httpfs`.
+      - Query Service MUST NOT fetch Parquet bytes itself (`ObjectStore.get_bytes`) or copy Parquet objects to local temp as the primary attach path. Parquet is scanned in-place by DuckDB.
     - Untrusted SQL: execute gated SQL against attached relations only.
 
       DuckDB runtime hardening MUST be applied in addition to SQL gating:
@@ -71,11 +71,6 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
 - MUST reject a valid token that does not match `{task_id, attempt}` (403).
 - MUST reject a request whose `dataset_id` is not granted in the capability token (403).
 - MUST reject if the dataset storage reference is missing or outside the token’s S3 read prefixes (fail-closed).
-- MUST treat `_manifest.json` as untrusted input and enforce caps:
-  - `DATASET_MAX_MANIFEST_BYTES`
-  - `DATASET_MAX_OBJECTS`
-  - `DATASET_MAX_OBJECT_BYTES`
-  - `DATASET_MAX_TOTAL_BYTES`
 - MUST return 400 when `validate_sql` rejects.
 - MUST clamp `limit` to `[1, 10_000]` (default 1000) and return `truncated` when clipped.
 - MUST write an audit row on successful execution without storing raw SQL.

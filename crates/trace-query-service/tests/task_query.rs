@@ -5,6 +5,8 @@ use duckdb::Connection;
 use http_body_util::BodyExt;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
+use std::path::PathBuf;
+use std::sync::{Once, OnceLock};
 use tower::util::ServiceExt;
 use trace_core::fixtures::{
     ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX,
@@ -13,75 +15,45 @@ use trace_core::fixtures::{
 use trace_core::lite::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_core::lite::s3::parse_s3_uri;
 use trace_core::Signer as _;
-use trace_core::{DatasetGrant, S3Grants, TaskCapabilityIssueRequest};
+use trace_core::{DatasetGrant, DatasetStorageRef, S3Grants, TaskCapabilityIssueRequest};
 use trace_query_service::{
     build_state, config::QueryServiceConfig, router, TaskQueryRequest, TASK_CAPABILITY_HEADER,
 };
 use uuid::Uuid;
 
-const CONTENT_TYPE_JSON: &str = "application/json";
 const CONTENT_TYPE_PARQUET: &str = "application/octet-stream";
 
-#[derive(Clone)]
-struct RecordingObjectStore {
-    inner: std::sync::Arc<dyn trace_core::ObjectStore>,
-    gets: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
+fn init_tracing() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt::try_init();
+    });
 }
 
-impl RecordingObjectStore {
-    fn wrap(
-        inner: std::sync::Arc<dyn trace_core::ObjectStore>,
-    ) -> (Self, std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>) {
-        let gets = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        (
-            Self {
-                inner,
-                gets: gets.clone(),
-            },
-            gets,
-        )
-    }
-}
+fn ensure_duckdb_httpfs_installed() -> anyhow::Result<()> {
+    static INIT: OnceLock<Result<(), String>> = OnceLock::new();
+    let res = INIT.get_or_init(|| {
+        (|| -> anyhow::Result<()> {
+            let mut ext_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            ext_dir.push("target");
+            ext_dir.push("duckdb_extensions");
+            std::fs::create_dir_all(&ext_dir).context("create duckdb extension dir")?;
 
-impl trace_core::ObjectStore for RecordingObjectStore {
-    fn put_bytes<'a>(
-        &'a self,
-        bucket: &'a str,
-        key: &'a str,
-        bytes: Vec<u8>,
-        content_type: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = trace_core::Result<()>> + Send + 'a>,
-    > {
-        let inner = self.inner.clone();
-        let bucket = bucket.to_string();
-        let key = key.to_string();
-        let content_type = content_type.to_string();
-        Box::pin(async move {
-            inner
-                .put_bytes(&bucket, &key, bytes, &content_type)
-                .await
-        })
-    }
+            std::env::set_var("DUCKDB_EXTENSION_DIRECTORY", &ext_dir);
 
-    fn get_bytes<'a>(
-        &'a self,
-        bucket: &'a str,
-        key: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = trace_core::Result<Vec<u8>>> + Send + 'a>,
-    > {
-        let inner = self.inner.clone();
-        let gets = self.gets.clone();
-        let bucket = bucket.to_string();
-        let key = key.to_string();
-        Box::pin(async move {
-            {
-                let mut log = gets.lock().expect("lock gets log");
-                log.push((bucket.clone(), key.clone()));
-            }
-            inner.get_bytes(&bucket, &key).await
-        })
+            // Install once for test runs so Query Service can `LOAD httpfs` without network access
+            // during request handling.
+            let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+            conn.execute_batch("INSTALL httpfs;")
+                .context("INSTALL httpfs extension")?;
+            Ok(())
+        })()
+        .map_err(|err| format!("{err:#}"))
+    });
+
+    match res {
+        Ok(()) => Ok(()),
+        Err(msg) => Err(anyhow::anyhow!(msg.clone())),
     }
 }
 
@@ -174,20 +146,6 @@ async fn seed_fixture_dataset(
         .put_bytes(&bucket, &parquet_key, parquet_bytes, CONTENT_TYPE_PARQUET)
         .await?;
 
-    let parquet_uri = format!("s3://{bucket}/{parquet_key}");
-    let manifest = serde_json::json!({
-        "parquet_objects": [parquet_uri],
-    });
-    let manifest_key = join_key(&prefix_key, "_manifest.json");
-    object_store
-        .put_bytes(
-            &bucket,
-            &manifest_key,
-            serde_json::to_vec(&manifest)?,
-            CONTENT_TYPE_JSON,
-        )
-        .await?;
-
     Ok(())
 }
 
@@ -197,14 +155,21 @@ fn issue_token(
     attempt: i64,
     dataset_uuids: &[Uuid],
 ) -> anyhow::Result<String> {
+    let (bucket, prefix) = parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX)
+        .context("parse fixture storage prefix")?;
     let datasets = dataset_uuids
         .iter()
         .copied()
         .map(|dataset_uuid| DatasetGrant {
             dataset_uuid,
             dataset_version: ALERTS_FIXTURE_DATASET_VERSION,
-            storage_prefix: (dataset_uuid == ALERTS_FIXTURE_DATASET_ID)
-                .then(|| ALERTS_FIXTURE_DATASET_STORAGE_PREFIX.to_string()),
+            storage_ref: (dataset_uuid == ALERTS_FIXTURE_DATASET_ID).then(|| {
+                DatasetStorageRef::S3 {
+                    bucket: bucket.clone(),
+                    prefix: prefix.clone(),
+                    glob: "*.parquet".to_string(),
+                }
+            }),
         })
         .collect::<Vec<_>>();
 
@@ -273,6 +238,9 @@ async fn send_query(
 }
 
 async fn setup() -> anyhow::Result<(QueryServiceConfig, sqlx::PgPool, axum::Router)> {
+    init_tracing();
+    ensure_duckdb_httpfs_installed()?;
+
     let cfg = QueryServiceConfig::from_env()?;
 
     let pool = PgPoolOptions::new()
@@ -514,31 +482,16 @@ async fn dataset_grant_must_match_request() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn dataset_manifest_cannot_escape_s3_grants() -> anyhow::Result<()> {
+async fn dataset_storage_ref_must_be_under_s3_grants() -> anyhow::Result<()> {
     let (cfg, _pool, app) = setup().await?;
 
     let task_id = Uuid::new_v4();
     let attempt = 1;
     let dataset_id = ALERTS_FIXTURE_DATASET_ID;
 
-    let (bucket, _) = parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX)?;
-    let storage_prefix = format!("s3://{bucket}/tests/query/escape-{}/", Uuid::new_v4());
-
-    let object_store = trace_core::lite::s3::ObjectStore::new(&cfg.s3_endpoint)?;
-    let (bucket, prefix_key) = parse_s3_uri(&storage_prefix)?;
-    let manifest_key = join_key(&prefix_key, "_manifest.json");
-    let manifest = serde_json::json!({
-        "parquet_objects": [format!("s3://{bucket}/outside/not-authorized.parquet")],
-    });
-    object_store
-        .put_bytes(
-            &bucket,
-            &manifest_key,
-            serde_json::to_vec(&manifest)?,
-            CONTENT_TYPE_JSON,
-        )
-        .await?;
-
+    let (grant_bucket, grant_prefix) = parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX)
+        .context("parse fixture storage prefix")?;
+    let unauthorized_prefix = format!("s3://{grant_bucket}/not-authorized/");
     let token = issue_token_with_datasets(
         &cfg,
         task_id,
@@ -546,10 +499,14 @@ async fn dataset_manifest_cannot_escape_s3_grants() -> anyhow::Result<()> {
         vec![DatasetGrant {
             dataset_uuid: dataset_id,
             dataset_version: ALERTS_FIXTURE_DATASET_VERSION,
-            storage_prefix: Some(storage_prefix.clone()),
+            storage_ref: Some(DatasetStorageRef::S3 {
+                bucket: grant_bucket,
+                prefix: grant_prefix,
+                glob: "*.parquet".to_string(),
+            }),
         }],
         S3Grants {
-            read_prefixes: vec![storage_prefix],
+            read_prefixes: vec![unauthorized_prefix],
             write_prefixes: Vec::new(),
         },
     )?;
@@ -567,51 +524,5 @@ async fn dataset_manifest_cannot_escape_s3_grants() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn query_service_fetches_manifest_only() -> anyhow::Result<()> {
-    let cfg = QueryServiceConfig::from_env()?;
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&cfg.data_database_url)
-        .await?;
-
-    sqlx::migrate!("../../harness/migrations/data")
-        .run(&pool)
-        .await?;
-
-    let mut state = build_state(cfg.clone()).await?;
-    let (store, gets) = RecordingObjectStore::wrap(state.object_store.clone());
-    state.object_store = std::sync::Arc::new(store);
-
-    let app = router(state);
-    seed_fixture_dataset(&cfg, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX).await?;
-
-    let task_id = Uuid::new_v4();
-    let attempt = 1;
-    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
-    let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
-
-    let req = TaskQueryRequest {
-        task_id,
-        attempt,
-        dataset_id,
-        sql: "SELECT count(*) FROM dataset".to_string(),
-        limit: None,
-    };
-
-    let (status, body) = send_query(app, Some(token), &req).await?;
-    assert_eq!(status, StatusCode::OK, "body: {body}");
-
-    let reads = gets.lock().expect("lock gets log").clone();
-    assert!(
-        !reads.is_empty(),
-        "expected manifest fetch via object store"
-    );
-    assert!(
-        reads.iter().all(|(_bucket, key)| key.ends_with("_manifest.json")),
-        "expected only manifest get_bytes calls, got: {reads:?}"
-    );
-
-    Ok(())
-}
+// NOTE: Query Service attaches Parquet datasets via DuckDB remote scan; it must not fetch Parquet
+// bytes directly via an object store client.

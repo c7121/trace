@@ -87,7 +87,7 @@ Trace does not have a special historical-ingestion primitive. Bootstrap sync is 
 ## Acceptance criteria
 - Tests:
   - Realtime ingestion survives retries without duplicate rows (idempotent append).
-  - Bootstrap (historical) ingestion produces deterministic output paths/manifests (replace semantics).
+  - Bootstrap (historical) ingestion produces deterministic output storage references (prefix+glob) (replace semantics).
 - Observable behavior:
   - Lag metrics (head minus cursor) and reorg counters are visible for source operators.
 

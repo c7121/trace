@@ -1,7 +1,26 @@
 use anyhow::Context;
-use duckdb::Connection;
+use crate::config::QueryServiceConfig;
+use duckdb::{Config, Connection};
 use serde_json::Value;
 use tokio::task::JoinHandle;
+use trace_core::DatasetStorageRef;
+
+#[derive(Debug)]
+pub enum DuckDbQueryError {
+    Attach(anyhow::Error),
+    Query(anyhow::Error),
+}
+
+impl std::fmt::Display for DuckDbQueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DuckDbQueryError::Attach(err) => write!(f, "duckdb attach failed: {err}"),
+            DuckDbQueryError::Query(err) => write!(f, "duckdb query failed: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for DuckDbQueryError {}
 
 #[derive(Debug, Clone)]
 pub struct QueryColumn {
@@ -28,10 +47,9 @@ impl DuckDbSandbox {
     pub async fn query(&self, sql: String, max_rows: usize) -> anyhow::Result<QueryResultSet> {
         let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
             tokio::task::spawn_blocking(move || {
-                let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+                let conn = open_in_memory(false).context("open duckdb in-memory")?;
                 apply_hardening(&conn).context("apply duckdb hardening")?;
                 lock_down_local_filesystem(&conn).context("lock down local filesystem")?;
-                lock_down_external_access(&conn).context("lock down external access")?;
                 run_query(&conn, &sql, max_rows).context("run query")
             });
 
@@ -41,37 +59,73 @@ impl DuckDbSandbox {
             .context("duckdb query failed")
     }
 
-    pub async fn query_with_dataset_urls(
+    pub async fn query_with_dataset_storage_ref(
         &self,
-        parquet_urls: &[String],
+        cfg: &QueryServiceConfig,
+        storage_ref: &DatasetStorageRef,
         sql: String,
         max_rows: usize,
-    ) -> anyhow::Result<QueryResultSet> {
-        let parquet_urls = parquet_urls.to_vec();
-        let handle: JoinHandle<anyhow::Result<QueryResultSet>> =
+    ) -> Result<QueryResultSet, DuckDbQueryError> {
+        let cfg = cfg.clone();
+        let storage_ref = storage_ref.clone();
+        let handle: JoinHandle<Result<QueryResultSet, DuckDbQueryError>> =
             tokio::task::spawn_blocking(move || {
-                let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
-                apply_hardening(&conn).context("apply duckdb hardening")?;
+                let conn = open_in_memory(true)
+                    .context("open duckdb in-memory")
+                    .map_err(DuckDbQueryError::Attach)?;
+                apply_hardening(&conn)
+                    .context("apply duckdb hardening")
+                    .map_err(DuckDbQueryError::Attach)?;
 
-                // Attach the dataset as a TEMP VIEW over remote Parquet URLs so DuckDB can apply
-                // Parquet predicate/projection pushdown. This requires `httpfs` and network
-                // access; the security model relies on:
-                // - `trace_core::query::validate_sql` (untrusted SQL gate)
-                // - dataset grants from the task capability token (authz)
-                // - OS/container egress controls (allowlist object store endpoints)
-                enable_external_access(&conn).context("enable external access")?;
-                load_httpfs(&conn).context("load httpfs")?;
-                lock_down_local_filesystem(&conn).context("lock down local filesystem")?;
-                attach_remote_parquet_dataset_view(&conn, &parquet_urls)
-                    .context("attach parquet dataset")?;
+                match storage_ref {
+                    DatasetStorageRef::S3 { bucket, prefix, glob } => {
+                        // Attach the dataset as a TEMP VIEW over remote Parquet so DuckDB can apply
+                        // Parquet predicate/projection pushdown. This requires `httpfs` and network
+                        // access; the security model relies on:
+                        // - `trace_core::query::validate_sql` (untrusted SQL gate)
+                        // - dataset grants from the task capability token (authz)
+                        // - OS/container egress controls (allowlist object store endpoints)
+                        (|| -> anyhow::Result<()> {
+                            load_parquet(&conn).context("load parquet")?;
+                            load_httpfs(&conn).context("load httpfs")?;
+                            configure_s3(&conn, &cfg).context("configure s3")?;
+                            lock_down_local_filesystem(&conn)
+                                .context("lock down local filesystem")?;
 
-                run_query(&conn, &sql, max_rows).context("run query")
+                            let scan = s3_scan_target(&bucket, &prefix, &glob)?;
+                            attach_parquet_dataset_view(&conn, &scan)
+                                .context("attach parquet dataset")?;
+                            Ok(())
+                        })()
+                        .map_err(DuckDbQueryError::Attach)?;
+                    }
+                    DatasetStorageRef::File { prefix, glob } => {
+                        // Lite-only: allow local file scans when explicitly configured by the
+                        // Query Service. Query Service enforces an allowlisted root dir; SQL is
+                        // still gated by `validate_sql`.
+                        (|| -> anyhow::Result<()> {
+                            load_parquet(&conn).context("load parquet")?;
+                            lock_configuration(&conn).context("lock configuration")?;
+
+                            let scan = file_scan_target(&prefix, &glob)?;
+                            attach_parquet_dataset_view(&conn, &scan)
+                                .context("attach parquet dataset")?;
+                            Ok(())
+                        })()
+                        .map_err(DuckDbQueryError::Attach)?;
+                    }
+                };
+
+                run_query(&conn, &sql, max_rows)
+                    .context("run query")
+                    .map_err(DuckDbQueryError::Query)
             });
 
         handle
             .await
-            .context("join duckdb worker")?
-            .context("duckdb query failed")
+            .map_err(|err| {
+                DuckDbQueryError::Query(anyhow::Error::new(err).context("join duckdb worker"))
+            })?
     }
 }
 
@@ -82,6 +136,7 @@ fn apply_hardening(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         r#"
         SET autoinstall_known_extensions=false;
+        SET autoload_known_extensions=false;
         "#,
     )
     .context("set hardening defaults")?;
@@ -89,16 +144,14 @@ fn apply_hardening(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn lock_down_external_access(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch("SET enable_external_access=false;")
-        .context("disable external access")?;
-    Ok(())
-}
+fn open_in_memory(external_access: bool) -> anyhow::Result<Connection> {
+    let config = Config::default()
+        .enable_autoload_extension(false)
+        .context("disable extension autoload")?
+        .enable_external_access(external_access)
+        .context("set external access")?;
 
-fn enable_external_access(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch("SET enable_external_access=true;")
-        .context("enable external access")?;
-    Ok(())
+    Connection::open_in_memory_with_flags(config).context("open in-memory connection")
 }
 
 fn lock_down_local_filesystem(conn: &Connection) -> anyhow::Result<()> {
@@ -117,27 +170,91 @@ fn load_httpfs(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn attach_remote_parquet_dataset_view(
-    conn: &Connection,
-    parquet_urls: &[String],
-) -> anyhow::Result<()> {
-    if parquet_urls.is_empty() {
-        return Err(anyhow::anyhow!("no parquet objects"));
+fn load_parquet(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch("LOAD parquet;").context("LOAD parquet")?;
+    Ok(())
+}
+
+fn configure_s3(conn: &Connection, cfg: &QueryServiceConfig) -> anyhow::Result<()> {
+    let (endpoint, use_ssl) = normalize_s3_endpoint(&cfg.s3_endpoint)?;
+    let endpoint = escape_sql_string(&endpoint);
+    let region = escape_sql_string(&cfg.s3_region);
+    let url_style = escape_sql_string(&cfg.s3_url_style);
+    let access_key = escape_sql_string(&cfg.s3_access_key);
+    let secret_key = escape_sql_string(&cfg.s3_secret_key);
+    let use_ssl = if use_ssl { "true" } else { "false" };
+
+    conn.execute_batch(&format!(
+        r#"
+        SET s3_endpoint='{endpoint}';
+        SET s3_region='{region}';
+        SET s3_url_style='{url_style}';
+        SET s3_access_key_id='{access_key}';
+        SET s3_secret_access_key='{secret_key}';
+        SET s3_use_ssl={use_ssl};
+        "#
+    ))
+    .context("configure duckdb s3")?;
+    Ok(())
+}
+
+fn normalize_s3_endpoint(endpoint: &str) -> anyhow::Result<(String, bool)> {
+    let mut s = endpoint.trim().trim_end_matches('/').to_string();
+    let mut use_ssl = false;
+
+    if let Some(rest) = s.strip_prefix("http://") {
+        s = rest.to_string();
+        use_ssl = false;
+    } else if let Some(rest) = s.strip_prefix("https://") {
+        s = rest.to_string();
+        use_ssl = true;
     }
 
-    let scan = if parquet_urls.len() == 1 {
-        let url = parquet_urls[0].replace('\'', "''");
-        format!("read_parquet('{url}')")
-    } else {
-        let mut parts = Vec::with_capacity(parquet_urls.len());
-        for url in parquet_urls {
-            let url = url.replace('\'', "''");
-            parts.push(format!("'{url}'"));
-        }
-        format!("read_parquet([{}])", parts.join(","))
-    };
+    // Drop any path component.
+    if let Some((host, _path)) = s.split_once('/') {
+        s = host.to_string();
+    }
 
-    let create = format!("CREATE OR REPLACE TEMP VIEW dataset AS SELECT * FROM {scan};");
+    if s.is_empty() {
+        anyhow::bail!("empty s3 endpoint");
+    }
+
+    Ok((s, use_ssl))
+}
+
+fn lock_configuration(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch("SET lock_configuration=true;")
+        .context("lock configuration")?;
+    Ok(())
+}
+
+fn s3_scan_target(bucket: &str, prefix: &str, glob: &str) -> anyhow::Result<String> {
+    if bucket.is_empty() {
+        anyhow::bail!("empty s3 bucket");
+    }
+    let prefix = prefix.trim_start_matches('/');
+    let prefix = if prefix.ends_with('/') {
+        prefix.to_string()
+    } else {
+        format!("{prefix}/")
+    };
+    Ok(format!("s3://{bucket}/{prefix}{glob}"))
+}
+
+fn file_scan_target(prefix: &str, glob: &str) -> anyhow::Result<String> {
+    let prefix = prefix.trim_end_matches('/');
+    Ok(format!("{prefix}/{glob}"))
+}
+
+fn escape_sql_string(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn attach_parquet_dataset_view(conn: &Connection, scan: &str) -> anyhow::Result<()> {
+    let scan = escape_sql_string(scan);
+    let create = format!(
+        "CREATE OR REPLACE TEMP VIEW dataset AS SELECT * FROM read_parquet('{scan}');"
+    );
     conn.execute_batch(&create)
         .context("create temp dataset view")?;
     Ok(())
@@ -226,9 +343,6 @@ fn value_ref_to_json(value: duckdb::types::ValueRef<'_>) -> Value {
         ),
         duckdb::types::ValueRef::List(_, _) => Value::String("<list>".to_string()),
         duckdb::types::ValueRef::Enum(_, _) => Value::String("<enum>".to_string()),
-        duckdb::types::ValueRef::Struct(_, _) => Value::String("<struct>".to_string()),
-        duckdb::types::ValueRef::Array(_, _) => Value::String("<array>".to_string()),
-        duckdb::types::ValueRef::Map(_, _) => Value::String("<map>".to_string()),
-        duckdb::types::ValueRef::Union(_, _) => Value::String("<union>".to_string()),
+        _ => Value::String("<unsupported>".to_string()),
     }
 }

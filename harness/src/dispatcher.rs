@@ -7,7 +7,7 @@ use trace_core::fixtures::{
     ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX,
     ALERTS_FIXTURE_DATASET_VERSION,
 };
-use trace_core::{DatasetGrant, S3Grants, Signer as SignerTrait};
+use trace_core::{DatasetGrant, DatasetStorageRef, S3Grants, Signer as SignerTrait};
 
 #[derive(Debug)]
 pub struct DispatcherServer {
@@ -35,6 +35,10 @@ impl DispatcherServer {
         .context("init task capability")?;
 
         let queue = Arc::new(crate::pgqueue::PgQueue::new(pool.clone()));
+
+        let (bucket, prefix) = trace_core::lite::s3::parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX)
+            .context("parse fixture dataset storage prefix")?;
+
         let dispatcher_cfg = trace_dispatcher::DispatcherConfig {
             org_id: cfg.org_id,
             lease_duration_secs: cfg.lease_duration_secs,
@@ -46,7 +50,11 @@ impl DispatcherServer {
             default_datasets: vec![DatasetGrant {
                 dataset_uuid: ALERTS_FIXTURE_DATASET_ID,
                 dataset_version: ALERTS_FIXTURE_DATASET_VERSION,
-                storage_prefix: Some(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX.to_string()),
+                storage_ref: Some(DatasetStorageRef::S3 {
+                    bucket,
+                    prefix,
+                    glob: "*.parquet".to_string(),
+                }),
             }],
             default_s3: S3Grants {
                 read_prefixes: vec![ALERTS_FIXTURE_DATASET_STORAGE_PREFIX.to_string()],

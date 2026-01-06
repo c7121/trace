@@ -51,33 +51,33 @@ pub struct QueryServiceConfig {
     #[arg(long, env = "TASK_CAPABILITY_TTL_SECS", default_value_t = 300)]
     pub task_capability_ttl_secs: u64,
 
-    /// MinIO/S3 endpoint for dataset manifests and Parquet objects (Lite mode).
+    /// MinIO/S3 endpoint for Parquet dataset objects (Lite mode).
     #[arg(long, env = "S3_ENDPOINT", default_value = "http://localhost:9000")]
     pub s3_endpoint: String,
 
-    /// Max allowed size of a dataset manifest JSON document in bytes.
-    ///
-    /// Treat the manifest as untrusted input even if "produced by us".
-    #[arg(long, env = "DATASET_MAX_MANIFEST_BYTES", default_value_t = 1_048_576)]
-    pub dataset_max_manifest_bytes: usize,
+    /// S3 access key for DuckDB httpfs S3 access (Lite mode; defaults match `harness/docker-compose.yml`).
+    #[arg(long, env = "S3_ACCESS_KEY", default_value = "trace")]
+    pub s3_access_key: String,
 
-    /// Max allowed number of Parquet objects referenced by a dataset manifest.
-    #[arg(long, env = "DATASET_MAX_OBJECTS", default_value_t = 2_048)]
-    pub dataset_max_objects: usize,
+    /// S3 secret key for DuckDB httpfs S3 access (Lite mode).
+    #[arg(long, env = "S3_SECRET_KEY", default_value = "tracepassword")]
+    pub s3_secret_key: String,
 
-    /// Max allowed size of any single Parquet object in bytes.
-    ///
-    /// Lite implementation note: enforced via `HEAD` (Content-Length) on each manifest object,
-    /// before attaching the dataset for remote scanning.
-    #[arg(long, env = "DATASET_MAX_OBJECT_BYTES", default_value_t = 268_435_456)]
-    pub dataset_max_object_bytes: u64,
+    /// S3 region for DuckDB httpfs S3 access (Lite mode).
+    #[arg(long, env = "S3_REGION", default_value = "us-east-1")]
+    pub s3_region: String,
 
-    /// Max total bytes for Parquet objects referenced by a manifest (sum of Content-Length).
-    ///
-    /// This is a defensive cap to avoid attaching a dataset that would exceed reasonable local
-    /// resource or cost expectations. Query Service does not download full objects up front.
-    #[arg(long, env = "DATASET_MAX_TOTAL_BYTES", default_value_t = 1_073_741_824)]
-    pub dataset_max_total_bytes: u64,
+    /// S3 URL style for DuckDB (`path` for MinIO; `vhost` for AWS).
+    #[arg(long, env = "S3_URL_STYLE", default_value = "path")]
+    pub s3_url_style: String,
+
+    /// Allow local file-based dataset storage refs (`scheme:"file"`) under `QUERY_SERVICE_LOCAL_FILE_ROOT`.
+    #[arg(long, env = "QUERY_SERVICE_ALLOW_LOCAL_FILES", default_value_t = false)]
+    pub allow_local_files: bool,
+
+    /// Root directory allowed for local file dataset reads (required if local files are enabled).
+    #[arg(long, env = "QUERY_SERVICE_LOCAL_FILE_ROOT")]
+    pub local_file_root: Option<String>,
 }
 
 impl std::fmt::Debug for QueryServiceConfig {
@@ -86,6 +86,7 @@ impl std::fmt::Debug for QueryServiceConfig {
             .task_capability_next_secret
             .as_deref()
             .map(|_| "<redacted>");
+        let s3_secret_key = "<redacted>";
         f.debug_struct("QueryServiceConfig")
             .field("data_database_url", &"<redacted>")
             .field("bind", &self.bind)
@@ -97,10 +98,12 @@ impl std::fmt::Debug for QueryServiceConfig {
             .field("task_capability_next_secret", &task_capability_next_secret)
             .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
             .field("s3_endpoint", &self.s3_endpoint)
-            .field("dataset_max_manifest_bytes", &self.dataset_max_manifest_bytes)
-            .field("dataset_max_objects", &self.dataset_max_objects)
-            .field("dataset_max_object_bytes", &self.dataset_max_object_bytes)
-            .field("dataset_max_total_bytes", &self.dataset_max_total_bytes)
+            .field("s3_access_key", &"<redacted>")
+            .field("s3_secret_key", &s3_secret_key)
+            .field("s3_region", &self.s3_region)
+            .field("s3_url_style", &self.s3_url_style)
+            .field("allow_local_files", &self.allow_local_files)
+            .field("local_file_root", &self.local_file_root)
             .finish()
     }
 }
