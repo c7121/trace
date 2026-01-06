@@ -174,6 +174,7 @@ End-to-end local chain sync planning: schedule bounded Cryo ingestion ranges, en
 Prove the data path from “synced Parquet datasets” → “Query Service” → “alert event sink (idempotent)”.
 
 ### Context links
+- `docs/specs/alerting.md`
 - `docs/specs/query_service_task_query.md`
 - `docs/architecture/operators/alert_evaluate.md`
 - `docs/adr/0004-alert-event-sinks.md`

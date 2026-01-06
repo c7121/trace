@@ -86,17 +86,11 @@ Required:
 - `alert_definition_id` (UUID)
 - `dedupe_key` (string) - deterministic, stable across retries
 - `event_time` (RFC3339 timestamp)
-
-Optional (recommended when available):
-- `severity` (`info`|`warning`|`critical`)
 - `chain_id` (int)
 - `block_number` (int)
 - `block_hash` (string)
 - `tx_hash` (string)
-- `source_dataset_uuid` (UUID)
-- `partition_key` (string)
-- `cursor_value` (string)
-- `payload` (object) - producer-defined details (the only extensible field)
+- `payload` (object) - producer-defined details (the only extensible field; may be `{}`)
 
 Note: the platform normalizes common chain context fields (`chain_id`, `block_number`, `block_hash`, `tx_hash`) into dedicated columns for indexing. Producers MAY also copy these values into `payload` for convenience; the sink does not validate or interpret `payload` beyond being a JSON object.
 
