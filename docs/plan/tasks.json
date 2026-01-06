@@ -24,9 +24,10 @@
   },
   {
     "id": 4,
+    "status": "blocked",
     "action": "delete",
     "path": "docs/plan/backlog.md",
-    "rationale": "Deferred items list is not build instruction; belongs in issue tracker or roadmap, not docs"
+    "rationale": "Deferred items list is not build instruction; belongs in issue tracker or roadmap, not docs. BLOCKED: need to assess if content should be preserved elsewhere"
   },
   {
     "id": 5,
