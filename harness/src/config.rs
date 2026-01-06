@@ -35,6 +35,14 @@ pub struct HarnessConfig {
     #[arg(long, env = "DISPATCHER_URL", default_value = "http://127.0.0.1:8080")]
     pub dispatcher_url: String,
 
+    /// Query Service base URL (used by untrusted runtimes for task-scoped queries).
+    #[arg(
+        long,
+        env = "QUERY_SERVICE_URL",
+        default_value = "http://127.0.0.1:8090"
+    )]
+    pub query_service_url: String,
+
     /// Task lease duration in seconds.
     #[arg(long, env = "LEASE_DURATION_SECS", default_value_t = 10)]
     pub lease_duration_secs: u64,
@@ -163,6 +171,7 @@ impl std::fmt::Debug for HarnessConfig {
             .field("data_database_url", &"<redacted>")
             .field("dispatcher_bind", &self.dispatcher_bind)
             .field("dispatcher_url", &self.dispatcher_url)
+            .field("query_service_url", &self.query_service_url)
             .field("lease_duration_secs", &self.lease_duration_secs)
             .field("outbox_poll_ms", &self.outbox_poll_ms)
             .field("lease_reaper_poll_ms", &self.lease_reaper_poll_ms)

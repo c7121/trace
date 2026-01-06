@@ -34,6 +34,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
 
     let runner = FakeRunner::new(
         cfg.dispatcher_url.clone(),
+        cfg.query_service_url.clone(),
         cfg.s3_bucket.clone(),
         object_store.clone(),
     );
