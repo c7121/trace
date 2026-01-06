@@ -1,18 +1,33 @@
 # Trace Platform
 
-Architecture overview for Trace: an ETL orchestration platform for blockchain research and operations.
+An ETL orchestration platform for blockchain research and operations.
 
-## Overview
+## What is Trace?
 
-A general-purpose ETL orchestration system designed for:
+A general-purpose ETL orchestration system: safe, reliable, and extensible.
 
-- **Multi-runtime support** — Rust, Python, TypeScript (v1); additional runtimes are deferred (see backlog)
-- **Asset-based lineage** — Everything produces trackable assets
-- **Flexible partitioning** — Data-driven, not static time-based
-- **Source jobs** — Long-running services with `activation: source` (e.g., blockchain followers)
-- **Config-as-code** — DAGs defined in YAML, version controlled
+**Users:** Analysts and researchers · DeFi teams · Security professionals
 
-See [plan.md](plan/plan.md) for the recommended build order and [backlog.md](plan/backlog.md) for deferred items.
+**User stories** — as an analyst or researcher, I can:
+- **Curate** onchain data — select, filter, and organize datasets from blockchain networks
+- **Combine** onchain data with offchain feeds — enrich blockchain data with external sources
+- **Enrich** data — add labels, annotations, and computed fields (both real-time and retroactive)
+- **Alert** on data — define conditions and receive notifications on historical and live data
+- **Analyze** data — run summaries, aggregations, and models across the dataset
+- **Access both historical and real-time data** — seamless queries across full history and chain tip
+
+**Goals:**
+- **Safe** — least privilege access; secrets managed securely; full audit trail
+- **Reliable** — no silent data loss; system recovers gracefully from failures
+- **Extensible** — variety of data in (onchain, offchain, batch, stream, push, pull); variety of operations out (query, enrich, alert, model)
+
+**Non-goals:** Ultra-low-latency trading · On-prem deployment · Multi-tenancy in v1
+
+**Assumptions:** AWS (portable design) · Monad-first (EVM-compatible; multi-chain ready) · IaC-only provisioning
+
+---
+
+## Concepts
 
 ### Design Principles
 
@@ -21,17 +36,6 @@ See [plan.md](plan/plan.md) for the recommended build order and [backlog.md](pla
 3. **Workers are dumb** — Receive task, execute, report result
 4. **YAML is source of truth** — Definitions in git, state in Postgres state
 5. **Single dispatcher service** — Simple, stateless, restartable
-
-### Tenancy Model
-
-> **v1 is single-tenant.** The architecture includes `org_id` scoping throughout (jobs, tasks, data, queries) to support future multi-tenant expansion, but v1 deploys as a single-org instance. Multi-tenancy (shared infrastructure with logical isolation) and physical tenant isolation (per-org deployments) are deferred. See [backlog.md](plan/backlog.md).
-
-### Job Characteristics
-
-- **Containerized**: jobs run as containers or services, called remotely (not co-located)
-- **Polyglot**: any runtime — Rust, Python, TypeScript, etc. — packaged as a container
-- **Standard contract**: jobs receive inputs, produce outputs, return metadata
-- **Composable**: jobs can depend on outputs of other jobs, forming DAGs
 
 ### Job Types
 
@@ -60,65 +64,64 @@ See [plan.md](plan/plan.md) for the recommended build order and [backlog.md](pla
 
 ## Architecture
 
-Canonical C4 diagrams live in [c4.md](architecture/c4.md):
+Canonical C4 diagrams live in [c4.md](architecture/c4.md) (L1 System Context, L2 Container View).
 
-- **C4 L1 (System Context)**
-- **C4 L2 (Container View)** — includes Platform Workers and the Lambda UDF runner (v1), Dispatcher credential minting, Delivery Service, and egress gateways
+### Key characteristics
 
-This `docs/readme.md` keeps the architecture overview concise; use the C4 page for diagrams and component boundaries.
-
+- **Multi-runtime** — Rust, Python, TypeScript (v1)
+- **Asset-based lineage** — Everything produces trackable assets
+- **Flexible partitioning** — Data-driven, not static time-based
+- **Config-as-code** — DAGs defined in YAML, version controlled
+- **Single-tenant v1** — `org_id` scoping throughout for future multi-tenant expansion
 
 ### Storage
 
-**Storage:** Postgres state holds orchestration metadata (multi-AZ, PITR). Postgres data and S3 are used for job data: Postgres data is typically used for hot/mutable datasets (e.g., recent chain ranges, alert tables), while S3 Parquet is used for cold/immutable datasets and exported results. The "hot" vs "cold" split is a **naming convention** used by operators like `block_follower` and `parquet_compact`, not a separate storage engine. DuckDB federates across both.
+- **Postgres state** — orchestration metadata (multi-AZ, PITR)
+- **Postgres data** — hot/mutable datasets (recent chain ranges, alert tables)
+- **S3 Parquet** — cold/immutable datasets and exported results
+- **DuckDB** — federates queries across Postgres data and S3
 
-See [db_boundaries.md](architecture/db_boundaries.md) for hard invariants and cross-database constraints.
+See [db_boundaries.md](architecture/db_boundaries.md) for cross-database constraints.
 
+### Security
 
-### Deep Dives
+- **Trust split**: Platform Workers run trusted operators; untrusted user code runs only via Lambda UDF runner
+- **Secrets**: AWS Secrets Manager → injected at launch; untrusted code never calls Secrets Manager
+- **Egress**: No direct internet from job containers; all external calls via Delivery Service or RPC Egress Gateway
 
-- C4 diagrams: [c4.md](architecture/c4.md)
-- End-to-end flow: [event_flow.md](architecture/event_flow.md)
-- System invariants: [invariants.md](architecture/invariants.md)
-- Task lifecycle: [task_lifecycle.md](architecture/task_lifecycle.md)
-- Operations (targets, invariants, failure drills): [operations.md](standards/operations.md)
-- Orchestration internals: [dispatcher.md](architecture/containers/dispatcher.md)
-- Execution model: [workers.md](architecture/containers/workers.md)
-- Database boundaries: [db_boundaries.md](architecture/db_boundaries.md)
-- Query federation: [query_service.md](architecture/containers/query_service.md)
-- Scoped data access: [dispatcher.md#credential-minting](architecture/containers/dispatcher.md#credential-minting)
-- Outbound egress: [delivery_service.md](architecture/containers/delivery_service.md), [rpc_egress_gateway.md](architecture/containers/rpc_egress_gateway.md)
-- User API surface: [user_api_contracts.md](architecture/user_api_contracts.md)
-- Task/event schemas: [contracts.md](architecture/contracts.md)
+Full model: [security_model.md](standards/security_model.md)
 
+---
+
+## Reading Order
+
+For developers and agents implementing features:
+
+1. **[invariants.md](architecture/invariants.md)** — Correctness guarantees (read first)
+2. **[contracts.md](architecture/contracts.md)** — Wire formats, JWT claims, API fencing
+3. **[task_lifecycle.md](architecture/task_lifecycle.md)** — Leasing, retries, outbox
+4. **Relevant spec** in [specs/](specs/) — Feature-specific surface and acceptance criteria
+5. **Relevant ADR** in [adr/](adr/) — Decision rationale if changing boundaries
+
+---
 
 ## Documentation Map
 
 | Area | Documents |
 |------|-----------|
-| Architecture | [architecture index](architecture/README.md), [ADRs](adr/) |
-| Containers | [containers](architecture/containers/) |
-| Data model | [data model](architecture/data_model/) |
-| Operators | [operator catalog](architecture/operators/README.md) |
-| Specs | [spec index](specs/README.md) |
-| Deploy | [deployment profiles](deploy/deployment_profiles.md), [infrastructure](deploy/infrastructure.md), [monitoring](deploy/monitoring.md) |
-| Standards | [standards](standards/) |
-| Use cases | [operator recipes](architecture/operators/README.md#recipes) |
-| Planning | [planning](plan/) |
+| Architecture | [architecture/](architecture/), [ADRs](adr/) |
+| Containers | [containers/](architecture/containers/) |
+| Data model | [data_model/](architecture/data_model/) |
+| Operators | [operators/](architecture/operators/) |
+| Specs | [specs/](specs/) |
+| Deploy | [deploy/](deploy/) |
+| Standards | [standards/](standards/) |
 
-When updating docs or diagrams, follow [docs_hygiene.md](standards/docs_hygiene.md).
+When updating docs, follow [docs_hygiene.md](standards/docs_hygiene.md).
 
-## Security
-
-- **Trust split**: Platform Workers run trusted operators; untrusted user code executes only via the platform-managed Lambda UDF runner (v1).
-- **Secrets**: stored in AWS Secrets Manager and injected into ECS/Lambda at launch; untrusted code does not call Secrets Manager.
-- **Egress**: job containers have no direct internet egress. External calls go only through platform egress services (Delivery Service, RPC Egress Gateway).
-- **Roles**: dispatcher, platform workers, lambda udf runner, query service, delivery service, rpc egress gateway.
-
-The full isolation model and threat assumptions live in [security_model.md](standards/security_model.md).
+---
 
 ## References
-
 
 - [cryo GitHub](https://github.com/paradigmxyz/cryo)
 - [DuckDB Documentation](https://duckdb.org/docs/)

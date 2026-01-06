@@ -8,6 +8,7 @@
   },
   {
     "id": 2,
+    "status": "complete",
     "action": "merge-and-delete",
     "source": "docs/prd/prd.md",
     "target": "docs/readme.md",
