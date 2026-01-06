@@ -134,6 +134,6 @@ Ordering is enforced by **DAG dependencies** and **dataset versioning**, not by 
 
 ## Related
 
-- [contracts.md](contracts.md) — endpoints and payload shapes
-- [orchestration.md](data_model/orchestration.md) — task schema
-- [dispatcher.md](containers/dispatcher.md) — orchestration responsibilities
+- [contracts.md](contracts.md) - endpoints and payload shapes
+- [orchestration.md](data_model/orchestration.md) - task schema
+- [dispatcher.md](containers/dispatcher.md) - orchestration responsibilities

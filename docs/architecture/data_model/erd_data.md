@@ -1,4 +1,4 @@
-# ERD — Postgres data
+# ERD - Postgres data
 
 Canonical relationships for platform-owned data-plane tables.
 

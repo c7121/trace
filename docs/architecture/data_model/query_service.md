@@ -81,5 +81,5 @@ CREATE INDEX idx_query_results_task ON query_results(task_id);
 
 ## Related
 
-- [query_service.md](../containers/query_service.md) — query endpoint behavior and capabilities
-- [pii.md](pii.md) — visibility and audit rules
+- [query_service.md](../containers/query_service.md) - query endpoint behavior and capabilities
+- [pii.md](pii.md) - visibility and audit rules

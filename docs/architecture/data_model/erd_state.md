@@ -1,4 +1,4 @@
-# ERD — Postgres state
+# ERD - Postgres state
 
 Canonical relationships for orchestration, lineage, and dataset registry.
 

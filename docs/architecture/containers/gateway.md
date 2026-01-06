@@ -64,6 +64,6 @@ Allowed origins configured per environment. Default: same-origin only.
 
 ## Related
 
-- `docs/standards/security_model.md` — canonical auth model and trust boundaries
-- `docs/architecture/contracts.md` — worker/task contracts (internal-only)
-- `docs/architecture/containers/query_service.md` — query endpoint behavior
+- `docs/standards/security_model.md` - canonical auth model and trust boundaries
+- `docs/architecture/contracts.md` - worker/task contracts (internal-only)
+- `docs/architecture/containers/query_service.md` - query endpoint behavior

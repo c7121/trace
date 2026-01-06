@@ -40,7 +40,7 @@ Constraints:
 - Persistence format: UDF bundle format and provenance requirements.
 - User API: bundle upload and metadata routes are enumerated in `docs/architecture/user_api_contracts.md`.
 
-## Architecture (C4) — Mermaid-in-Markdown only
+## Architecture (C4) - Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR

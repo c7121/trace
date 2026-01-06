@@ -3,8 +3,8 @@
 Central orchestration coordinator. Primary control-plane service.
 
 > **Note on Postgres:** the docs use “Postgres” as a technology for two separate databases:
-> - **Postgres state** — control-plane source of truth (jobs, tasks, versions, leases)
-> - **Postgres data** — data-plane hot tables (alerts, hot chain tables, query results, etc.)
+> - **Postgres state** - control-plane source of truth (jobs, tasks, versions, leases)
+> - **Postgres data** - data-plane hot tables (alerts, hot chain tables, query results, etc.)
 >
 > They are deployed as **two separate instances/clusters** (e.g., two RDS databases), even if they share the same engine/version.
 
@@ -173,7 +173,7 @@ Verification (required):
 
 ## Failure Mode
 
-Dispatcher is stateless — durable state lives in Postgres state. On failure/restart:
+Dispatcher is stateless - durable state lives in Postgres state. On failure/restart:
 
 - ECS restarts the service.
 - In-flight workers may continue executing their current attempt.

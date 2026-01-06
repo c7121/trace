@@ -29,17 +29,17 @@ No user-facing query routes are implemented yet.
 
 ### Datasets (discovery)
 
-- `GET /v1/datasets` — list published datasets (names + metadata).
-- `GET /v1/datasets/{dataset_name}` — fetch dataset metadata and current version pointer.
+- `GET /v1/datasets` - list published datasets (names + metadata).
+- `GET /v1/datasets/{dataset_name}` - fetch dataset metadata and current version pointer.
 
 Owned by: Dispatcher (registry is in Postgres state).
 References: ADR `0008-dataset-registry-and-publishing.md`, `docs/architecture/data_model/orchestration.md`.
 
 ### DAG deployment
 
-- `POST /v1/dags/{dag_name}/versions` — deploy a DAG YAML (idempotent by `yaml_hash`).
-- `GET /v1/dags/{dag_name}/versions` — list deployed versions.
-- `PUT /v1/dags/{dag_name}/active` — set the org+dag active pointer to a deployed version.
+- `POST /v1/dags/{dag_name}/versions` - deploy a DAG YAML (idempotent by `yaml_hash`).
+- `GET /v1/dags/{dag_name}/versions` - list deployed versions.
+- `PUT /v1/dags/{dag_name}/active` - set the org+dag active pointer to a deployed version.
 
 Spec: `docs/specs/dag_configuration.md`.
 
@@ -47,19 +47,19 @@ Spec: `docs/specs/dag_configuration.md`.
 
 UDF bundle upload is a two-step control-plane flow to keep large payloads out of the Gateway.
 
-- `POST /v1/udf/bundles` — create an upload session and return a pre-signed upload URL.
-- `POST /v1/udf/bundles/{bundle_id}/finalize` — finalize metadata (content hash, runtime, entrypoint).
+- `POST /v1/udf/bundles` - create an upload session and return a pre-signed upload URL.
+- `POST /v1/udf/bundles/{bundle_id}/finalize` - finalize metadata (content hash, runtime, entrypoint).
 
 Spec: `docs/specs/udf.md`.
 
 ### Alerts
 
-- `POST /v1/alerts` — create an alert definition.
-- `GET /v1/alerts` — list alerts.
-- `GET /v1/alerts/{alert_id}` — fetch an alert definition.
-- `PUT /v1/alerts/{alert_id}` — update an alert definition.
-- `DELETE /v1/alerts/{alert_id}` — disable/delete an alert definition.
-- `GET /v1/alerts/{alert_id}/deliveries` — list delivery attempts/status.
+- `POST /v1/alerts` - create an alert definition.
+- `GET /v1/alerts` - list alerts.
+- `GET /v1/alerts/{alert_id}` - fetch an alert definition.
+- `PUT /v1/alerts/{alert_id}` - update an alert definition.
+- `DELETE /v1/alerts/{alert_id}` - disable/delete an alert definition.
+- `GET /v1/alerts/{alert_id}/deliveries` - list delivery attempts/status.
 
 Spec: `docs/specs/alerting.md`.
 
@@ -67,13 +67,13 @@ Spec: `docs/specs/alerting.md`.
 
 The following are intentionally **not** user-facing:
 
-- `/v1/task/*` — runner/UDF-only task-scoped APIs (capability token gated).
-- `/internal/*` — internal-only component APIs.
+- `/v1/task/*` - runner/UDF-only task-scoped APIs (capability token gated).
+- `/internal/*` - internal-only component APIs.
 
 ## Future (not in allowlist)
 
 The following are planned but are **not** reachable via the Gateway today:
 
-- `POST /v1/query` — user-facing interactive query execution (Query Service).
+- `POST /v1/query` - user-facing interactive query execution (Query Service).
   - Blocked on dataset registry + published dataset authz and a stable query results model.
   - Reference: `docs/architecture/containers/query_service.md`

@@ -37,7 +37,7 @@ Constraints:
 - Query surfaces: dataset registry + version pinning behaviors (see ADRs).
 - Persistence: metadata tables in Postgres state and (where applicable) Postgres data.
 
-## Architecture (C4) — Mermaid-in-Markdown only
+## Architecture (C4) - Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR

@@ -163,8 +163,8 @@ The token is the single source of truth for what the UDF is allowed to read and 
 
 The token is enforced by:
 
-- **Query Service** — for ad-hoc SQL reads across Postgres + S3; only the datasets in the token are attached as views.
-- **Dispatcher** — exchanges the token for short-lived STS credentials scoped to the allowed S3 prefixes (credential minting).
+- **Query Service** - for ad-hoc SQL reads across Postgres + S3; only the datasets in the token are attached as views.
+- **Dispatcher** - exchanges the token for short-lived STS credentials scoped to the allowed S3 prefixes (credential minting).
 
 In ECS, a trusted **worker wrapper** typically performs task/lease calls and credential minting and then injects the resulting scoped credentials into the untrusted process.
 

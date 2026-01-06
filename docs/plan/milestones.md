@@ -109,7 +109,7 @@ This milestone introduces the minimum “dataset attach” machinery so Query Se
 Status: **complete** (tag: `ms/12`).
 
 ### Goal
-Run Cryo locally to produce Parquet datasets and register dataset versions in Postgres state — no AWS required.
+Run Cryo locally to produce Parquet datasets and register dataset versions in Postgres state - no AWS required.
 
 ### Context links
 - `docs/architecture/operators/cryo_ingest.md`

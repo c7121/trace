@@ -39,7 +39,7 @@ Public surface includes API endpoints, schemas, config semantics, and persistenc
 - Persistence format/migration: Postgres data tables `alert_definitions`, `alert_events`, `alert_deliveries` (DDL in `docs/architecture/data_model/alerting.md`).
 - Intentionally not supported (surface area control): direct webhook calls from UDFs; custom provider integrations inside UDF runtime.
 
-## Architecture (C4) — Mermaid-in-Markdown only
+## Architecture (C4) - Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR
@@ -84,7 +84,7 @@ Record schema (v1):
 
 Required:
 - `alert_definition_id` (UUID)
-- `dedupe_key` (string) — deterministic, stable across retries
+- `dedupe_key` (string) - deterministic, stable across retries
 - `event_time` (RFC3339 timestamp)
 
 Optional (recommended when available):
@@ -96,7 +96,7 @@ Optional (recommended when available):
 - `source_dataset_uuid` (UUID)
 - `partition_key` (string)
 - `cursor_value` (string)
-- `payload` (object) — producer-defined details (the only extensible field)
+- `payload` (object) - producer-defined details (the only extensible field)
 
 Note: the platform normalizes common chain context fields (`chain_id`, `block_number`, `block_hash`, `tx_hash`) into dedicated columns for indexing. Producers MAY also copy these values into `payload` for convenience; the sink does not validate or interpret `payload` beyond being a JSON object.
 

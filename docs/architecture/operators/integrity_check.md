@@ -13,7 +13,7 @@ Defense-in-depth verification and repair against canonical chain state.
 
 ## Description
 
-Validates that finalized data in cold storage (S3 Parquet) matches the canonical chain. Intended to catch corruption, incomplete compaction, downtime gaps, or rare post-finality reorgs. This is not the primary tip reorg mechanism — realtime reorg reconciliation is handled by `block_follower`.
+Validates that finalized data in cold storage (S3 Parquet) matches the canonical chain. Intended to catch corruption, incomplete compaction, downtime gaps, or rare post-finality reorgs. This is not the primary tip reorg mechanism - realtime reorg reconciliation is handled by `block_follower`.
 
 ## Inputs
 

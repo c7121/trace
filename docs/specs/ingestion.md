@@ -32,7 +32,7 @@ while keeping ingestion logic outside the core platform and preserving idempoten
 - Config semantics: DAG job configs for ingestion operators (see operator docs).
 - Persistence: ingestion outputs are datasets (Postgres/S3) using the standard publishing and versioning model.
 
-## Architecture (C4) — Mermaid-in-Markdown only
+## Architecture (C4) - Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR

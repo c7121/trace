@@ -8,18 +8,18 @@ A general-purpose ETL orchestration system: safe, reliable, and extensible.
 
 **Users:** Analysts and researchers · DeFi teams · Security professionals
 
-**User stories** — as an analyst or researcher, I can:
-- **Curate** onchain data — select, filter, and organize datasets from blockchain networks
-- **Combine** onchain data with offchain feeds — enrich blockchain data with external sources
-- **Enrich** data — add labels, annotations, and computed fields (both real-time and retroactive)
-- **Alert** on data — define conditions and receive notifications on historical and live data
-- **Analyze** data — run summaries, aggregations, and models across the dataset
-- **Access both historical and real-time data** — seamless queries across full history and chain tip
+**User stories** - as an analyst or researcher, I can:
+- **Curate** onchain data - select, filter, and organize datasets from blockchain networks
+- **Combine** onchain data with offchain feeds - enrich blockchain data with external sources
+- **Enrich** data - add labels, annotations, and computed fields (both real-time and retroactive)
+- **Alert** on data - define conditions and receive notifications on historical and live data
+- **Analyze** data - run summaries, aggregations, and models across the dataset
+- **Access both historical and real-time data** - seamless queries across full history and chain tip
 
 **Goals:**
-- **Safe** — least privilege access; secrets managed securely; full audit trail
-- **Reliable** — no silent data loss; system recovers gracefully from failures
-- **Extensible** — variety of data in (onchain, offchain, batch, stream, push, pull); variety of operations out (query, enrich, alert, model)
+- **Safe** - least privilege access; secrets managed securely; full audit trail
+- **Reliable** - no silent data loss; system recovers gracefully from failures
+- **Extensible** - variety of data in (onchain, offchain, batch, stream, push, pull); variety of operations out (query, enrich, alert, model)
 
 **Non-goals:** Ultra-low-latency trading · On-prem deployment · Multi-tenancy in v1
 
@@ -31,11 +31,11 @@ A general-purpose ETL orchestration system: safe, reliable, and extensible.
 
 ### Design Principles
 
-1. **Everything is a job** — Streaming services, batch transforms, checks
-2. **Everything produces assets** — Postgres tables, S3 Parquet, any URI
-3. **Workers are dumb** — Receive task, execute, report result
-4. **YAML is source of truth** — Definitions in git, state in Postgres state
-5. **Single dispatcher service** — Simple, stateless, restartable
+1. **Everything is a job** - Streaming services, batch transforms, checks
+2. **Everything produces assets** - Postgres tables, S3 Parquet, any URI
+3. **Workers are dumb** - Receive task, execute, report result
+4. **YAML is source of truth** - Definitions in git, state in Postgres state
+5. **Single dispatcher service** - Simple, stateless, restartable
 
 ### Job Types
 
@@ -55,8 +55,8 @@ A general-purpose ETL orchestration system: safe, reliable, and extensible.
 |------|------------|
 | Operator | Job implementation (e.g., `block_follower`, `alert_evaluate`) |
 | Activation | `source` (emits events) or `reactive` (runs from tasks) |
-| Source | Job with `activation: source` — maintains connections, emits events |
-| Asset | Output of a job — Parquet file, table rows |
+| Source | Job with `activation: source` - maintains connections, emits events |
+| Asset | Output of a job - Parquet file, table rows |
 | Partition | A subset of an asset (e.g., blocks 0-10000) |
 | Runtime | Execution environment: `lambda`, `ecs_platform`, `dispatcher` (v1); `ecs_udf` is deferred to v2 |
 
@@ -68,18 +68,18 @@ Canonical C4 diagrams live in [c4.md](architecture/c4.md) (L1 System Context, L2
 
 ### Key characteristics
 
-- **Multi-runtime** — Rust, Python, TypeScript (v1)
-- **Asset-based lineage** — Everything produces trackable assets
-- **Flexible partitioning** — Data-driven, not static time-based
-- **Config-as-code** — DAGs defined in YAML, version controlled
-- **Single-tenant v1** — `org_id` scoping throughout for future multi-tenant expansion
+- **Multi-runtime** - Rust, Python, TypeScript (v1)
+- **Asset-based lineage** - Everything produces trackable assets
+- **Flexible partitioning** - Data-driven, not static time-based
+- **Config-as-code** - DAGs defined in YAML, version controlled
+- **Single-tenant v1** - `org_id` scoping throughout for future multi-tenant expansion
 
 ### Storage
 
-- **Postgres state** — orchestration metadata (multi-AZ, PITR)
-- **Postgres data** — hot/mutable datasets (recent chain ranges, alert tables)
-- **S3 Parquet** — cold/immutable datasets and exported results
-- **DuckDB** — federates queries across Postgres data and S3
+- **Postgres state** - orchestration metadata (multi-AZ, PITR)
+- **Postgres data** - hot/mutable datasets (recent chain ranges, alert tables)
+- **S3 Parquet** - cold/immutable datasets and exported results
+- **DuckDB** - federates queries across Postgres data and S3
 
 See [db_boundaries.md](architecture/db_boundaries.md) for cross-database constraints.
 
@@ -97,13 +97,13 @@ Full model: [security_model.md](standards/security_model.md)
 
 **Start here** (in order):
 
-1. [invariants.md](architecture/invariants.md) — Correctness guarantees
-2. [contracts.md](architecture/contracts.md) — Wire formats, JWT claims, API fencing
-3. [task_lifecycle.md](architecture/task_lifecycle.md) — Leasing, retries, outbox
+1. [invariants.md](architecture/invariants.md) - Correctness guarantees
+2. [contracts.md](architecture/contracts.md) - Wire formats, JWT claims, API fencing
+3. [task_lifecycle.md](architecture/task_lifecycle.md) - Leasing, retries, outbox
 
 **Then** find the relevant [spec](specs/) or [ADR](adr/) for your feature.
 
-**Canonical sources** — one file per concept; link, don't restate:
+**Canonical sources** - one file per concept; link, don't restate:
 
 | Concept | Owner |
 |---------|-------|

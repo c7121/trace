@@ -57,7 +57,7 @@ Constraints:
 - Persistence: DAG versions and the active mapping (see `docs/architecture/data_model/orchestration.md`).
 - Intentionally not supported: per-job secret-slot leasing; implicit joins/fan-in behaviors.
 
-## Architecture (C4) — Mermaid-in-Markdown only
+## Architecture (C4) - Mermaid-in-Markdown only
 
 ```mermaid
 flowchart LR
@@ -130,7 +130,7 @@ Deploy/validation MUST reject configs that set these fields. This prevents “co
 | `inputs` | reactive | Upstream edges (`from: {job, output}` or `from: {dataset: dataset_name}`), optionally with `where` |
 | `execution_strategy` | reactive | `PerUpdate` or `PerPartition` |
 | `update_strategy` | reactive | `append` or `replace` |
-| `unique_key` | if append | Required when `update_strategy=append` — columns used for idempotent upserts |
+| `unique_key` | if append | Required when `update_strategy=append` - columns used for idempotent upserts |
 | `source` | source | Source config: `kind`, `schedule`/`webhook_path`, etc. |
 | `bootstrap` | source | Optional one-time bootstrap actions (v1: `reset_outputs`) |
 | `secrets` | | Logical secret names required by the operator |
