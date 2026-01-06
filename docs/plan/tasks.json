@@ -1,0 +1,73 @@
+[
+  {
+    "id": 1,
+    "status": "complete",
+    "action": "delete",
+    "path": "docs/specs/README.md",
+    "rationale": "7-line stub with no unique content; just points to other files"
+  },
+  {
+    "id": 2,
+    "action": "merge-and-delete",
+    "source": "docs/prd/prd.md",
+    "target": "docs/readme.md",
+    "rationale": "Only unique content is ~15 lines of user stories; merge into Overview section, then delete prd/ folder"
+  },
+  {
+    "id": 3,
+    "action": "delete",
+    "path": "docs/plan/plan.md",
+    "rationale": "Self-declares as non-normative and 'may lag behind implementation'; execution sequencing doesn't belong in build docs"
+  },
+  {
+    "id": 4,
+    "action": "delete",
+    "path": "docs/plan/backlog.md",
+    "rationale": "Deferred items list is not build instruction; belongs in issue tracker or roadmap, not docs"
+  },
+  {
+    "id": 5,
+    "action": "keep-and-rename",
+    "path": "docs/plan/milestones.md",
+    "newPath": "docs/milestones.md",
+    "rationale": "Ledger of completed work has archival value; move up one level and delete empty plan/ folder"
+  },
+  {
+    "id": 6,
+    "action": "dedupe",
+    "path": "docs/standards/operations.md",
+    "lines": "35-50",
+    "duplicatesFrom": "docs/architecture/invariants.md",
+    "rationale": "Replace restated invariants with link: 'See [invariants.md](../architecture/invariants.md) for correctness guarantees.'"
+  },
+  {
+    "id": 7,
+    "action": "dedupe",
+    "path": "docs/architecture/event_flow.md",
+    "section": "Notes section",
+    "duplicatesFrom": "docs/architecture/invariants.md",
+    "rationale": "Replace prose restatement of at-least-once/idempotency with link to invariants.md"
+  },
+  {
+    "id": 8,
+    "action": "add-section",
+    "path": "docs/readme.md",
+    "section": "Reading Order",
+    "content": "Ordered list pointing developers to: invariants.md → contracts.md → relevant spec",
+    "rationale": "Guide readers to canonical sources instead of letting them wander through duplicated content"
+  },
+  {
+    "id": 9,
+    "action": "add-section",
+    "path": "docs/readme.md",
+    "section": "Canonical Sources",
+    "content": "Table mapping each core concept to its one true file",
+    "rationale": "Explicit ownership prevents future duplication and drift"
+  },
+  {
+    "id": 10,
+    "action": "audit-and-link",
+    "paths": ["docs/specs/alerting.md", "docs/adr/0006-buffered-postgres-datasets.md"],
+    "rationale": "Replace inline restatements of idempotency rules with explicit links to invariants.md"
+  }
+]
