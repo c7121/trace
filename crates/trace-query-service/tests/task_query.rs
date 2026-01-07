@@ -649,3 +649,104 @@ async fn query_service_fetches_only_manifest_via_object_store() -> anyhow::Resul
     assert!(!got.is_empty(), "expected manifest fetch");
     Ok(())
 }
+
+#[tokio::test]
+async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyhow::Result<()> {
+    init_tracing();
+    ensure_duckdb_httpfs_installed()?;
+
+    let (cfg, _pool, app) = setup().await?;
+
+    // Use a unique keyspace per test run to avoid collisions across parallel test execution.
+    let keyspace = format!("prefix-collision/{}/", Uuid::new_v4());
+
+    // The dataset's declared prefix is `.../p/`.
+    let good_prefix = format!("{keyspace}p/");
+    // But the capability grant intentionally omits the trailing slash (`.../p`).
+    // Without *directory* normalization, that could accidentally grant access to `.../p-evil/...`.
+    let good_prefix_no_trailing_slash = format!("{keyspace}p");
+
+    // This key is *not* under `good_prefix` as a directory, but it does start with
+    // `good_prefix_no_trailing_slash`.
+    let evil_parquet_key = format!("{keyspace}p-evil/evil.parquet");
+
+    let dataset_uuid = Uuid::new_v4();
+    let dataset_version = Uuid::new_v4();
+
+    // Seed a valid Parquet object at the evil key.
+    let object_store = trace_core::lite::s3::ObjectStore::new(&cfg.s3_endpoint)?;
+    let parquet_bytes = build_fixture_parquet_bytes().await?;
+    object_store
+        .put_bytes(
+            &cfg.s3_bucket,
+            &evil_parquet_key,
+            parquet_bytes,
+            CONTENT_TYPE_PARQUET,
+        )
+        .await?;
+
+    // Write a manifest *under the good prefix* that tries to reference the evil key.
+    let manifest_key = format!("{}/_manifest.json", good_prefix.trim_end_matches('/'));
+    let manifest = DatasetManifestV1 {
+        version: "v1".to_string(),
+        dataset_uuid,
+        dataset_version,
+        parquet_keys: vec![evil_parquet_key.clone()],
+    };
+    let manifest_bytes = serde_json::to_vec(&manifest)?;
+    object_store
+        .put_bytes(
+            &cfg.s3_bucket,
+            &manifest_key,
+            manifest_bytes,
+            CONTENT_TYPE_JSON,
+        )
+        .await?;
+
+    // Issue a token that (a) grants the dataset, and (b) grants an S3 prefix *without* a trailing slash.
+    let task_id = Uuid::new_v4();
+    let attempt = 1;
+    let token = issue_token_with_datasets(
+        &cfg,
+        task_id,
+        attempt,
+        vec![DatasetGrant {
+            dataset_uuid,
+            dataset_version,
+            storage_ref: Some(DatasetStorageRef::S3 {
+                bucket: cfg.s3_bucket.clone(),
+                prefix: good_prefix.clone(),
+                glob: "*.parquet".to_string(),
+            }),
+        }],
+        S3Grants {
+            read_prefixes: vec![format!(
+                "s3://{}/{}",
+                cfg.s3_bucket, good_prefix_no_trailing_slash
+            )],
+            write_prefixes: vec![],
+        },
+    )?;
+
+    let body = TaskQueryRequest {
+        task_id,
+        attempt,
+        dataset_id: dataset_uuid,
+        sql: "SELECT 1 AS one".to_string(),
+        limit: Some(1),
+    };
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/task/query")
+                .header(TASK_CAPABILITY_HEADER, token)
+                .header(CONTENT_TYPE_HEADER, CONTENT_TYPE_JSON)
+                .body(Body::from(serde_json::to_vec(&body)?))?,
+        )
+        .await?;
+
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    Ok(())
+}

@@ -333,12 +333,16 @@ fn validate_manifest(
     }
 
     let expected_prefix = prefix.trim_start_matches('/').trim_end_matches('/');
+    if expected_prefix.is_empty() {
+        anyhow::bail!("dataset prefix must not be empty");
+    }
+    let expected_prefix = format!("{expected_prefix}/");
     for key in &manifest.parquet_keys {
         if key.contains('\\') {
             anyhow::bail!("manifest parquet key contains backslash");
         }
         let key = key.trim_start_matches('/');
-        if !key.starts_with(expected_prefix) {
+        if !key.starts_with(&expected_prefix) {
             anyhow::bail!("manifest parquet key outside dataset prefix");
         }
         if !key.to_ascii_lowercase().ends_with(".parquet") {
@@ -405,15 +409,28 @@ fn require_dataset_grant(
 }
 
 fn s3_read_allowed(grants: &S3Grants, uri: &str) -> bool {
-    let Ok((uri_bucket, uri_key)) = parse_s3_uri(uri) else {
+    let Ok((uri_bucket, uri_key_raw)) = parse_s3_uri(uri) else {
         return false;
     };
+    let uri_key = uri_key_raw.trim_start_matches('/');
 
     grants.read_prefixes.iter().any(|prefix| {
-        let Ok((prefix_bucket, prefix_key)) = parse_s3_uri(prefix) else {
+        let Ok((prefix_bucket, prefix_key_raw)) = parse_s3_uri(prefix) else {
             return false;
         };
-        prefix_bucket == uri_bucket && uri_key.starts_with(&prefix_key)
+
+        if prefix_bucket != uri_bucket {
+            return false;
+        }
+
+        // Treat granted prefixes as *directory* prefixes even if the trailing slash was omitted.
+        // This prevents prefix collisions (e.g. granting `.../foo` unintentionally grants `.../foo-bar`).
+        let mut prefix_key = prefix_key_raw.trim_start_matches('/').to_string();
+        if !prefix_key.is_empty() && !prefix_key.ends_with('/') {
+            prefix_key.push('/');
+        }
+
+        uri_key.starts_with(&prefix_key)
     })
 }
 
@@ -432,7 +449,15 @@ fn authorize_dataset_storage(
             bucket,
             prefix,
             ..
-        } => format!("s3://{bucket}/{prefix}"),
+        } => {
+            let prefix_dir = prefix.trim_start_matches('/').trim_end_matches('/');
+            if prefix_dir.is_empty() {
+                return Err(ApiError::unprocessable("invalid dataset storage prefix"));
+            }
+
+            // Confirm the resolved storage location is under the caller's S3 grants.
+            format!("s3://{bucket}/{prefix_dir}/")
+        },
         DatasetStorageRef::File { prefix, .. } => {
             if !cfg.allow_local_files {
                 return Err(ApiError::forbidden("dataset storage not authorized"));
