@@ -21,6 +21,7 @@ pub mod lite;
 pub mod aws;
 
 pub mod fixtures;
+pub mod manifest;
 pub mod query;
 pub mod runtime;
 pub mod udf;
