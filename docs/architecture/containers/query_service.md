@@ -93,6 +93,10 @@ Remote scan stance (v1):
 - Query Service attaches datasets as a stable relation named `dataset` via a TEMP VIEW over `read_parquet(...)`, preserving Parquet predicate and projection pushdown.
 - Because remote scans require network access, the Query Service runtime MUST enforce an egress allowlist that permits only the configured object store endpoint(s) (and required in-VPC services) and does not allow arbitrary internet egress.
   - See: `docs/adr/0002-networking.md`
+- DuckDB spill-to-disk MUST be constrained:
+  - Configure DuckDB `temp_directory` explicitly to an isolated per-request directory with `0700` permissions.
+  - Prefer tmpfs (`/dev/shm`) when available; otherwise use a dedicated `/tmp` subdirectory.
+  - In real deployments, ensure `/tmp` is tmpfs or container ephemeral disk (and not a persistent/shared volume).
 
 Failure modes are classified:
 

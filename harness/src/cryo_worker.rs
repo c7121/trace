@@ -6,13 +6,22 @@ use anyhow::Context;
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use std::{collections::BTreeSet, path::Path, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use trace_core::{
-    DatasetPublication, DatasetStorageRef, ObjectStore as ObjectStoreTrait, Queue as QueueTrait,
+    manifest::DatasetManifestV1, DatasetPublication, DatasetStorageRef, ObjectStore as ObjectStoreTrait,
+    Queue as QueueTrait,
 };
 use uuid::Uuid;
 
 const CONTENT_TYPE_PARQUET: &str = "application/octet-stream";
+const CONTENT_TYPE_JSON: &str = "application/json";
+
+const DEFAULT_STAGING_TTL_HOURS: u64 = 24;
 
 // UUIDv5 namespace for deterministic dataset version IDs.
 const DATASET_VERSION_NAMESPACE: Uuid = Uuid::from_bytes([
@@ -88,7 +97,7 @@ pub async fn run_task(
 
     let pubd = derive_dataset_publication(&cfg.s3_bucket, &payload);
 
-    match write_dataset_artifacts(object_store, &pubd, &payload).await {
+    match write_dataset_artifacts(object_store, &pubd, &payload, claim.task_id, claim.attempt).await {
         Ok(()) => {
             let complete_req = CompleteRequest {
                 task_id: claim.task_id,
@@ -140,6 +149,19 @@ pub async fn run_task(
 }
 
 pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
+    cleanup_stale_staging_dirs(
+        staging_root(),
+        Duration::from_secs(
+            std::env::var("TRACE_CRYO_STAGING_TTL_HOURS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(DEFAULT_STAGING_TTL_HOURS)
+                * 3600,
+        ),
+    )
+    .await
+    .context("cleanup stale cryo staging dirs")?;
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&cfg.state_database_url)
@@ -233,21 +255,33 @@ async fn write_dataset_artifacts(
     object_store: &dyn ObjectStoreTrait,
     pubd: &DatasetPublication,
     payload: &CryoIngestPayload,
+    task_id: Uuid,
+    attempt: i64,
 ) -> Result<(), CryoArtifactError> {
+    let staging_dir = staging_dir_for_task(task_id, attempt);
+    tokio::fs::create_dir_all(&staging_dir)
+        .await
+        .with_context(|| format!("create staging dir {}", staging_dir.display()))
+        .map_err(CryoArtifactError::Retryable)?;
+
     let mode = std::env::var("TRACE_CRYO_MODE")
         .unwrap_or_else(|_| "fake".to_string())
         .to_ascii_lowercase();
     if mode == "real" {
-        write_dataset_artifacts_real(object_store, pubd, payload).await
+        write_dataset_artifacts_real(object_store, pubd, payload, &staging_dir).await?;
     } else {
-        write_dataset_artifacts_fake(object_store, pubd, payload).await
+        write_dataset_artifacts_fake(object_store, pubd, payload, &staging_dir).await?;
     }
+
+    let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+    Ok(())
 }
 
 async fn write_dataset_artifacts_fake(
     object_store: &dyn ObjectStoreTrait,
     pubd: &DatasetPublication,
     payload: &CryoIngestPayload,
+    staging_dir: &Path,
 ) -> Result<(), CryoArtifactError> {
     let (bucket, prefix_key) = match &pubd.storage_ref {
         DatasetStorageRef::S3 {
@@ -264,14 +298,20 @@ async fn write_dataset_artifacts_fake(
 
     let file_name = format!("cryo_{}_{}.parquet", payload.range_start, payload.range_end);
     let parquet_key = join_key(&prefix_key, &file_name);
-    let parquet_bytes = build_parquet_bytes(payload)
+    let parquet_path = build_parquet_file(staging_dir, payload)
         .await
+        .map_err(CryoArtifactError::Retryable)?;
+    let parquet_bytes = tokio::fs::read(&parquet_path)
+        .await
+        .with_context(|| format!("read parquet file {}", parquet_path.display()))
         .map_err(CryoArtifactError::Retryable)?;
     object_store
         .put_bytes(&bucket, &parquet_key, parquet_bytes, CONTENT_TYPE_PARQUET)
         .await
         .context("upload parquet")
         .map_err(CryoArtifactError::Retryable)?;
+
+    write_manifest(object_store, pubd, &bucket, &prefix_key, vec![parquet_key]).await?;
 
     Ok(())
 }
@@ -293,59 +333,11 @@ fn derive_dataset_version(payload: &CryoIngestPayload) -> Uuid {
     Uuid::new_v5(&DATASET_VERSION_NAMESPACE, name.as_bytes())
 }
 
-async fn build_parquet_bytes(payload: &CryoIngestPayload) -> anyhow::Result<Vec<u8>> {
-    let payload = payload.clone();
-    tokio::task::spawn_blocking(move || {
-        let dir = std::env::temp_dir().join(format!("trace-cryo-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).context("create temp dir")?;
-        let parquet_path = dir.join("data.parquet");
-
-        let mut blocks = BTreeSet::new();
-        blocks.insert(payload.range_start);
-        blocks.insert(payload.range_end);
-        blocks.insert(payload.range_start.saturating_add(1).min(payload.range_end));
-
-        let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
-        conn.execute_batch(
-            r#"
-            BEGIN;
-            CREATE TABLE blocks (
-              chain_id BIGINT NOT NULL,
-              block_number BIGINT NOT NULL,
-              block_hash VARCHAR NOT NULL
-            );
-            COMMIT;
-            "#,
-        )
-        .context("create blocks table")?;
-
-        for block_number in blocks {
-            let block_hash = format!("0x{block_number:016x}");
-            conn.execute(
-                "INSERT INTO blocks VALUES (?, ?, ?)",
-                duckdb::params![payload.chain_id, block_number, block_hash],
-            )
-            .context("insert block row")?;
-        }
-
-        let parquet_escaped = parquet_path.to_string_lossy().replace('\'', "''");
-        conn.execute_batch(&format!(
-            "COPY blocks TO '{parquet_escaped}' (FORMAT PARQUET);"
-        ))
-        .context("copy to parquet")?;
-
-        let bytes = std::fs::read(&parquet_path).context("read parquet bytes")?;
-        let _ = std::fs::remove_dir_all(&dir);
-        Ok::<_, anyhow::Error>(bytes)
-    })
-    .await
-    .context("join parquet builder")?
-}
-
 async fn write_dataset_artifacts_real(
     object_store: &dyn ObjectStoreTrait,
     pubd: &DatasetPublication,
     payload: &CryoIngestPayload,
+    staging_dir: &Path,
 ) -> Result<(), CryoArtifactError> {
     let rpc_url = std::env::var("TRACE_CRYO_RPC_URL")
         .map_err(|_| CryoArtifactError::Fatal(anyhow::anyhow!("missing TRACE_CRYO_RPC_URL")))?;
@@ -370,24 +362,18 @@ async fn write_dataset_artifacts_real(
         }
     };
 
-    let out_dir = std::env::temp_dir().join(format!(
-        "trace-cryo-{}-{}",
-        payload.dataset_uuid,
-        Uuid::new_v4()
-    ));
-
     run_cryo_cli(
         &cryo_bin,
         dataset_name,
         &rpc_url,
         payload.range_start,
         payload.range_end,
-        &out_dir,
+        staging_dir,
     )
     .await?;
 
     let parquet_files = tokio::task::spawn_blocking({
-        let out_dir = out_dir.clone();
+        let out_dir = staging_dir.to_path_buf();
         move || collect_parquet_files(&out_dir)
     })
     .await
@@ -400,9 +386,10 @@ async fn write_dataset_artifacts_real(
         )));
     }
 
+    let mut parquet_keys = Vec::with_capacity(parquet_files.len());
     for file_path in parquet_files {
         let rel = file_path
-            .strip_prefix(&out_dir)
+            .strip_prefix(staging_dir)
             .unwrap_or(file_path.as_path());
         let rel = rel.to_string_lossy().replace('\\', "/");
         let key = join_key(&prefix_key, &rel);
@@ -417,9 +404,12 @@ async fn write_dataset_artifacts_real(
             .await
             .with_context(|| format!("upload parquet object {key}"))
             .map_err(CryoArtifactError::Retryable)?;
+
+        parquet_keys.push(key);
     }
 
-    let _ = tokio::fs::remove_dir_all(&out_dir).await;
+    write_manifest(object_store, pubd, &bucket, &prefix_key, parquet_keys).await?;
+
     Ok(())
 }
 
@@ -525,5 +515,130 @@ fn collect_parquet_files_into(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Res
             out.push(path);
         }
     }
+    Ok(())
+}
+
+fn staging_root() -> PathBuf {
+    PathBuf::from("/tmp/trace/cryo")
+}
+
+fn staging_dir_for_task(task_id: Uuid, attempt: i64) -> PathBuf {
+    staging_root()
+        .join(task_id.to_string())
+        .join(attempt.to_string())
+}
+
+async fn cleanup_stale_staging_dirs(root: PathBuf, ttl: Duration) -> anyhow::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        if !root.exists() {
+            return Ok(());
+        }
+
+        let now = SystemTime::now();
+        for task_entry in std::fs::read_dir(&root).context("read staging root")? {
+            let task_entry = task_entry.context("read staging root entry")?;
+            let task_path = task_entry.path();
+            if !task_entry.file_type().context("staging file_type")?.is_dir() {
+                continue;
+            }
+
+            for attempt_entry in std::fs::read_dir(&task_path)
+                .with_context(|| format!("read task dir {}", task_path.display()))?
+            {
+                let attempt_entry = attempt_entry.context("read attempt entry")?;
+                let attempt_path = attempt_entry.path();
+                if !attempt_entry.file_type().context("attempt file_type")?.is_dir() {
+                    continue;
+                }
+
+                let meta = std::fs::metadata(&attempt_path)
+                    .with_context(|| format!("metadata {}", attempt_path.display()))?;
+                let modified = meta.modified().unwrap_or(now);
+                let age = now.duration_since(modified).unwrap_or_default();
+                if age > ttl {
+                    let _ = std::fs::remove_dir_all(&attempt_path);
+                }
+            }
+        }
+
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("join cleanup task")?
+}
+
+async fn build_parquet_file(staging_dir: &Path, payload: &CryoIngestPayload) -> anyhow::Result<PathBuf> {
+    let payload = payload.clone();
+    let staging_dir = staging_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&staging_dir).context("create staging dir")?;
+        let parquet_path = staging_dir.join("data.parquet");
+
+        let mut blocks = BTreeSet::new();
+        blocks.insert(payload.range_start);
+        blocks.insert(payload.range_end);
+        blocks.insert(payload.range_start.saturating_add(1).min(payload.range_end));
+
+        let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE blocks (
+              chain_id BIGINT NOT NULL,
+              block_number BIGINT NOT NULL,
+              block_hash VARCHAR NOT NULL
+            );
+            COMMIT;
+            "#,
+        )
+        .context("create blocks table")?;
+
+        for block_number in blocks {
+            let block_hash = format!("0x{block_number:016x}");
+            conn.execute(
+                "INSERT INTO blocks VALUES (?, ?, ?)",
+                duckdb::params![payload.chain_id, block_number, block_hash],
+            )
+            .context("insert block row")?;
+        }
+
+        let parquet_escaped = parquet_path.to_string_lossy().replace('\'', "''");
+        conn.execute_batch(&format!(
+            "COPY blocks TO '{parquet_escaped}' (FORMAT PARQUET);"
+        ))
+        .context("copy to parquet")?;
+
+        Ok::<_, anyhow::Error>(parquet_path)
+    })
+    .await
+    .context("join parquet builder")?
+}
+
+async fn write_manifest(
+    object_store: &dyn ObjectStoreTrait,
+    pubd: &DatasetPublication,
+    bucket: &str,
+    prefix_key: &str,
+    mut parquet_keys: Vec<String>,
+) -> Result<(), CryoArtifactError> {
+    parquet_keys.sort();
+    parquet_keys.dedup();
+
+    let manifest = DatasetManifestV1 {
+        version: DatasetManifestV1::VERSION,
+        dataset_uuid: pubd.dataset_uuid,
+        dataset_version: pubd.dataset_version,
+        parquet_keys,
+    };
+    let bytes = serde_json::to_vec(&manifest)
+        .context("encode manifest json")
+        .map_err(CryoArtifactError::Retryable)?;
+
+    let manifest_key = join_key(prefix_key, "_manifest.json");
+    object_store
+        .put_bytes(bucket, &manifest_key, bytes, CONTENT_TYPE_JSON)
+        .await
+        .with_context(|| format!("upload manifest object {manifest_key}"))
+        .map_err(CryoArtifactError::Retryable)?;
     Ok(())
 }

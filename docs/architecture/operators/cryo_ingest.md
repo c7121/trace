@@ -52,6 +52,13 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ### Lite/harness note
 In the harness, `cryo_ingest` defaults to a deterministic stub that writes a small Parquet dataset without requiring the real Cryo binary or chain RPC access. Real Cryo integration is opt-in and introduced incrementally.
 
+### Local staging (Lite)
+When running Cryo locally (or in Lite mode), the worker MUST:
+- write Cryo output only to a per-task staging directory (e.g. `/tmp/trace/cryo/<task_id>/<attempt>/`),
+- delete the staging directory after upload-to-object-store succeeds,
+- delete stale staging dirs older than N hours on worker startup (crash cleanup),
+- ensure Query Service does not have access to the staging dir (do not mount it into the QS container).
+
 ## Scaling
 
 Concurrency is controlled via `scaling.max_concurrency`.

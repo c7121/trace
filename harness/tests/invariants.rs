@@ -5,11 +5,15 @@ use sqlx::postgres::PgPoolOptions;
 use std::{
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc, OnceLock},
+    sync::{Arc, Once, OnceLock},
     time::Duration,
 };
 use trace_core::{
-    fixtures::{ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX},
+    fixtures::{
+        ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX,
+        ALERTS_FIXTURE_DATASET_VERSION,
+    },
+    manifest::DatasetManifestV1,
     runtime::RuntimeInvoker,
     udf::UdfInvocationPayload,
     DatasetGrant, ObjectStore as ObjectStoreTrait, S3Grants, Signer as SignerTrait,
@@ -40,6 +44,13 @@ fn unique_queue(prefix: &str) -> String {
     format!("{prefix}_{}", Uuid::new_v4())
 }
 
+fn init_tracing() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt::try_init();
+    });
+}
+
 fn ensure_duckdb_httpfs_installed() -> anyhow::Result<()> {
     static INIT: OnceLock<Result<(), String>> = OnceLock::new();
     let res = INIT.get_or_init(|| {
@@ -66,6 +77,7 @@ fn ensure_duckdb_httpfs_installed() -> anyhow::Result<()> {
 }
 
 async fn migrated_config() -> anyhow::Result<HarnessConfig> {
+    init_tracing();
     ensure_duckdb_httpfs_installed()?;
 
     let mut cfg = HarnessConfig::from_env().context("load harness config")?;
@@ -163,6 +175,18 @@ async fn seed_alerts_fixture_dataset(cfg: &HarnessConfig) -> anyhow::Result<()> 
     let parquet_key = join_key(&prefix_key, "alerts_fixture.parquet");
     object_store
         .put_bytes(&bucket, &parquet_key, parquet_bytes, CONTENT_TYPE_PARQUET)
+        .await?;
+
+    let manifest_key = join_key(&prefix_key, "_manifest.json");
+    let manifest = DatasetManifestV1 {
+        version: DatasetManifestV1::VERSION,
+        dataset_uuid: ALERTS_FIXTURE_DATASET_ID,
+        dataset_version: ALERTS_FIXTURE_DATASET_VERSION,
+        parquet_keys: vec![parquet_key],
+    };
+    let manifest_bytes = serde_json::to_vec(&manifest).context("encode fixture manifest")?;
+    object_store
+        .put_bytes(&bucket, &manifest_key, manifest_bytes, CONTENT_TYPE_JSON)
         .await?;
 
     Ok(())
@@ -2187,16 +2211,19 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
+        let storage_prefix_pattern = format!("s3://{}/cryo/{}/%", cfg.s3_bucket, chain_id);
         let (dataset_uuid, dataset_version, storage_prefix, storage_glob): (Uuid, Uuid, String, String) =
             sqlx::query_as(
             r#"
             SELECT dataset_uuid, dataset_version, storage_prefix, storage_glob
             FROM state.dataset_versions
             WHERE config_hash = 'cryo_ingest.blocks:v1'
+              AND storage_prefix LIKE $1
             ORDER BY range_start
             LIMIT 1
             "#,
         )
+        .bind(&storage_prefix_pattern)
         .fetch_one(&state_pool)
         .await?;
 
@@ -2206,11 +2233,13 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
             FROM state.dataset_versions
             WHERE dataset_uuid = $1
               AND config_hash = 'cryo_ingest.blocks:v1'
+              AND storage_prefix LIKE $2
               AND range_start IN (0, 1000, 2000)
               AND range_end IN (999, 1999, 2999)
             "#,
         )
         .bind(dataset_uuid)
+        .bind(&storage_prefix_pattern)
         .fetch_one(&state_pool)
         .await
         .context("count dataset_versions")?;
@@ -2300,12 +2329,9 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
                 .send()
                 .await?;
 
-            anyhow::ensure!(
-                resp.status().is_success(),
-                "expected 200, got {}",
-                resp.status()
-            );
+            let status = resp.status();
             let body = resp.json::<serde_json::Value>().await?;
+            anyhow::ensure!(status.is_success(), "expected 200, got {status}: {body}");
             let count = body["rows"][0][0].as_i64().context("count")?;
             anyhow::ensure!(count == 3, "expected 3 rows, got {count}");
 
