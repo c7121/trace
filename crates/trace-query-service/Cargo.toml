@@ -22,5 +22,6 @@ uuid = { version = "1", features = ["serde", "v4"] }
 trace-core = { path = "../trace-core" }
 
 [dev-dependencies]
+async-trait = "0.1"
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }

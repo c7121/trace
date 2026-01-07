@@ -6,7 +6,7 @@ use http_body_util::BodyExt;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 use std::path::PathBuf;
-use std::sync::{Once, OnceLock};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use tower::util::ServiceExt;
 use trace_core::fixtures::{
     ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX,
@@ -14,14 +14,17 @@ use trace_core::fixtures::{
 };
 use trace_core::lite::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_core::lite::s3::parse_s3_uri;
+use trace_core::manifest::DatasetManifestV1;
 use trace_core::Signer as _;
 use trace_core::{DatasetGrant, DatasetStorageRef, S3Grants, TaskCapabilityIssueRequest};
 use trace_query_service::{
-    build_state, config::QueryServiceConfig, router, TaskQueryRequest, TASK_CAPABILITY_HEADER,
+    build_state, config::QueryServiceConfig, router, AppState, TaskQueryRequest,
+    TASK_CAPABILITY_HEADER,
 };
 use uuid::Uuid;
 
 const CONTENT_TYPE_PARQUET: &str = "application/octet-stream";
+const CONTENT_TYPE_JSON: &str = "application/json";
 
 fn init_tracing() {
     static INIT: Once = Once::new();
@@ -146,6 +149,18 @@ async fn seed_fixture_dataset(
         .put_bytes(&bucket, &parquet_key, parquet_bytes, CONTENT_TYPE_PARQUET)
         .await?;
 
+    let manifest_key = join_key(&prefix_key, "_manifest.json");
+    let manifest = DatasetManifestV1 {
+        version: DatasetManifestV1::VERSION,
+        dataset_uuid: ALERTS_FIXTURE_DATASET_ID,
+        dataset_version: ALERTS_FIXTURE_DATASET_VERSION,
+        parquet_keys: vec![parquet_key],
+    };
+    let manifest_bytes = serde_json::to_vec(&manifest).context("encode fixture manifest")?;
+    object_store
+        .put_bytes(&bucket, &manifest_key, manifest_bytes, CONTENT_TYPE_JSON)
+        .await?;
+
     Ok(())
 }
 
@@ -256,6 +271,88 @@ async fn setup() -> anyhow::Result<(QueryServiceConfig, sqlx::PgPool, axum::Rout
     let app = router(state);
     seed_fixture_dataset(&cfg, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX).await?;
     Ok((cfg, pool, app))
+}
+
+#[derive(Clone)]
+struct RecordingObjectStore {
+    inner: trace_core::lite::s3::ObjectStore,
+    gets: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl trace_core::ObjectStore for RecordingObjectStore {
+    async fn put_bytes(
+        &self,
+        bucket: &str,
+        key: &str,
+        bytes: Vec<u8>,
+        content_type: &str,
+    ) -> trace_core::Result<()> {
+        self.inner.put_bytes(bucket, key, bytes, content_type).await
+    }
+
+    async fn get_bytes(&self, bucket: &str, key: &str) -> trace_core::Result<Vec<u8>> {
+        self.gets
+            .lock()
+            .expect("mutex poisoned")
+            .push(format!("{bucket}/{key}"));
+
+        if key.to_ascii_lowercase().ends_with(".parquet") {
+            return Err(trace_core::Error::msg(
+                "regression: query service must not download parquet bytes via object store",
+            ));
+        }
+        self.inner.get_bytes(bucket, key).await
+    }
+}
+
+async fn setup_with_recording_store() -> anyhow::Result<(
+    QueryServiceConfig,
+    sqlx::PgPool,
+    axum::Router,
+    Arc<Mutex<Vec<String>>>,
+)> {
+    init_tracing();
+    ensure_duckdb_httpfs_installed()?;
+
+    let cfg = QueryServiceConfig::from_env()?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.data_database_url)
+        .await?;
+
+    sqlx::migrate!("../../harness/migrations/data")
+        .run(&pool)
+        .await?;
+
+    let state = build_state(cfg.clone()).await?;
+    let AppState {
+        cfg: state_cfg,
+        signer,
+        duckdb,
+        data_pool,
+        object_store: _,
+    } = state;
+
+    let gets = Arc::new(Mutex::new(Vec::new()));
+    let inner = trace_core::lite::s3::ObjectStore::new(&cfg.s3_endpoint)?;
+    let object_store: Arc<dyn trace_core::ObjectStore> = Arc::new(RecordingObjectStore {
+        inner,
+        gets: gets.clone(),
+    });
+
+    let state = AppState {
+        cfg: state_cfg,
+        signer,
+        duckdb,
+        data_pool,
+        object_store,
+    };
+
+    let app = router(state);
+    seed_fixture_dataset(&cfg, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX).await?;
+    Ok((cfg, pool, app, gets))
 }
 
 #[tokio::test]
@@ -524,5 +621,31 @@ async fn dataset_storage_ref_must_be_under_s3_grants() -> anyhow::Result<()> {
     Ok(())
 }
 
-// NOTE: Query Service attaches Parquet datasets via DuckDB remote scan; it must not fetch Parquet
-// bytes directly via an object store client.
+#[tokio::test]
+async fn query_service_fetches_only_manifest_via_object_store() -> anyhow::Result<()> {
+    let (cfg, _pool, app, gets) = setup_with_recording_store().await?;
+
+    let task_id = Uuid::new_v4();
+    let attempt = 1;
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let token = issue_token(&cfg, task_id, attempt, &[dataset_id])?;
+
+    let req = TaskQueryRequest {
+        task_id,
+        attempt,
+        dataset_id,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+
+    let (status, body) = send_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+
+    let got = gets.lock().expect("mutex poisoned").clone();
+    assert!(
+        got.iter().all(|p| p.ends_with("/_manifest.json")),
+        "unexpected get_bytes targets: {got:?}"
+    );
+    assert!(!got.is_empty(), "expected manifest fetch");
+    Ok(())
+}

@@ -55,6 +55,14 @@ pub struct QueryServiceConfig {
     #[arg(long, env = "S3_ENDPOINT", default_value = "http://localhost:9000")]
     pub s3_endpoint: String,
 
+    /// Max bytes allowed for the dataset manifest (`_manifest.json`).
+    #[arg(long, env = "QUERY_SERVICE_MAX_MANIFEST_BYTES", default_value_t = 1_048_576)]
+    pub max_manifest_bytes: usize,
+
+    /// Max parquet objects allowed in the dataset manifest.
+    #[arg(long, env = "QUERY_SERVICE_MAX_MANIFEST_OBJECTS", default_value_t = 1024)]
+    pub max_manifest_objects: usize,
+
     /// S3 access key for DuckDB httpfs S3 access (Lite mode; defaults match `harness/docker-compose.yml`).
     #[arg(long, env = "S3_ACCESS_KEY", default_value = "trace")]
     pub s3_access_key: String,
@@ -98,6 +106,8 @@ impl std::fmt::Debug for QueryServiceConfig {
             .field("task_capability_next_secret", &task_capability_next_secret)
             .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
             .field("s3_endpoint", &self.s3_endpoint)
+            .field("max_manifest_bytes", &self.max_manifest_bytes)
+            .field("max_manifest_objects", &self.max_manifest_objects)
             .field("s3_access_key", &"<redacted>")
             .field("s3_secret_key", &s3_secret_key)
             .field("s3_region", &self.s3_region)

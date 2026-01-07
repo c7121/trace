@@ -19,6 +19,9 @@ use sqlx::postgres::PgPoolOptions;
 use std::{sync::Arc, time::Duration};
 use trace_core::lite::jwt::{Hs256TaskCapabilityConfig, TaskCapability};
 use trace_core::lite::s3::parse_s3_uri;
+use trace_core::lite::s3::ObjectStore as LiteObjectStore;
+use trace_core::manifest::DatasetManifestV1;
+use trace_core::ObjectStore as ObjectStoreTrait;
 use trace_core::Signer as SignerTrait;
 use trace_core::{DatasetGrant, DatasetStorageRef, S3Grants};
 use uuid::Uuid;
@@ -38,6 +41,7 @@ pub struct AppState {
     pub signer: TaskCapability,
     pub duckdb: DuckDbSandbox,
     pub data_pool: sqlx::PgPool,
+    pub object_store: Arc<dyn ObjectStoreTrait>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -69,12 +73,16 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     .context("init task capability signer")?;
 
     let duckdb = DuckDbSandbox::new();
+    let object_store: Arc<dyn ObjectStoreTrait> = Arc::new(
+        LiteObjectStore::new(&cfg.s3_endpoint).context("init object store")?,
+    );
 
     Ok(AppState {
         cfg,
         signer,
         duckdb,
         data_pool,
+        object_store,
     })
 }
 
@@ -132,28 +140,63 @@ async fn task_query(
         .unwrap_or(DEFAULT_LIMIT)
         .clamp(1, MAX_LIMIT);
 
-    let mut results = state
-        .duckdb
-        .query_with_dataset_storage_ref(&state.cfg, &storage_ref, req.sql, limit + 1)
-        .await
-        .map_err(|err| match err {
-            DuckDbQueryError::Attach(err) => {
+    let mut results = match storage_ref {
+        DatasetStorageRef::S3 { bucket, prefix, .. } => {
+            let parquet_uris =
+                resolve_parquet_uris_from_manifest(&state.cfg, state.object_store.as_ref(), &claims.s3, &grant, &bucket, &prefix)
+                    .await
+                    .map_err(|err| {
+                        tracing::warn!(
+                            event = "query_service.manifest.error",
+                            kind = ?err.kind,
+                            error = %err,
+                            "dataset manifest resolution failed"
+                        );
+                        match err.kind {
+                            ManifestErrorKind::TooLarge => ApiError::payload_too_large("dataset manifest too large"),
+                            ManifestErrorKind::InvalidJson | ManifestErrorKind::InvalidSchema => {
+                                ApiError::unprocessable("dataset manifest invalid")
+                            }
+                            ManifestErrorKind::Unauthorized => ApiError::forbidden("dataset storage not authorized"),
+                            ManifestErrorKind::FetchFailed => ApiError::internal("dataset manifest fetch failed"),
+                        }
+                    })?;
+
+            state
+                .duckdb
+                .query_with_s3_parquet_uris(&state.cfg, parquet_uris, req.sql, limit + 1)
+                .await
+        }
+        DatasetStorageRef::File { prefix, glob } => {
+            let scan = file_scan_target(&prefix, &glob).map_err(|err| {
                 tracing::warn!(
-                    event = "query_service.duckdb.attach_failed",
-                    error = ?err,
-                    "duckdb dataset attach failed"
+                    event = "query_service.file_scan.invalid",
+                    error = %err,
+                    "invalid file scan target"
                 );
-                ApiError::internal("query execution failed")
-            }
-            DuckDbQueryError::Query(_err) => {
-                // Avoid logging raw SQL; DuckDB errors may embed the statement text.
-                tracing::warn!(
-                    event = "query_service.duckdb.query_failed",
-                    "duckdb query failed"
-                );
-                ApiError::internal("query execution failed")
-            }
-        })?;
+                ApiError::unprocessable("dataset storage not authorized")
+            })?;
+            state.duckdb.query_with_file_scan(scan, req.sql, limit + 1).await
+        }
+    }
+    .map_err(|err| match err {
+        DuckDbQueryError::Attach(err) => {
+            tracing::warn!(
+                event = "query_service.duckdb.attach_failed",
+                error = ?err,
+                "duckdb dataset attach failed"
+            );
+            ApiError::internal("query execution failed")
+        }
+        DuckDbQueryError::Query(_err) => {
+            // Avoid logging raw SQL; DuckDB errors may embed the statement text.
+            tracing::warn!(
+                event = "query_service.duckdb.query_failed",
+                "duckdb query failed"
+            );
+            ApiError::internal("query execution failed")
+        }
+    })?;
 
     let truncated = results.rows.len() > limit;
     if truncated {
@@ -174,6 +217,136 @@ async fn task_query(
         rows: results.rows,
         truncated,
     }))
+}
+
+fn file_scan_target(prefix: &str, glob: &str) -> anyhow::Result<String> {
+    let prefix = prefix.trim_end_matches('/');
+    Ok(format!("{prefix}/{glob}"))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ManifestErrorKind {
+    TooLarge,
+    InvalidJson,
+    InvalidSchema,
+    Unauthorized,
+    FetchFailed,
+}
+
+#[derive(Debug)]
+struct ManifestError {
+    kind: ManifestErrorKind,
+    inner: anyhow::Error,
+}
+
+impl std::fmt::Display for ManifestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#}", self.inner)
+    }
+}
+
+async fn resolve_parquet_uris_from_manifest(
+    cfg: &QueryServiceConfig,
+    object_store: &dyn ObjectStoreTrait,
+    s3: &S3Grants,
+    grant: &DatasetGrant,
+    bucket: &str,
+    prefix: &str,
+) -> Result<Vec<String>, ManifestError> {
+    let manifest_key = manifest_key(prefix);
+    let bytes = object_store
+        .get_bytes(bucket, &manifest_key)
+        .await
+        .with_context(|| format!("fetch dataset manifest s3://{bucket}/{manifest_key}"))
+        .map_err(|err| ManifestError {
+            kind: ManifestErrorKind::FetchFailed,
+            inner: err,
+        })?;
+
+    if bytes.len() > cfg.max_manifest_bytes {
+        return Err(ManifestError {
+            kind: ManifestErrorKind::TooLarge,
+            inner: anyhow::anyhow!(
+                "dataset manifest too large ({} bytes > {})",
+                bytes.len(),
+                cfg.max_manifest_bytes
+            ),
+        });
+    }
+
+    let manifest: DatasetManifestV1 = serde_json::from_slice(&bytes)
+        .context("decode dataset manifest json")
+        .map_err(|err| ManifestError {
+            kind: ManifestErrorKind::InvalidJson,
+            inner: err,
+        })?;
+
+    validate_manifest(cfg, grant, prefix, &manifest).map_err(|err| ManifestError {
+        kind: ManifestErrorKind::InvalidSchema,
+        inner: err,
+    })?;
+
+    let mut uris = Vec::with_capacity(manifest.parquet_keys.len());
+    for key in manifest.parquet_keys {
+        let key = key.trim_start_matches('/').to_string();
+        let uri = format!("s3://{bucket}/{key}");
+        if !s3_read_allowed(s3, &uri) {
+            return Err(ManifestError {
+                kind: ManifestErrorKind::Unauthorized,
+                inner: anyhow::anyhow!("manifest parquet object not authorized"),
+            });
+        }
+        uris.push(uri);
+    }
+
+    Ok(uris)
+}
+
+fn manifest_key(prefix: &str) -> String {
+    let prefix = prefix.trim_start_matches('/');
+    let prefix = prefix.trim_end_matches('/');
+    format!("{prefix}/_manifest.json")
+}
+
+fn validate_manifest(
+    cfg: &QueryServiceConfig,
+    grant: &DatasetGrant,
+    prefix: &str,
+    manifest: &DatasetManifestV1,
+) -> anyhow::Result<()> {
+    if manifest.version != DatasetManifestV1::VERSION {
+        anyhow::bail!("unsupported manifest version {}", manifest.version);
+    }
+    if manifest.dataset_uuid != grant.dataset_uuid || manifest.dataset_version != grant.dataset_version {
+        anyhow::bail!("manifest does not match dataset grant");
+    }
+
+    if manifest.parquet_keys.is_empty() {
+        anyhow::bail!("manifest contains no parquet objects");
+    }
+    if manifest.parquet_keys.len() > cfg.max_manifest_objects {
+        anyhow::bail!(
+            "manifest too many parquet objects ({} > {})",
+            manifest.parquet_keys.len(),
+            cfg.max_manifest_objects
+        );
+    }
+
+    let expected_prefix = prefix.trim_start_matches('/').trim_end_matches('/');
+    for key in &manifest.parquet_keys {
+        if key.contains('\\') {
+            anyhow::bail!("manifest parquet key contains backslash");
+        }
+        let key = key.trim_start_matches('/');
+        if !key.starts_with(expected_prefix) {
+            anyhow::bail!("manifest parquet key outside dataset prefix");
+        }
+        if !key.to_ascii_lowercase().ends_with(".parquet") {
+            anyhow::bail!("manifest parquet key missing .parquet suffix");
+        }
+    }
+
+    Ok(())
 }
 
 fn columns_to_response(results: &QueryResultSet) -> Vec<QueryColumnResponse> {
@@ -356,6 +529,20 @@ impl ApiError {
     fn forbidden(message: &'static str) -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
+            message,
+        }
+    }
+
+    fn unprocessable(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message,
+        }
+    }
+
+    fn payload_too_large(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
             message,
         }
     }
