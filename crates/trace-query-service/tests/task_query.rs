@@ -1,6 +1,6 @@
 use anyhow::Context;
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{header, Request, StatusCode};
 use duckdb::Connection;
 use http_body_util::BodyExt;
 use sqlx::postgres::PgPoolOptions;
@@ -656,6 +656,8 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
     ensure_duckdb_httpfs_installed()?;
 
     let (cfg, _pool, app) = setup().await?;
+    let (bucket, _fixture_prefix) =
+        parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX).context("parse fixture storage prefix")?;
 
     // Use a unique keyspace per test run to avoid collisions across parallel test execution.
     let keyspace = format!("prefix-collision/{}/", Uuid::new_v4());
@@ -678,7 +680,7 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
     let parquet_bytes = build_fixture_parquet_bytes().await?;
     object_store
         .put_bytes(
-            &cfg.s3_bucket,
+            &bucket,
             &evil_parquet_key,
             parquet_bytes,
             CONTENT_TYPE_PARQUET,
@@ -688,7 +690,7 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
     // Write a manifest *under the good prefix* that tries to reference the evil key.
     let manifest_key = format!("{}/_manifest.json", good_prefix.trim_end_matches('/'));
     let manifest = DatasetManifestV1 {
-        version: "v1".to_string(),
+        version: DatasetManifestV1::VERSION,
         dataset_uuid,
         dataset_version,
         parquet_keys: vec![evil_parquet_key.clone()],
@@ -696,7 +698,7 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
     let manifest_bytes = serde_json::to_vec(&manifest)?;
     object_store
         .put_bytes(
-            &cfg.s3_bucket,
+            &bucket,
             &manifest_key,
             manifest_bytes,
             CONTENT_TYPE_JSON,
@@ -714,7 +716,7 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
             dataset_uuid,
             dataset_version,
             storage_ref: Some(DatasetStorageRef::S3 {
-                bucket: cfg.s3_bucket.clone(),
+                bucket: bucket.clone(),
                 prefix: good_prefix.clone(),
                 glob: "*.parquet".to_string(),
             }),
@@ -722,7 +724,7 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
         S3Grants {
             read_prefixes: vec![format!(
                 "s3://{}/{}",
-                cfg.s3_bucket, good_prefix_no_trailing_slash
+                bucket, good_prefix_no_trailing_slash
             )],
             write_prefixes: vec![],
         },
@@ -742,7 +744,7 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
                 .method("POST")
                 .uri("/v1/task/query")
                 .header(TASK_CAPABILITY_HEADER, token)
-                .header(CONTENT_TYPE_HEADER, CONTENT_TYPE_JSON)
+                .header(header::CONTENT_TYPE, CONTENT_TYPE_JSON)
                 .body(Body::from(serde_json::to_vec(&body)?))?,
         )
         .await?;
