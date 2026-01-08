@@ -18,14 +18,24 @@ pub async fn planner_tick_once(
     pool: &PgPool,
     task_wakeup_queue: &str,
 ) -> anyhow::Result<PlannerTickResult> {
+    planner_tick_once_scoped(pool, task_wakeup_queue, None).await
+}
+
+pub async fn planner_tick_once_scoped(
+    pool: &PgPool,
+    task_wakeup_queue: &str,
+    org_id_filter: Option<Uuid>,
+) -> anyhow::Result<PlannerTickResult> {
     let jobs = sqlx::query(
         r#"
         SELECT job_id, org_id, chain_id, mode, from_block, to_block, tail_lag, max_head_age_seconds
         FROM state.chain_sync_jobs
         WHERE enabled = true
+          AND ($1::uuid IS NULL OR org_id = $1)
         ORDER BY updated_at, created_at
         "#,
     )
+    .bind(org_id_filter)
     .fetch_all(pool)
     .await
     .context("select enabled chain_sync jobs")?;

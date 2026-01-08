@@ -1,7 +1,7 @@
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
 use trace_dispatcher::chain_sync::apply_chain_sync_yaml;
-use trace_dispatcher::planner::planner_tick_once;
+use trace_dispatcher::planner::planner_tick_once_scoped;
 use uuid::Uuid;
 
 fn state_database_url() -> String {
@@ -51,8 +51,8 @@ streams:
 
     let applied = apply_chain_sync_yaml(&pool, org_id, &yaml).await?;
 
-    let r1 = planner_tick_once(&pool, &queue).await?;
-    let r2 = planner_tick_once(&pool, &queue).await?;
+    let r1 = planner_tick_once_scoped(&pool, &queue, Some(org_id)).await?;
+    let r2 = planner_tick_once_scoped(&pool, &queue, Some(org_id)).await?;
 
     anyhow::ensure!(r1.scheduled_ranges == 3, "expected 3 scheduled ranges");
     anyhow::ensure!(r2.scheduled_ranges == 0, "expected idempotent second run");
