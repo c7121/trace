@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 pub const TASK_CAPABILITY_HEADER: &str = "X-Trace-Task-Capability";
 
+pub mod chain_sync;
 pub mod planner;
 
 // UUIDv5 namespace for deterministic outbox message IDs (task fencing/idempotency).

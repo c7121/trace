@@ -1,10 +1,14 @@
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::VecDeque;
+use trace_dispatcher::chain_sync::apply_chain_sync_yaml;
 use trace_dispatcher::planner::{plan_chain_sync, PlanChainSyncRequest};
+use uuid::Uuid;
 
 fn usage() -> &'static str {
-    "usage: trace-dispatcher plan-chain-sync --chain-id <id> --to-block <exclusive> [--from-block <n>] [--chunk-size <n>] [--max-inflight <n>]\n\
+    "usage:\n\
+  trace-dispatcher chain-sync apply --file <path>\n\
+  trace-dispatcher plan-chain-sync --chain-id <id> --to-block <exclusive> [--from-block <n>] [--chunk-size <n>] [--max-inflight <n>]\n\
 env:\n\
   STATE_DATABASE_URL (default postgres://trace:trace@localhost:5433/trace_state)\n\
   TASK_WAKEUP_QUEUE  (default task_wakeup)\n"
@@ -24,6 +28,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match cmd.as_str() {
+        "chain-sync" => chain_sync_cmd(args).await,
         "plan-chain-sync" => plan_chain_sync_cmd(args).await,
         _ => {
             eprintln!("unknown command: {cmd}\n\n{}", usage());
@@ -72,6 +77,47 @@ async fn plan_chain_sync_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn chain_sync_cmd(mut args: VecDeque<String>) -> anyhow::Result<()> {
+    let Some(sub) = args.pop_front() else {
+        eprintln!("{}", usage());
+        return Ok(());
+    };
+
+    match sub.as_str() {
+        "apply" => chain_sync_apply_cmd(args).await,
+        _ => {
+            eprintln!("unknown chain-sync command: {sub}\n\n{}", usage());
+            Ok(())
+        }
+    }
+}
+
+async fn chain_sync_apply_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
+    let flags = parse_flags(args)?;
+    let file = required_string(&flags, "file")?;
+
+    let yaml = std::fs::read_to_string(&file)
+        .with_context(|| format!("read {file}"))?;
+
+    let org_id = std::env::var("ORG_ID")
+        .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".to_string())
+        .parse::<Uuid>()
+        .context("parse ORG_ID")?;
+
+    let state_database_url = std::env::var("STATE_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://trace:trace@localhost:5433/trace_state".to_string());
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let res = apply_chain_sync_yaml(&pool, org_id, &yaml).await?;
+    println!("job_id={}", res.job_id);
+    Ok(())
+}
+
 fn parse_flags(mut args: VecDeque<String>) -> anyhow::Result<std::collections::HashMap<String, String>>
 {
     let mut out = std::collections::HashMap::<String, String>::new();
@@ -100,6 +146,16 @@ fn required_i64(flags: &std::collections::HashMap<String, String>, key: &str) ->
     };
     v.parse::<i64>()
         .with_context(|| format!("parse --{key}={v}"))
+}
+
+fn required_string(
+    flags: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> anyhow::Result<String> {
+    let Some(v) = flags.get(key) else {
+        anyhow::bail!("missing --{key}\n\n{}", usage());
+    };
+    Ok(v.to_string())
 }
 
 fn optional_i64(
