@@ -52,7 +52,7 @@ Keep the harness green. If it breaks, fix it before adding features.
 - Treat each milestone as a review gate.
 - Make changes in **small commits** with a clear verification command each.
 - At each 🛑 STOP point, share:
-  - a zip of the repo including `.git`
+  - a zip of the repo including `.git` - use a timestamped filename, e.g. `trace-2026-01-08T1430.zip`
   - output of `cd harness && cargo test -- --nocapture`
   - `git log --oneline -n 30`
   - a short note: "what changed" + "what you want reviewed"
