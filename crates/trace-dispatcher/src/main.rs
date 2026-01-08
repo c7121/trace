@@ -94,7 +94,12 @@ async fn chain_sync_cmd(mut args: VecDeque<String>) -> anyhow::Result<()> {
 
     match sub.as_str() {
         // Back-compat alias; delegate to the generic router.
-        "apply" => apply_cmd(args).await,
+        "apply" => {
+            eprintln!(
+                "warning: `trace-dispatcher chain-sync apply` is deprecated; use `trace-dispatcher apply --file <path>`"
+            );
+            apply_cmd(args).await
+        }
         _ => {
             eprintln!("unknown chain-sync command: {sub}\n\n{}", usage());
             Ok(())
