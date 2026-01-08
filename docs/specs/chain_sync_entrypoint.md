@@ -138,7 +138,10 @@ For each active `chain_sync` job, Dispatcher runs a loop (periodic, e.g. every f
 1) Load the job definition and its dataset stream configs.
 2) For each dataset stream, compute an eligible planning window:
    - `fixed_target`: `to_block` is fixed.
-   - `follow_head`: `to_block = min(observed_head, observed_head - tail_lag)` (tail lag is configured) and can move forward over time.
+   - `follow_head`:
+     - If head is missing or stale, planning MUST skip for that stream (fail closed) rather than guessing.
+     - Use end-exclusive math:
+       - `to_block = max(from_block, (observed_head + 1) - tail_lag)`
 3) While `inflight_count(stream) < max_inflight(stream)` and `cursor(stream) < to_block`:
    - compute next `[start,end)` by `chunk_size`.
    - atomically insert a scheduled-range row keyed by `{job_id, dataset_key, range_start, range_end}`.
