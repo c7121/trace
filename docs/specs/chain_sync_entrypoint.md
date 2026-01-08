@@ -63,7 +63,15 @@ persistence formats/migrations, and entrypoint exports.
 - Endpoints/RPC:
   - Admin-only: apply/pause/resume/status for `chain_sync` jobs (shape TBD; see “API surface”).
 - Events/schemas:
-  - Task payload schema for `cryo_ingest` tasks planned by `chain_sync` MUST include `{chain_id, dataset_key, dataset_uuid, range_start, range_end, rpc_pool}` (plus any operator config hash inputs).
+  - Task payload schema for `cryo_ingest` tasks planned by `chain_sync` MUST include:
+    - `chain_id` (int)
+    - `dataset_key` (string)
+    - `dataset_uuid` (uuid)
+    - `cryo_dataset_name` (string)
+    - `rpc_pool` (string)
+    - `range_start` (int)
+    - `range_end` (int, end-exclusive in payload terms)
+    - `config_hash` (string)
 - CLI:
   - Admin-only: `trace-dispatcher chain-sync apply|pause|resume|status` (names TBD).
 - Config semantics:
@@ -158,25 +166,46 @@ For each active `chain_sync` job, Dispatcher runs a loop (periodic, e.g. every f
 ### State model (semantic; not SQL)
 The following durable state is required in Postgres *state* (naming is illustrative):
 - Sync job definition (`chain_sync_jobs`):
-  - `job_id` (stable UUID), `org_id`, `dag_version_id`, `name`
-  - `chain_id`
-  - `status` (`running|paused|error`)
-  - `mode` (`fixed_target|follow_head`)
-  - `from_block`, `to_block` (nullable if follow head)
-  - `chunk_size`
-  - dataset stream configs: list of `{dataset_key, rpc_pool, dataset_uuid}` (resolved at apply time)
-  - optional per-stream overrides: `max_inflight`, `tail_lag`, `max_attempts`
-  - `updated_at`, `last_error` (optional, redacted)
-- Per-stream cursor (`chain_sync_cursors`):
-  - key: `{job_id, dataset_key}` (or `{org_id, chain_id, dataset_key}` if jobs are unique per chain)
-  - `next_block` (exclusive high-water mark)
-  - `updated_at`
-  - uniqueness: one cursor per stream key
+  - Identity:
+    - `job_id` (stable UUID)
+    - `(org_id, name)` unique key (apply idempotency)
+  - Core fields:
+    - `org_id` (uuid)
+    - `name` (string)
+    - `chain_id` (int)
+    - `enabled` (bool)
+    - `mode` (`fixed_target|follow_head`)
+    - `from_block` (int)
+    - `to_block` (int, nullable for follow head)
+    - defaults: `chunk_size`, `max_inflight`
+  - Follow-head fields:
+    - `tail_lag` (int blocks)
+    - `head_poll_interval_seconds` (int)
+    - `max_head_age_seconds` (int)
+  - Audit/debug:
+    - `yaml_hash` (string; change detector only)
+    - `updated_at`
+    - `last_error` (optional category, redacted message)
+- Stream definitions (`chain_sync_streams`):
+  - key: `{job_id, dataset_key}`
+  - fields:
+    - `dataset_key` (string)
+    - `cryo_dataset_name` (string)
+    - `rpc_pool` (string)
+    - derived identity: `dataset_uuid` (uuid, deterministic from `{org_id, chain_id, dataset_key}`)
+    - `config_hash` (string)
+    - per-stream overrides: `chunk_size`, `max_inflight`
+- Per-stream cursor (`chain_sync_cursor`):
+  - key: `{job_id, dataset_key}`
+  - fields:
+    - `next_block` (exclusive high-water mark)
+    - `updated_at`
 - Scheduled range ledger (`chain_sync_scheduled_ranges`):
   - key: `{job_id, dataset_key, range_start, range_end}`
-  - `task_id` (stable mapping to the planned task)
-  - `status` (`scheduled|completed`)
-  - `created_at`, `updated_at`
+  - fields:
+    - `task_id` (stable mapping to the planned task)
+    - `status` (`scheduled|completed`)
+    - `created_at`, `updated_at`
   - uniqueness: `(job_id, dataset_key, range_start, range_end)` MUST be unique
 - Optional head observation (`chain_head_observations`):
   - key: `{chain_id}`
@@ -218,14 +247,15 @@ Minimal schema:
   - `mode`:
     - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
       - Note: to sync through block `N` inclusive, set `to_block = N + 1`.
-    - `follow_head`: `{ from_block, tail_lag, max_head_age_seconds }`
+    - `follow_head`: `{ from_block, tail_lag, head_poll_interval_seconds, max_head_age_seconds }`
   - `streams[]` list of dataset streams:
     - `dataset_key` string (Cryo dataset identifier)
+    - `cryo_dataset_name` string (Cryo CLI dataset name, v1: same as `dataset_key`)
     - `rpc_pool` string (name only)
     - `chunk_size` block count
     - `max_inflight` planned range count cap
 
-Concrete example:
+Concrete example (bootstrap, end-exclusive):
 ```yaml
 name: mainnet_bootstrap
 
@@ -239,14 +269,22 @@ entrypoints:
       to_block: 20000000 # syncs [0, 20000000)
     streams:
       - dataset_key: blocks
+        cryo_dataset_name: blocks
         rpc_pool: standard
         chunk_size: 2000
         max_inflight: 40
       - dataset_key: logs
+        cryo_dataset_name: logs
         rpc_pool: standard
         chunk_size: 1000
         max_inflight: 20
+      - dataset_key: geth_logs
+        cryo_dataset_name: geth_logs
+        rpc_pool: standard
+        chunk_size: 1000
+        max_inflight: 10
       - dataset_key: geth_calls
+        cryo_dataset_name: geth_calls
         rpc_pool: traces
         chunk_size: 500
         max_inflight: 5
@@ -272,13 +310,14 @@ Minimal schema:
   - `mode`:
     - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
       - Note: to sync through block `N` inclusive, set `to_block = N + 1`.
-    - `follow_head`: `{ from_block, tail_lag, max_head_age_seconds }`
+    - `follow_head`: `{ from_block, tail_lag, head_poll_interval_seconds, max_head_age_seconds }`
   - `streams` mapping from `dataset_key` to:
+    - `cryo_dataset_name` (string)
     - `rpc_pool` name only
     - `chunk_size`
     - `max_inflight`
 
-Concrete example:
+Concrete example (bootstrap, end-exclusive):
 ```yaml
 kind: chain_sync
 name: mainnet_bootstrap
@@ -291,14 +330,58 @@ mode:
 
 streams:
   blocks:
+    cryo_dataset_name: blocks
     rpc_pool: standard
     chunk_size: 2000
     max_inflight: 40
   logs:
+    cryo_dataset_name: logs
     rpc_pool: standard
     chunk_size: 1000
     max_inflight: 20
+  geth_logs:
+    cryo_dataset_name: geth_logs
+    rpc_pool: standard
+    chunk_size: 1000
+    max_inflight: 10
   geth_calls:
+    cryo_dataset_name: geth_calls
+    rpc_pool: traces
+    chunk_size: 500
+    max_inflight: 5
+```
+
+Concrete example (follow-head):
+```yaml
+kind: chain_sync
+name: mainnet_follow
+chain_id: 1
+
+mode:
+  kind: follow_head
+  from_block: 0
+  tail_lag: 64
+  head_poll_interval_seconds: 5
+  max_head_age_seconds: 30
+
+streams:
+  blocks:
+    cryo_dataset_name: blocks
+    rpc_pool: standard
+    chunk_size: 2000
+    max_inflight: 40
+  logs:
+    cryo_dataset_name: logs
+    rpc_pool: standard
+    chunk_size: 1000
+    max_inflight: 20
+  geth_logs:
+    cryo_dataset_name: geth_logs
+    rpc_pool: standard
+    chunk_size: 1000
+    max_inflight: 10
+  geth_calls:
+    cryo_dataset_name: geth_calls
     rpc_pool: traces
     chunk_size: 500
     max_inflight: 5
@@ -313,10 +396,10 @@ Cons:
 - Future DAG composition becomes harder to review because the compiled DAG is the true executed artifact.
 
 Open decisions:
-- Select Option A or Option B for v1.
-- Decide whether `connections` are supported in v1 or explicitly deferred.
-- Decide how `dataset_uuid` is resolved:
-  - Recommended: deterministic mapping from `{chain_id, dataset_key}` under the org, rather than user-supplied UUIDs in YAML.
+- Select Option A or Option B for v1. Current working choice: Option B.
+- Connections are deferred in v1 unless explicitly selected.
+- `dataset_uuid` resolution:
+  - v1 MUST use a deterministic mapping from `{org_id, chain_id, dataset_key}` rather than user-supplied UUIDs in YAML.
 
 ## Contract requirements
 Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).

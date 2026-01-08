@@ -235,11 +235,22 @@ Do not implement schema/code until the YAML shape and invariants in the spec are
 ### Goal
 Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run “genesis → tip” sync internally for multiple Cryo datasets, with durable per-stream progress and bounded in-flight scheduling.
 
+### Context links
+- `docs/specs/chain_sync_entrypoint.md`
+- `docs/specs/ingestion.md`
+- `docs/architecture/operators/cryo_ingest.md`
+- `docs/architecture/task_lifecycle.md`
+- `docs/architecture/contracts.md`
+- `docs/specs/query_service_task_query.md`
+- `docs/specs/query_sql_gating.md`
+- `docs/deploy/lite_local_cryo_sync.md`
+
 ### Deliverables (high level)
 - Persisted `chain_sync` job definitions (apply/pause/resume/status) and per-stream cursors.
 - Scheduled range ledger per dataset stream to guarantee idempotent planning.
 - Dispatcher loop that tops up inflight work (no external loops), using the outbox + task queue wakeups.
-- Per-task payload includes `{chain_id, dataset_key, range, rpc_pool}`; each successful task publishes exactly one dataset version.
+- Per-task payload includes `{chain_id, dataset_key, dataset_uuid, range, rpc_pool}`.
+- Each successful task completion publishes exactly one dataset version (single-publication rule).
 - Harness/integration tests proving:
   - re-running planner is idempotent (no duplicate effective work),
   - retries do not double-register dataset versions,
