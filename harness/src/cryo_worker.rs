@@ -56,6 +56,12 @@ pub struct CryoIngestPayload {
     /// End-exclusive block range end (`[range_start, range_end)`).
     pub range_end: i64,
     pub config_hash: String,
+    #[serde(default)]
+    pub dataset_key: Option<String>,
+    #[serde(default)]
+    pub cryo_dataset_name: Option<String>,
+    #[serde(default)]
+    pub rpc_pool: Option<String>,
 }
 
 pub fn derive_dataset_publication(bucket: &str, payload: &CryoIngestPayload) -> DatasetPublication {
@@ -337,15 +343,28 @@ async fn write_dataset_artifacts_real(
     payload: &CryoIngestPayload,
     staging_dir: &Path,
 ) -> Result<(), CryoArtifactError> {
-    let rpc_url = std::env::var("TRACE_CRYO_RPC_URL")
-        .map_err(|_| CryoArtifactError::Fatal(anyhow::anyhow!("missing TRACE_CRYO_RPC_URL")))?;
+    let rpc_url = payload
+        .rpc_pool
+        .as_deref()
+        .and_then(rpc_url_for_pool)
+        .or_else(|| std::env::var("TRACE_CRYO_RPC_URL").ok())
+        .ok_or_else(|| {
+            CryoArtifactError::Fatal(anyhow::anyhow!(
+                "missing RPC URL: set TRACE_CRYO_RPC_URL or TRACE_RPC_POOL_<NAME>_URL"
+            ))
+        })?;
     let cryo_bin = std::env::var("TRACE_CRYO_BIN").unwrap_or_else(|_| "cryo".to_string());
 
-    let dataset_name = dataset_name_from_config_hash(&payload.config_hash).ok_or_else(|| {
-        CryoArtifactError::Fatal(anyhow::anyhow!(
-            "unrecognized config_hash for cryo dataset name"
-        ))
-    })?;
+    let dataset_name = payload
+        .cryo_dataset_name
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| dataset_name_from_config_hash(&payload.config_hash))
+        .ok_or_else(|| {
+            CryoArtifactError::Fatal(anyhow::anyhow!(
+                "missing cryo_dataset_name and unrecognized config_hash for dataset name"
+            ))
+        })?;
 
     let (bucket, prefix_key) = match &pubd.storage_ref {
         DatasetStorageRef::S3 { bucket, prefix, .. } => (bucket.clone(), prefix.clone()),
@@ -411,6 +430,25 @@ fn dataset_name_from_config_hash(config_hash: &str) -> Option<&str> {
     // Expected harness format: `cryo_ingest.<dataset>:<version>`
     let without_prefix = config_hash.strip_prefix("cryo_ingest.")?;
     Some(without_prefix.split(':').next()?)
+}
+
+fn rpc_url_for_pool(pool: &str) -> Option<String> {
+    let pool = pool.trim();
+    if pool.is_empty() {
+        return None;
+    }
+
+    let mut key = String::with_capacity(pool.len());
+    for c in pool.chars() {
+        if c.is_ascii_alphanumeric() {
+            key.push(c.to_ascii_uppercase());
+        } else {
+            key.push('_');
+        }
+    }
+
+    let env_key = format!("TRACE_RPC_POOL_{key}_URL");
+    std::env::var(env_key).ok()
 }
 
 async fn run_cryo_cli(
