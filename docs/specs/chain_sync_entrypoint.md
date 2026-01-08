@@ -89,7 +89,7 @@ flowchart LR
   CW -->|write Parquet+manifest| OBJ[(Object store)]
   CW -->|/v1/task/complete + dataset_publication| DISP
   DISP -->|register dataset_versions| STATE
-  QS[Query Service] -->|fetch manifest + scan Parquet (httpfs)| OBJ
+  QS[Query Service] -->|fetch manifest + scan Parquet via httpfs| OBJ
   QS -->|audit| DATA[(Postgres data)]
 ```
 
@@ -104,6 +104,9 @@ Bullets. Include only what is needed to implement/review safely.
 - Partition/range: `[start, end)` block interval (end-exclusive).
 - Task: one `{ dataset_key, chain_id, range, rpc_pool }` planned unit of work.
   - `rpc_pool` selects an RPC pool owned by the RPC Egress Gateway (API keys are not in YAML).
+  - **Single-output rule (v1):** a task attempt is defined to produce **exactly one** `DatasetPublication`.
+    - A completion payload that contains zero publications or attempts to publish more than one publication is malformed and MUST be rejected by the Dispatcher.
+    - Multi-output tasks (e.g., “one task runs Cryo for blocks+logs+traces in one invocation”) are intentionally not supported in v1 because they couple failure domains and break retry/idempotency invariants.
 - DatasetPublication: on successful task completion, a single dataset version publication describing:
   - `{ dataset_uuid, dataset_version, storage_ref, config_hash, range_start, range_end }`.
 - Cursor: per `{ chain_id, dataset_key }` exclusive high-water mark `next_block` for planning.
@@ -114,7 +117,8 @@ Bullets. Include only what is needed to implement/review safely.
 ### Semantics / invariants (non-negotiable)
 - No external planning loops: Dispatcher continuously tops up in-flight work for each active `chain_sync` job.
 - Multiple datasets per job are supported: a single `chain_sync` job definition contains N dataset streams.
-- Each task produces exactly one dataset publication (v1).
+- **Each successful task completion MUST include exactly one dataset publication.**
+  - The Dispatcher MUST reject completion if the publication is missing or if the completion attempts multiple publications.
 - Different dataset streams MAY use different `rpc_pool` values.
 - Idempotency:
   - Re-planning MUST NOT create duplicate scheduled ranges for the same `{job_id, dataset_key, range}` (enforced by a uniqueness constraint).
@@ -194,6 +198,9 @@ Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
 - The planner MUST be idempotent under restart: inserting scheduled ranges MUST be protected by a uniqueness constraint and safe retries (`ON CONFLICT DO NOTHING` or equivalent).
 - Each planned range MUST map to a stable task identity (dedupe key) so duplicate scheduling does not create divergent work.
 - Workers MUST NOT register dataset versions directly; they MUST publish dataset publications only via fenced `/v1/task/complete`.
+- For `cryo_ingest` tasks, `/v1/task/complete` MUST carry **exactly one** dataset publication object and it MUST match the task payload `{chain_id, dataset_key, range_start, range_end}`.
+  - The Dispatcher MUST reject completions that omit the publication or attempt to include multiple publications (even if identical).
+  - The Dispatcher MUST NOT partially accept a subset of publications.
 - Dataset version registration MUST be idempotent: if a dataset version insert conflicts, the stored `{storage_ref, config_hash, range}` MUST match exactly or the completion MUST fail (no silent divergence).
 - Query Service MUST remain fail-closed: it MUST attach datasets in trusted code and execute only validated SQL; it MUST NOT allow untrusted SQL to read arbitrary files/URLs.
 - If Query Service remote Parquet scans are enabled, the deployment MUST enforce an egress allowlist permitting only object-store endpoints; otherwise Query Service MUST fail closed.
@@ -256,6 +263,7 @@ Required.
 - Tests (map to goals; include negative cases where relevant):
   - Planner idempotency: applying the same `chain_sync` spec twice does not duplicate scheduled ranges or tasks.
   - At-least-once safety: retrying a failed range does not double-register a dataset version.
+  - Single-output enforcement: a task completion that omits `dataset_publication` or attempts to publish more than one publication is rejected and MUST NOT register any dataset version.
   - Security: Query Service continues to reject unsafe SQL and does not allow file/URL reads from untrusted SQL.
 - Observable behavior:
   - Status reports per-stream cursor and inflight counts; fixed-target completion is computed precisely.

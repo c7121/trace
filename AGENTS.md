@@ -12,7 +12,7 @@ Before doing anything else, the agent MUST read and follow:
 
 - Repo-specific constraints (optional):
   - No em dashes (—) in docs; use hyphens (-) or colons
-  - Mermaid labels: no parentheses, brackets, or curly braces
+  - Mermaid labels: do not include parentheses `()` in label text (node labels or edge labels); parentheses used only for Mermaid shape syntax are OK
 
 Notes:
 - Shared standards and templates are in docs/* and SHOULD be treated as normative unless explicitly overridden here.
