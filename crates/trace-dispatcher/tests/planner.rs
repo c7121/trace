@@ -1,6 +1,7 @@
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
-use trace_dispatcher::planner::{plan_chain_sync, PlanChainSyncRequest};
+use trace_dispatcher::chain_sync::apply_chain_sync_yaml;
+use trace_dispatcher::planner::planner_tick_once;
 use uuid::Uuid;
 
 fn state_database_url() -> String {
@@ -25,19 +26,33 @@ async fn planner_is_idempotent_under_restarts() -> anyhow::Result<()> {
         .await
         .context("migrate state db")?;
 
-    let chain_id = ((Uuid::new_v4().as_u128() % 1_000_000) as i64) + 1;
     let queue = unique_queue("task_wakeup_plan_test");
 
-    let req = PlanChainSyncRequest {
-        chain_id,
-        from_block: 0,
-        to_block: 3_000,
-        chunk_size: 1_000,
-        max_inflight: 10,
-    };
+    let org_id = Uuid::new_v4();
+    let chain_id = ((Uuid::new_v4().as_u128() % 1_000_000) as i64) + 1;
+    let name = format!("planner_test_{}", Uuid::new_v4());
+    let yaml = format!(
+        r#"
+kind: chain_sync
+name: {name}
+chain_id: {chain_id}
+mode:
+  kind: fixed_target
+  from_block: 0
+  to_block: 3000
+streams:
+  blocks:
+    cryo_dataset_name: blocks
+    rpc_pool: standard
+    chunk_size: 1000
+    max_inflight: 10
+"#
+    );
 
-    let r1 = plan_chain_sync(&pool, &queue, req.clone()).await?;
-    let r2 = plan_chain_sync(&pool, &queue, req.clone()).await?;
+    let applied = apply_chain_sync_yaml(&pool, org_id, &yaml).await?;
+
+    let r1 = planner_tick_once(&pool, &queue).await?;
+    let r2 = planner_tick_once(&pool, &queue).await?;
 
     anyhow::ensure!(r1.scheduled_ranges == 3, "expected 3 scheduled ranges");
     anyhow::ensure!(r2.scheduled_ranges == 0, "expected idempotent second run");
@@ -46,28 +61,36 @@ async fn planner_is_idempotent_under_restarts() -> anyhow::Result<()> {
         r#"
         SELECT count(*)
         FROM state.chain_sync_scheduled_ranges
-        WHERE chain_id = $1
-          AND status = 'scheduled'
+        WHERE job_id = $1
+          AND dataset_key = 'blocks'
+          AND status <> 'completed'
         "#,
     )
-    .bind(chain_id)
+    .bind(applied.job_id)
     .fetch_one(&pool)
     .await?;
 
-    anyhow::ensure!(scheduled == 3, "expected 3 scheduled ranges, got {scheduled}");
+    anyhow::ensure!(
+        scheduled == 3,
+        "expected 3 scheduled ranges, got {scheduled}"
+    );
 
     let next_block: i64 = sqlx::query_scalar(
         r#"
         SELECT next_block
         FROM state.chain_sync_cursor
-        WHERE chain_id = $1
+        WHERE job_id = $1
+          AND dataset_key = 'blocks'
         "#,
     )
-    .bind(chain_id)
+    .bind(applied.job_id)
     .fetch_one(&pool)
     .await?;
 
-    anyhow::ensure!(next_block == 3_000, "expected next_block 3000, got {next_block}");
+    anyhow::ensure!(
+        next_block == 3_000,
+        "expected next_block 3000, got {next_block}"
+    );
 
     let outbox: i64 = sqlx::query_scalar(
         r#"
@@ -84,4 +107,3 @@ async fn planner_is_idempotent_under_restarts() -> anyhow::Result<()> {
 
     Ok(())
 }
-

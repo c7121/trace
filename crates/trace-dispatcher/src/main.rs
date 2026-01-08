@@ -2,16 +2,15 @@ use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::VecDeque;
 use trace_dispatcher::chain_sync::apply_chain_sync_yaml;
-use trace_dispatcher::planner::{plan_chain_sync, PlanChainSyncRequest};
 use uuid::Uuid;
 
 fn usage() -> &'static str {
     "usage:\n\
   trace-dispatcher chain-sync apply --file <path>\n\
-  trace-dispatcher plan-chain-sync --chain-id <id> --to-block <exclusive> [--from-block <n>] [--chunk-size <n>] [--max-inflight <n>]\n\
 env:\n\
+  ORG_ID             (default 00000000-0000-0000-0000-000000000001)\n\
   STATE_DATABASE_URL (default postgres://trace:trace@localhost:5433/trace_state)\n\
-  TASK_WAKEUP_QUEUE  (default task_wakeup)\n"
+"
 }
 
 #[tokio::main]
@@ -29,52 +28,11 @@ async fn main() -> anyhow::Result<()> {
 
     match cmd.as_str() {
         "chain-sync" => chain_sync_cmd(args).await,
-        "plan-chain-sync" => plan_chain_sync_cmd(args).await,
         _ => {
             eprintln!("unknown command: {cmd}\n\n{}", usage());
             Ok(())
         }
     }
-}
-
-async fn plan_chain_sync_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
-    let flags = parse_flags(args)?;
-
-    let chain_id: i64 = required_i64(&flags, "chain-id")?;
-    let to_block: i64 = required_i64(&flags, "to-block")?;
-    let from_block: i64 = optional_i64(&flags, "from-block")?.unwrap_or(0);
-    let chunk_size: i64 = optional_i64(&flags, "chunk-size")?.unwrap_or(1_000);
-    let max_inflight: i64 = optional_i64(&flags, "max-inflight")?.unwrap_or(10);
-
-    let state_database_url = std::env::var("STATE_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://trace:trace@localhost:5433/trace_state".to_string());
-    let task_wakeup_queue =
-        std::env::var("TASK_WAKEUP_QUEUE").unwrap_or_else(|_| "task_wakeup".to_string());
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&state_database_url)
-        .await
-        .context("connect state db")?;
-
-    let res = plan_chain_sync(
-        &pool,
-        &task_wakeup_queue,
-        PlanChainSyncRequest {
-            chain_id,
-            from_block,
-            to_block,
-            chunk_size,
-            max_inflight,
-        },
-    )
-    .await?;
-
-    println!(
-        "scheduled_ranges={} next_block={}",
-        res.scheduled_ranges, res.next_block
-    );
-    Ok(())
 }
 
 async fn chain_sync_cmd(mut args: VecDeque<String>) -> anyhow::Result<()> {
@@ -96,8 +54,7 @@ async fn chain_sync_apply_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
     let flags = parse_flags(args)?;
     let file = required_string(&flags, "file")?;
 
-    let yaml = std::fs::read_to_string(&file)
-        .with_context(|| format!("read {file}"))?;
+    let yaml = std::fs::read_to_string(&file).with_context(|| format!("read {file}"))?;
 
     let org_id = std::env::var("ORG_ID")
         .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".to_string())
@@ -118,8 +75,9 @@ async fn chain_sync_apply_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn parse_flags(mut args: VecDeque<String>) -> anyhow::Result<std::collections::HashMap<String, String>>
-{
+fn parse_flags(
+    mut args: VecDeque<String>,
+) -> anyhow::Result<std::collections::HashMap<String, String>> {
     let mut out = std::collections::HashMap::<String, String>::new();
     while let Some(arg) = args.pop_front() {
         if !arg.starts_with("--") {
@@ -140,14 +98,6 @@ fn parse_flags(mut args: VecDeque<String>) -> anyhow::Result<std::collections::H
     Ok(out)
 }
 
-fn required_i64(flags: &std::collections::HashMap<String, String>, key: &str) -> anyhow::Result<i64> {
-    let Some(v) = flags.get(key) else {
-        anyhow::bail!("missing --{key}\n\n{}", usage());
-    };
-    v.parse::<i64>()
-        .with_context(|| format!("parse --{key}={v}"))
-}
-
 fn required_string(
     flags: &std::collections::HashMap<String, String>,
     key: &str,
@@ -156,17 +106,4 @@ fn required_string(
         anyhow::bail!("missing --{key}\n\n{}", usage());
     };
     Ok(v.to_string())
-}
-
-fn optional_i64(
-    flags: &std::collections::HashMap<String, String>,
-    key: &str,
-) -> anyhow::Result<Option<i64>> {
-    let Some(v) = flags.get(key) else {
-        return Ok(None);
-    };
-    Ok(Some(
-        v.parse::<i64>()
-            .with_context(|| format!("parse --{key}={v}"))?,
-    ))
 }

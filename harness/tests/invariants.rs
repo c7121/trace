@@ -19,7 +19,7 @@ use trace_core::{
     DatasetGrant, ObjectStore as ObjectStoreTrait, S3Grants, Signer as SignerTrait,
     TaskCapabilityIssueRequest,
 };
-use trace_dispatcher::planner::{plan_chain_sync, PlanChainSyncRequest};
+use trace_dispatcher::chain_sync::{apply_chain_sync_yaml, derive_dataset_uuid};
 use trace_harness::constants::{
     CONTENT_TYPE_JSON, CONTENT_TYPE_JSONL, DEFAULT_ALERT_DEFINITION_ID, TASK_CAPABILITY_HEADER,
 };
@@ -207,6 +207,7 @@ async fn duplicate_claims_do_not_double_run() -> anyhow::Result<()> {
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         false,
         false,
+        false,
     )
     .await?;
 
@@ -255,6 +256,7 @@ async fn capability_token_required() -> anyhow::Result<()> {
         pool,
         cfg.clone(),
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
         false,
         false,
     )
@@ -309,6 +311,7 @@ async fn wrong_capability_token_rejected() -> anyhow::Result<()> {
         pool,
         cfg.clone(),
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
         false,
         false,
     )
@@ -378,6 +381,7 @@ async fn wrong_lease_token_rejected() -> anyhow::Result<()> {
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         false,
         false,
+        false,
     )
     .await?;
 
@@ -438,6 +442,7 @@ async fn next_key_token_accepted_during_overlap() -> anyhow::Result<()> {
         pool,
         cfg.clone(),
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
         false,
         false,
     )
@@ -529,6 +534,7 @@ async fn stale_attempt_fencing_rejects_old_complete() -> anyhow::Result<()> {
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         false,
         false,
+        false,
     )
     .await?;
 
@@ -598,6 +604,7 @@ async fn stale_attempt_fencing_rejects_old_buffer_publish() -> anyhow::Result<()
         pool.clone(),
         cfg.clone(),
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
         false,
         false,
     )
@@ -670,6 +677,7 @@ async fn buffer_publish_is_idempotent_for_same_attempt_and_uri() -> anyhow::Resu
         pool.clone(),
         cfg.clone(),
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
         false,
         false,
     )
@@ -746,6 +754,7 @@ async fn dispatcher_restart_recovers_outbox() -> anyhow::Result<()> {
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         false,
         false,
+        false,
     )
     .await?;
 
@@ -798,6 +807,7 @@ async fn dispatcher_restart_recovers_outbox() -> anyhow::Result<()> {
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         true,
         false,
+        false,
     )
     .await?;
 
@@ -839,6 +849,7 @@ async fn worker_crash_triggers_retry() -> anyhow::Result<()> {
         cfg.clone(),
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         true,
+        false,
         true,
     )
     .await?;
@@ -1051,6 +1062,7 @@ async fn runner_claim_invoke_sink_inserts_once() -> anyhow::Result<()> {
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         true,
         false,
+        false,
     )
     .await?;
     let base = format!("http://{}", server.addr);
@@ -1234,6 +1246,7 @@ async fn dispatcher_dataset_grant_allows_task_query_and_emits_audit() -> anyhow:
         state_pool,
         cfg.clone(),
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        false,
         false,
         false,
     )
@@ -1463,7 +1476,7 @@ async fn alert_evaluate_over_parquet_dataset_emits_idempotent_events_and_rejects
         dataset_uuid: Uuid::new_v4(),
         chain_id: 1,
         range_start: 0,
-        range_end: 2,
+        range_end: 3,
         config_hash: "cryo_ingest.blocks:v1".to_string(),
     };
     let dataset_pubd = derive_dataset_publication(&cfg.s3_bucket, &dataset_payload);
@@ -1515,6 +1528,7 @@ async fn alert_evaluate_over_parquet_dataset_emits_idempotent_events_and_rejects
         queue,
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         true,
+        false,
         false,
     )
     .await?;
@@ -1843,6 +1857,7 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         false,
         false,
+        false,
     )
     .await?;
     let base = format!("http://{}", server.addr);
@@ -1911,7 +1926,7 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
 
         let (dataset_version, storage_prefix, storage_glob): (Uuid, String, String) =
             sqlx::query_as(
-            r#"
+                r#"
             SELECT dataset_version, storage_prefix, storage_glob
             FROM state.dataset_versions
             WHERE dataset_uuid = $1
@@ -1920,14 +1935,14 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
               AND range_end = $4
             LIMIT 1
             "#,
-        )
-        .bind(expected.dataset_uuid)
-        .bind(&expected.config_hash)
-        .bind(expected.range_start)
-        .bind(expected.range_end)
-        .fetch_one(&state_pool)
-        .await
-        .context("fetch dataset_versions row")?;
+            )
+            .bind(expected.dataset_uuid)
+            .bind(&expected.config_hash)
+            .bind(expected.range_start)
+            .bind(expected.range_end)
+            .fetch_one(&state_pool)
+            .await
+            .context("fetch dataset_versions row")?;
 
         anyhow::ensure!(
             dataset_version == expected.dataset_version,
@@ -2130,6 +2145,7 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
         cfg.clone(),
         "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         true,
+        true,
         false,
     )
     .await?;
@@ -2137,31 +2153,43 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
 
     let result: anyhow::Result<()> = async {
         let chain_id = ((Uuid::new_v4().as_u128() % 1_000_000) as i64) + 1;
-        let chunk_size = 1_000;
-        let to_block = 3 * chunk_size;
-
-        let req = PlanChainSyncRequest {
-            chain_id,
-            from_block: 0,
-            to_block,
-            chunk_size,
-            max_inflight: 10,
-        };
-
-        let r1 = plan_chain_sync(&state_pool, &cfg.task_wakeup_queue, req.clone()).await?;
-        let r2 = plan_chain_sync(&state_pool, &cfg.task_wakeup_queue, req.clone()).await?;
-        anyhow::ensure!(r1.scheduled_ranges == 3, "expected 3 scheduled ranges");
-        anyhow::ensure!(
-            r2.scheduled_ranges == 0,
-            "expected idempotent planner restart"
+        let chunk_size: i64 = 1000;
+        let to_block: i64 = 3 * chunk_size;
+        let name = format!("chain_sync_test_{}", Uuid::new_v4());
+        let yaml = format!(
+            r#"
+kind: chain_sync
+name: {name}
+chain_id: {chain_id}
+mode:
+  kind: fixed_target
+  from_block: 0
+  to_block: {to_block}
+streams:
+  blocks:
+    cryo_dataset_name: blocks
+    rpc_pool: standard
+    chunk_size: {chunk_size}
+    max_inflight: 10
+  geth_calls:
+    cryo_dataset_name: geth_calls
+    rpc_pool: traces
+    chunk_size: {chunk_size}
+    max_inflight: 10
+"#
         );
+
+        let applied = apply_chain_sync_yaml(&state_pool, cfg.org_id, &yaml)
+            .await
+            .context("apply chain_sync yaml")?;
 
         let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
         let dispatcher = DispatcherClient::new(base.clone());
         let queue = PgQueue::new(state_pool.clone());
 
         let visibility_timeout = Duration::from_secs(cfg.worker_visibility_timeout_secs);
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        let expected_completed: i64 = 2 * 3;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
 
         loop {
             let msgs = queue
@@ -2192,15 +2220,15 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
                 r#"
                 SELECT count(*)
                 FROM state.chain_sync_scheduled_ranges
-                WHERE chain_id = $1
+                WHERE job_id = $1
                   AND status = 'completed'
                 "#,
             )
-            .bind(chain_id)
+            .bind(applied.job_id)
             .fetch_one(&state_pool)
             .await?;
 
-            if completed == 3 {
+            if completed == expected_completed {
                 break;
             }
 
@@ -2211,43 +2239,49 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
-        let storage_prefix_pattern = format!("s3://{}/cryo/{}/%", cfg.s3_bucket, chain_id);
-        let (dataset_uuid, dataset_version, storage_prefix, storage_glob): (Uuid, Uuid, String, String) =
-            sqlx::query_as(
-            r#"
-            SELECT dataset_uuid, dataset_version, storage_prefix, storage_glob
-            FROM state.dataset_versions
-            WHERE config_hash = 'cryo_ingest.blocks:v1'
-              AND storage_prefix LIKE $1
-            ORDER BY range_start
-            LIMIT 1
-            "#,
-        )
-        .bind(&storage_prefix_pattern)
-        .fetch_one(&state_pool)
-        .await?;
+        let blocks_uuid = derive_dataset_uuid(cfg.org_id, chain_id, "blocks")?;
+        let calls_uuid = derive_dataset_uuid(cfg.org_id, chain_id, "geth_calls")?;
 
-        let dataset_rows: i64 = sqlx::query_scalar(
-            r#"
-            SELECT count(*)
+        for (dataset_uuid, config_hash) in [
+            (blocks_uuid, "cryo_ingest.blocks:v1"),
+            (calls_uuid, "cryo_ingest.geth_calls:v1"),
+        ] {
+            let dataset_rows: i64 = sqlx::query_scalar(
+                r#"
+                SELECT count(*)
+                FROM state.dataset_versions
+                WHERE dataset_uuid = $1
+                  AND config_hash = $2
+                  AND range_start IN (0, 1000, 2000)
+                  AND range_end IN (1000, 2000, 3000)
+                "#,
+            )
+            .bind(dataset_uuid)
+            .bind(config_hash)
+            .fetch_one(&state_pool)
+            .await
+            .context("count dataset_versions")?;
+
+            anyhow::ensure!(
+                dataset_rows == 3,
+                "expected 3 dataset versions for {config_hash}, got {dataset_rows}"
+            );
+        }
+
+        let (dataset_version, storage_prefix, storage_glob): (Uuid, String, String) =
+            sqlx::query_as(
+                r#"
+            SELECT dataset_version, storage_prefix, storage_glob
             FROM state.dataset_versions
             WHERE dataset_uuid = $1
               AND config_hash = 'cryo_ingest.blocks:v1'
-              AND storage_prefix LIKE $2
-              AND range_start IN (0, 1000, 2000)
-              AND range_end IN (999, 1999, 2999)
+            ORDER BY range_start
+            LIMIT 1
             "#,
-        )
-        .bind(dataset_uuid)
-        .bind(&storage_prefix_pattern)
-        .fetch_one(&state_pool)
-        .await
-        .context("count dataset_versions")?;
-
-        anyhow::ensure!(
-            dataset_rows == 3,
-            "expected 3 dataset versions, got {dataset_rows}"
-        );
+            )
+            .bind(blocks_uuid)
+            .fetch_one(&state_pool)
+            .await?;
 
         // Prove Query Service can attach+query one produced dataset version.
         let signer = TaskCapability::from_hs256_config(Hs256TaskCapabilityConfig {
@@ -2261,14 +2295,14 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
         })?;
 
         let query_task_id = Uuid::new_v4();
-        let (grant_bucket, grant_prefix) = trace_core::lite::s3::parse_s3_uri(&storage_prefix)
-            .context("parse storage prefix")?;
+        let (grant_bucket, grant_prefix) =
+            trace_core::lite::s3::parse_s3_uri(&storage_prefix).context("parse storage prefix")?;
         let issue_req = TaskCapabilityIssueRequest {
             org_id: cfg.org_id,
             task_id: query_task_id,
             attempt: 1,
             datasets: vec![DatasetGrant {
-                dataset_uuid,
+                dataset_uuid: blocks_uuid,
                 dataset_version,
                 storage_ref: Some(trace_core::DatasetStorageRef::S3 {
                     bucket: grant_bucket,
@@ -2317,7 +2351,7 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
             let req = TaskQueryRequest {
                 task_id: query_task_id,
                 attempt: 1,
-                dataset_id: dataset_uuid,
+                dataset_id: blocks_uuid,
                 sql: "SELECT count(*) FROM dataset".to_string(),
                 limit: None,
             };
@@ -2344,7 +2378,7 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
                 "#,
             )
             .bind(query_task_id)
-            .bind(dataset_uuid)
+            .bind(blocks_uuid)
             .fetch_one(&data_pool)
             .await?;
 
@@ -2361,16 +2395,35 @@ async fn planner_bootstrap_sync_schedules_and_completes_ranges() -> anyhow::Resu
             r#"
             SELECT next_block
             FROM state.chain_sync_cursor
-            WHERE chain_id = $1
+            WHERE job_id = $1
+              AND dataset_key = $2
             "#,
         )
-        .bind(chain_id)
+        .bind(applied.job_id)
+        .bind("blocks")
+        .fetch_one(&state_pool)
+        .await?;
+
+        let calls_cursor_next: i64 = sqlx::query_scalar(
+            r#"
+            SELECT next_block
+            FROM state.chain_sync_cursor
+            WHERE job_id = $1
+              AND dataset_key = $2
+            "#,
+        )
+        .bind(applied.job_id)
+        .bind("geth_calls")
         .fetch_one(&state_pool)
         .await?;
 
         anyhow::ensure!(
             cursor_next == to_block,
-            "expected cursor next_block={to_block}, got {cursor_next}"
+            "expected blocks cursor {to_block}, got {cursor_next}"
+        );
+        anyhow::ensure!(
+            calls_cursor_next == to_block,
+            "expected geth_calls cursor {to_block}, got {calls_cursor_next}"
         );
 
         Ok(())

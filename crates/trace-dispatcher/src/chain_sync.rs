@@ -6,14 +6,12 @@ use uuid::Uuid;
 
 // UUIDv5 namespace for deterministic dataset UUIDs derived from {org_id, chain_id, dataset_key}.
 const CHAIN_SYNC_DATASET_NAMESPACE: Uuid = Uuid::from_bytes([
-    0x1f, 0x55, 0xc4, 0x95, 0x7e, 0x91, 0x44, 0x33, 0x8b, 0x4a, 0x0c, 0x08, 0x8c, 0x5a,
-    0x5c, 0x7f,
+    0x1f, 0x55, 0xc4, 0x95, 0x7e, 0x91, 0x44, 0x33, 0x8b, 0x4a, 0x0c, 0x08, 0x8c, 0x5a, 0x5c, 0x7f,
 ]);
 
 // UUIDv5 namespace for a stable YAML change detector value.
 const CHAIN_SYNC_YAML_NAMESPACE: Uuid = Uuid::from_bytes([
-    0x41, 0x91, 0x5e, 0x64, 0x16, 0xd8, 0x4c, 0x48, 0x8f, 0x6c, 0xe4, 0x8a, 0x0f, 0x4b,
-    0x62, 0x0a,
+    0x41, 0x91, 0x5e, 0x64, 0x16, 0xd8, 0x4c, 0x48, 0x8f, 0x6c, 0xe4, 0x8a, 0x0f, 0x4b, 0x62, 0x0a,
 ]);
 
 const DEFAULT_CHUNK_SIZE: i64 = 1_000;
@@ -37,7 +35,10 @@ struct ChainSyncYaml {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum ChainSyncMode {
-    FixedTarget { from_block: i64, to_block: i64 },
+    FixedTarget {
+        from_block: i64,
+        to_block: i64,
+    },
     FollowHead {
         from_block: i64,
         tail_lag: i64,
@@ -68,14 +69,10 @@ pub async fn apply_chain_sync_yaml(
 
     let (mode, from_block, to_block, tail_lag, head_poll_interval_seconds, max_head_age_seconds) =
         match doc.mode {
-            ChainSyncMode::FixedTarget { from_block, to_block } => (
-                "fixed_target",
+            ChainSyncMode::FixedTarget {
                 from_block,
-                Some(to_block),
-                None,
-                None,
-                None,
-            ),
+                to_block,
+            } => ("fixed_target", from_block, Some(to_block), None, None, None),
             ChainSyncMode::FollowHead {
                 from_block,
                 tail_lag,
@@ -259,10 +256,7 @@ pub fn derive_dataset_uuid(org_id: Uuid, chain_id: i64, dataset_key: &str) -> an
     anyhow::ensure!(chain_id > 0, "chain_id must be > 0");
     validate_stream_key(dataset_key)?;
     let name = format!("chain_sync:{org_id}:{chain_id}:{dataset_key}");
-    Ok(Uuid::new_v5(
-        &CHAIN_SYNC_DATASET_NAMESPACE,
-        name.as_bytes(),
-    ))
+    Ok(Uuid::new_v5(&CHAIN_SYNC_DATASET_NAMESPACE, name.as_bytes()))
 }
 
 fn validate_doc(doc: &ChainSyncYaml) -> anyhow::Result<()> {
@@ -272,7 +266,10 @@ fn validate_doc(doc: &ChainSyncYaml) -> anyhow::Result<()> {
     anyhow::ensure!(!doc.streams.is_empty(), "streams must not be empty");
 
     match doc.mode {
-        ChainSyncMode::FixedTarget { from_block, to_block } => {
+        ChainSyncMode::FixedTarget {
+            from_block,
+            to_block,
+        } => {
             anyhow::ensure!(from_block >= 0, "from_block must be >= 0");
             anyhow::ensure!(to_block > from_block, "to_block must be > from_block");
         }
@@ -288,10 +285,7 @@ fn validate_doc(doc: &ChainSyncYaml) -> anyhow::Result<()> {
                 head_poll_interval_seconds > 0,
                 "head_poll_interval_seconds must be > 0"
             );
-            anyhow::ensure!(
-                max_head_age_seconds > 0,
-                "max_head_age_seconds must be > 0"
-            );
+            anyhow::ensure!(max_head_age_seconds > 0, "max_head_age_seconds must be > 0");
         }
     }
 
@@ -321,4 +315,3 @@ fn validate_stream(stream: &ChainSyncStream) -> anyhow::Result<()> {
     anyhow::ensure!(stream.max_inflight > 0, "max_inflight must be > 0");
     Ok(())
 }
-

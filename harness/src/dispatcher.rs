@@ -21,6 +21,7 @@ impl DispatcherServer {
         cfg: HarnessConfig,
         bind: SocketAddr,
         enable_outbox: bool,
+        enable_chain_sync_planner: bool,
         enable_lease_reaper: bool,
     ) -> anyhow::Result<Self> {
         let capability = TaskCapability::from_hs256_config(Hs256TaskCapabilityConfig {
@@ -36,8 +37,9 @@ impl DispatcherServer {
 
         let queue = Arc::new(crate::pgqueue::PgQueue::new(pool.clone()));
 
-        let (bucket, prefix) = trace_core::lite::s3::parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX)
-            .context("parse fixture dataset storage prefix")?;
+        let (bucket, prefix) =
+            trace_core::lite::s3::parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX)
+                .context("parse fixture dataset storage prefix")?;
 
         let dispatcher_cfg = trace_dispatcher::DispatcherConfig {
             org_id: cfg.org_id,
@@ -69,6 +71,7 @@ impl DispatcherServer {
             queue,
             bind,
             enable_outbox,
+            enable_chain_sync_planner,
             enable_lease_reaper,
         )
         .await?;
@@ -96,7 +99,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
         .parse()
         .with_context(|| format!("parse DISPATCHER_BIND={}", cfg.dispatcher_bind))?;
 
-    let server = DispatcherServer::start(pool, cfg.clone(), bind, true, true).await?;
+    let server = DispatcherServer::start(pool, cfg.clone(), bind, true, true, true).await?;
     tracing::info!(
         event = "harness.dispatcher.listening",
         addr = %server.addr,

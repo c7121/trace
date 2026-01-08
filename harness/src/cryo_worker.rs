@@ -13,8 +13,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 use trace_core::{
-    manifest::DatasetManifestV1, DatasetPublication, DatasetStorageRef, ObjectStore as ObjectStoreTrait,
-    Queue as QueueTrait,
+    manifest::DatasetManifestV1, DatasetPublication, DatasetStorageRef,
+    ObjectStore as ObjectStoreTrait, Queue as QueueTrait,
 };
 use uuid::Uuid;
 
@@ -53,6 +53,7 @@ pub struct CryoIngestPayload {
     pub dataset_uuid: Uuid,
     pub chain_id: i64,
     pub range_start: i64,
+    /// End-exclusive block range end (`[range_start, range_end)`).
     pub range_end: i64,
     pub config_hash: String,
 }
@@ -97,7 +98,8 @@ pub async fn run_task(
 
     let pubd = derive_dataset_publication(&cfg.s3_bucket, &payload);
 
-    match write_dataset_artifacts(object_store, &pubd, &payload, claim.task_id, claim.attempt).await {
+    match write_dataset_artifacts(object_store, &pubd, &payload, claim.task_id, claim.attempt).await
+    {
         Ok(()) => {
             let complete_req = CompleteRequest {
                 task_id: claim.task_id,
@@ -284,11 +286,7 @@ async fn write_dataset_artifacts_fake(
     staging_dir: &Path,
 ) -> Result<(), CryoArtifactError> {
     let (bucket, prefix_key) = match &pubd.storage_ref {
-        DatasetStorageRef::S3 {
-            bucket,
-            prefix,
-            ..
-        } => (bucket.clone(), prefix.clone()),
+        DatasetStorageRef::S3 { bucket, prefix, .. } => (bucket.clone(), prefix.clone()),
         DatasetStorageRef::File { .. } => {
             return Err(CryoArtifactError::Fatal(anyhow::anyhow!(
                 "cryo worker requires s3 storage ref"
@@ -350,11 +348,7 @@ async fn write_dataset_artifacts_real(
     })?;
 
     let (bucket, prefix_key) = match &pubd.storage_ref {
-        DatasetStorageRef::S3 {
-            bucket,
-            prefix,
-            ..
-        } => (bucket.clone(), prefix.clone()),
+        DatasetStorageRef::S3 { bucket, prefix, .. } => (bucket.clone(), prefix.clone()),
         DatasetStorageRef::File { .. } => {
             return Err(CryoArtifactError::Fatal(anyhow::anyhow!(
                 "cryo worker requires s3 storage ref"
@@ -427,6 +421,7 @@ async fn run_cryo_cli(
     end_block: i64,
     output_dir: &Path,
 ) -> Result<(), CryoArtifactError> {
+    let end_inclusive = end_block.saturating_sub(1);
     let out = tokio::task::spawn_blocking({
         let cryo_bin = cryo_bin.to_string();
         let dataset = dataset.to_string();
@@ -442,7 +437,7 @@ async fn run_cryo_cli(
                 .arg("--rpc")
                 .arg(rpc_url)
                 .arg("--blocks")
-                .arg(format!("{}:{}", start_block, end_block))
+                .arg(format!("{}:{}", start_block, end_inclusive))
                 .arg("--output-dir")
                 .arg(output_dir.to_string_lossy().to_string())
                 .output()
@@ -536,7 +531,11 @@ async fn cleanup_stale_staging_dirs(root: PathBuf, ttl: Duration) -> anyhow::Res
         for task_entry in std::fs::read_dir(&root).context("read staging root")? {
             let task_entry = task_entry.context("read staging root entry")?;
             let task_path = task_entry.path();
-            if !task_entry.file_type().context("staging file_type")?.is_dir() {
+            if !task_entry
+                .file_type()
+                .context("staging file_type")?
+                .is_dir()
+            {
                 continue;
             }
 
@@ -545,7 +544,11 @@ async fn cleanup_stale_staging_dirs(root: PathBuf, ttl: Duration) -> anyhow::Res
             {
                 let attempt_entry = attempt_entry.context("read attempt entry")?;
                 let attempt_path = attempt_entry.path();
-                if !attempt_entry.file_type().context("attempt file_type")?.is_dir() {
+                if !attempt_entry
+                    .file_type()
+                    .context("attempt file_type")?
+                    .is_dir()
+                {
                     continue;
                 }
 
@@ -565,17 +568,22 @@ async fn cleanup_stale_staging_dirs(root: PathBuf, ttl: Duration) -> anyhow::Res
     .context("join cleanup task")?
 }
 
-async fn build_parquet_file(staging_dir: &Path, payload: &CryoIngestPayload) -> anyhow::Result<PathBuf> {
+async fn build_parquet_file(
+    staging_dir: &Path,
+    payload: &CryoIngestPayload,
+) -> anyhow::Result<PathBuf> {
     let payload = payload.clone();
     let staging_dir = staging_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
         std::fs::create_dir_all(&staging_dir).context("create staging dir")?;
         let parquet_path = staging_dir.join("data.parquet");
 
+        let last_block = payload.range_end.saturating_sub(1).max(payload.range_start);
+
         let mut blocks = BTreeSet::new();
         blocks.insert(payload.range_start);
-        blocks.insert(payload.range_end);
-        blocks.insert(payload.range_start.saturating_add(1).min(payload.range_end));
+        blocks.insert(last_block);
+        blocks.insert(payload.range_start.saturating_add(1).min(last_block));
 
         let conn = Connection::open_in_memory().context("open duckdb in-memory")?;
         conn.execute_batch(
