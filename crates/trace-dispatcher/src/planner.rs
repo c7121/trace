@@ -9,6 +9,40 @@ const CHAIN_SYNC_TASK_NAMESPACE: Uuid = Uuid::from_bytes([
     0x90, 0x6c, 0x0c, 0x0c, 0x34, 0x2d, 0x47, 0x2f, 0x97, 0xa1, 0x2c, 0x9b, 0x3d, 0x4e, 0xaa, 0xb1,
 ]);
 
+const JOB_ERROR_INVALID_CONFIG: &str = "InvalidJobConfig";
+const JOB_ERROR_MISSING_HEAD_OBSERVATION: &str = "MissingHeadObservation";
+const JOB_ERROR_STALE_HEAD_OBSERVATION: &str = "StaleHeadObservation";
+
+const MAX_JOB_ERROR_MESSAGE_BYTES: usize = 1024;
+
+async fn record_job_error(pool: &PgPool, job_id: Uuid, kind: &str, message: &str) -> anyhow::Result<()> {
+    // This is a human-facing operator hint. Keep it short to avoid bloating rows/logs.
+    let mut msg = message.to_string();
+    if msg.len() > MAX_JOB_ERROR_MESSAGE_BYTES {
+        msg.truncate(MAX_JOB_ERROR_MESSAGE_BYTES);
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE state.chain_sync_jobs
+        SET last_error_kind = $2,
+            last_error_message = $3,
+            updated_at = NOW()
+        WHERE job_id = $1
+          AND (last_error_kind IS DISTINCT FROM $2 OR last_error_message IS DISTINCT FROM $3)
+        "#,
+    )
+    .bind(job_id)
+    .bind(kind)
+    .bind(msg)
+    .execute(pool)
+    .await
+    .context("update chain_sync_jobs.last_error")?;
+
+    Ok(())
+}
+
+
 #[derive(Debug, Clone, Default)]
 pub struct PlannerTickResult {
     pub scheduled_ranges: i64,
@@ -78,17 +112,52 @@ pub async fn planner_tick_once_scoped(
                 stream.try_get("max_inflight").context("max_inflight")?;
 
             let eligible_exclusive = match mode.as_str() {
-                "fixed_target" => to_block,
+                "fixed_target" => {
+                    if to_block.is_none() {
+                        record_job_error(
+                            pool,
+                            job_id,
+                            JOB_ERROR_INVALID_CONFIG,
+                            "fixed_target requires to_block",
+                        )
+                        .await
+                        .ok();
+                    }
+                    to_block
+                }
                 "follow_head" => {
                     let Some(max_age) = max_head_age_seconds else {
+                        record_job_error(
+                            pool,
+                            job_id,
+                            JOB_ERROR_INVALID_CONFIG,
+                            "follow_head requires max_head_age_seconds",
+                        )
+                        .await
+                        .ok();
                         continue;
                     };
                     let Some(tail_lag) = tail_lag else {
+                        record_job_error(
+                            pool,
+                            job_id,
+                            JOB_ERROR_INVALID_CONFIG,
+                            "follow_head requires tail_lag",
+                        )
+                        .await
+                        .ok();
                         continue;
                     };
-
                     observed_head_eligible_exclusive(
-                        pool, org_id, chain_id, &rpc_pool, from_block, tail_lag, max_age,
+                        pool,
+                        job_id,
+                        org_id,
+                        chain_id,
+                        &rpc_pool,
+                        &dataset_key,
+                        from_block,
+                        tail_lag,
+                        max_age as i64,
                     )
                     .await?
                 }
@@ -131,14 +200,16 @@ pub async fn planner_tick_once_scoped(
 
 async fn observed_head_eligible_exclusive(
     pool: &PgPool,
+    job_id: Uuid,
     org_id: Uuid,
     chain_id: i64,
     rpc_pool: &str,
+    dataset_key: &str,
     from_block: i64,
     tail_lag: i64,
-    max_head_age_seconds: i32,
+    max_head_age_seconds: i64,
 ) -> anyhow::Result<Option<i64>> {
-    let row = sqlx::query(
+    let row_opt = sqlx::query(
         r#"
         SELECT head_block, observed_at
         FROM state.chain_head_observations
@@ -152,25 +223,37 @@ async fn observed_head_eligible_exclusive(
     .bind(rpc_pool)
     .fetch_optional(pool)
     .await
-    .context("select chain_head_observations")?;
+    .context("fetch chain head observation")?;
 
-    let Some(row) = row else {
+    let Some(row) = row_opt else {
+        let msg = format!(
+            "follow_head planning blocked: missing head observation for org_id={org_id} chain_id={chain_id} rpc_pool={rpc_pool} stream={dataset_key}",
+        );
+        record_job_error(pool, job_id, JOB_ERROR_MISSING_HEAD_OBSERVATION, &msg)
+            .await
+            .ok();
         return Ok(None);
     };
 
-    let head_block: i64 = row.try_get("head_block").context("head_block")?;
-    let observed_at: DateTime<Utc> = row.try_get("observed_at").context("observed_at")?;
+    let observed_head: i64 = row.try_get("head_block")?;
+    let observed_at: DateTime<Utc> = row.try_get("observed_at")?;
 
     let now = Utc::now();
-    let max_age = chrono::Duration::seconds(i64::from(max_head_age_seconds).max(0));
-    if observed_at + max_age < now {
+    let age_seconds = now.signed_duration_since(observed_at).num_seconds().max(0);
+
+    if age_seconds > max_head_age_seconds {
+        let msg = format!(
+            "follow_head planning blocked: stale head observation for org_id={org_id} chain_id={chain_id} rpc_pool={rpc_pool} stream={dataset_key} observed_at={observed_at:?} age_seconds={age_seconds} max_age_seconds={max_head_age_seconds}",
+        );
+        record_job_error(pool, job_id, JOB_ERROR_STALE_HEAD_OBSERVATION, &msg)
+            .await
+            .ok();
         return Ok(None);
     }
 
-    // End-exclusive: plan ranges in [from_block, eligible_exclusive)
-    // eligible_exclusive = max(from_block, (observed_head + 1) - tail_lag)
-    let eligible = (head_block + 1).saturating_sub(tail_lag);
-    Ok(Some(from_block.max(eligible)))
+    // Eligible window is end-exclusive. We plan ranges in [from_block, eligible_exclusive).
+    let eligible_exclusive = std::cmp::max(from_block, (observed_head + 1) - tail_lag);
+    Ok(Some(eligible_exclusive))
 }
 
 #[allow(clippy::too_many_arguments)]
