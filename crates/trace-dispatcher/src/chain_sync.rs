@@ -293,16 +293,12 @@ fn validate_doc(doc: &ChainSyncYaml) -> anyhow::Result<()> {
 }
 
 fn validate_stream_key(dataset_key: &str) -> anyhow::Result<()> {
-    let ok = matches!(dataset_key, "blocks" | "logs" | "geth_logs" | "geth_calls");
-    anyhow::ensure!(ok, "unsupported dataset_key: {dataset_key}");
+    validate_slug("dataset_key", dataset_key)?;
     Ok(())
 }
 
 fn validate_stream(stream: &ChainSyncStream) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !stream.cryo_dataset_name.trim().is_empty(),
-        "cryo_dataset_name must not be empty"
-    );
+    validate_slug("cryo_dataset_name", &stream.cryo_dataset_name)?;
     anyhow::ensure!(
         !stream.rpc_pool.trim().is_empty(),
         "rpc_pool must not be empty"
@@ -313,5 +309,16 @@ fn validate_stream(stream: &ChainSyncStream) -> anyhow::Result<()> {
     );
     anyhow::ensure!(stream.chunk_size > 0, "chunk_size must be > 0");
     anyhow::ensure!(stream.max_inflight > 0, "max_inflight must be > 0");
+    Ok(())
+}
+
+fn validate_slug(field: &str, value: &str) -> anyhow::Result<()> {
+    let v = value.trim();
+    anyhow::ensure!(!v.is_empty(), "{field} must not be empty");
+    anyhow::ensure!(v.len() <= 64, "{field} must be <= 64 chars");
+    for c in v.chars() {
+        let ok = matches!(c, 'a'..='z' | '0'..='9' | '_');
+        anyhow::ensure!(ok, "{field} must match ^[a-z0-9_]+$");
+    }
     Ok(())
 }

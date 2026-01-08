@@ -106,8 +106,9 @@ Bullets. Include only what is needed to implement/review safely.
 
 ### Concepts / definitions (enforceable)
 - Entrypoint: `chain_sync`.
-- Dataset stream: `{ dataset_key, chain_id }`.
-  - `dataset_key` is a Cryo dataset identifier (e.g., `blocks`, `logs`, `geth_calls`).
+- Dataset stream: `{ job_id, dataset_key }`.
+  - `dataset_key` is a stable stream key chosen in YAML (slug; `^[a-z0-9_]{1,64}$`).
+  - `cryo_dataset_name` selects the Cryo dataset invoked by tasks in this stream (slug; `^[a-z0-9_]{1,64}$`).
   - Each dataset stream maps to exactly one published dataset UUID in the dataset registry (resolution is part of “apply”).
 - Partition/range: `[start, end)` block interval (end-exclusive).
 - Task: one `{ dataset_key, chain_id, dataset_uuid, range, rpc_pool }` planned unit of work.
@@ -118,7 +119,7 @@ Bullets. Include only what is needed to implement/review safely.
     - Multi-output tasks (e.g., “one task runs Cryo for blocks+logs+traces in one invocation”) are intentionally not supported in v1 because they couple failure domains and break retry/idempotency invariants.
 - DatasetPublication: on successful task completion, a single dataset version publication describing:
   - `{ dataset_uuid, dataset_version, storage_ref, config_hash, range_start, range_end }`.
-- Cursor: per `{ chain_id, dataset_key }` exclusive high-water mark `next_block` for planning.
+- Cursor: per `{ job_id, dataset_key }` exclusive high-water mark `next_block` for planning.
 - Tip mode:
   - `fixed_target`: plan from `from_block` until `cursor >= to_block`, then complete.
   - `follow_head`: continuously plan as head advances; does not “complete”.
