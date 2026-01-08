@@ -1478,6 +1478,9 @@ async fn alert_evaluate_over_parquet_dataset_emits_idempotent_events_and_rejects
         range_start: 0,
         range_end: 3,
         config_hash: "cryo_ingest.blocks:v1".to_string(),
+        dataset_key: None,
+        cryo_dataset_name: None,
+        rpc_pool: None,
     };
     let dataset_pubd = derive_dataset_publication(&cfg.s3_bucket, &dataset_payload);
 
@@ -1872,6 +1875,9 @@ async fn cryo_worker_registers_dataset_version_idempotently() -> anyhow::Result<
             range_start: 100,
             range_end: 102,
             config_hash: "cfg_hash_v1".to_string(),
+            dataset_key: None,
+            cryo_dataset_name: None,
+            rpc_pool: None,
         };
         let expected = derive_dataset_publication(&cfg.s3_bucket, &payload);
 
@@ -2183,6 +2189,28 @@ streams:
             .await
             .context("apply chain_sync yaml")?;
 
+        // Regression guard: rpc_pool flows YAML -> state.chain_sync_streams.
+        for (dataset_key, expected_pool) in [("blocks", "standard"), ("geth_calls", "traces")] {
+            let stored: String = sqlx::query_scalar(
+                r#"
+                SELECT rpc_pool
+                FROM state.chain_sync_streams
+                WHERE job_id = $1
+                  AND dataset_key = $2
+                "#,
+            )
+            .bind(applied.job_id)
+            .bind(dataset_key)
+            .fetch_one(&state_pool)
+            .await
+            .with_context(|| format!("fetch rpc_pool for {dataset_key}"))?;
+
+            anyhow::ensure!(
+                stored == expected_pool,
+                "expected rpc_pool {expected_pool} for {dataset_key}, got {stored}"
+            );
+        }
+
         let object_store = ObjectStore::new(&cfg.s3_endpoint)?;
         let dispatcher = DispatcherClient::new(base.clone());
         let queue = PgQueue::new(state_pool.clone());
@@ -2202,6 +2230,37 @@ streams:
                     .context("task_id")?
                     .parse::<Uuid>()
                     .context("parse task_id")?;
+
+                // Regression guard: rpc_pool flows state.chain_sync_streams -> state.tasks.payload.
+                let payload: serde_json::Value = sqlx::query_scalar(
+                    r#"
+                    SELECT payload
+                    FROM state.tasks
+                    WHERE task_id = $1
+                    "#,
+                )
+                .bind(task_id)
+                .fetch_one(&state_pool)
+                .await
+                .context("fetch task payload")?;
+
+                let dataset_key = payload["dataset_key"]
+                    .as_str()
+                    .context("payload.dataset_key")?;
+                let rpc_pool = payload["rpc_pool"].as_str().context("payload.rpc_pool")?;
+                match dataset_key {
+                    "blocks" => anyhow::ensure!(
+                        rpc_pool == "standard",
+                        "expected rpc_pool standard for blocks task, got {rpc_pool}"
+                    ),
+                    "geth_calls" => anyhow::ensure!(
+                        rpc_pool == "traces",
+                        "expected rpc_pool traces for geth_calls task, got {rpc_pool}"
+                    ),
+                    other => {
+                        anyhow::bail!("unexpected dataset_key in planned task payload: {other}")
+                    }
+                }
 
                 let _res = trace_harness::cryo_worker::run_task(
                     &cfg,
