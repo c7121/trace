@@ -70,7 +70,7 @@ streams:
 YAML
 
 cd crates/trace-dispatcher
-cargo run -- chain-sync apply --file /tmp/chain_sync.yaml
+cargo run -- apply --file /tmp/chain_sync.yaml
 ```
 
 ## 5) Run the Cryo worker

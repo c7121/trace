@@ -1,4 +1,5 @@
 use anyhow::Context;
+use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::VecDeque;
 use trace_dispatcher::chain_sync::apply_chain_sync_yaml;
@@ -6,11 +7,20 @@ use uuid::Uuid;
 
 fn usage() -> &'static str {
     "usage:\n\
+  trace-dispatcher apply --file <path>\n\
+\
+  # Back-compat alias (deprecated):\n\
   trace-dispatcher chain-sync apply --file <path>\n\
+\
 env:\n\
   ORG_ID             (default 00000000-0000-0000-0000-000000000001)\n\
   STATE_DATABASE_URL (default postgres://trace:trace@localhost:5433/trace_state)\n\
 "
+}
+
+#[derive(Debug, Deserialize)]
+struct SpecKind {
+    kind: String,
 }
 
 #[tokio::main]
@@ -27,6 +37,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match cmd.as_str() {
+        "apply" => apply_cmd(args).await,
+        // NOTE: kept for back-compat / easy muscle memory; prefer `apply`.
         "chain-sync" => chain_sync_cmd(args).await,
         _ => {
             eprintln!("unknown command: {cmd}\n\n{}", usage());
@@ -35,26 +47,15 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn chain_sync_cmd(mut args: VecDeque<String>) -> anyhow::Result<()> {
-    let Some(sub) = args.pop_front() else {
-        eprintln!("{}", usage());
-        return Ok(());
-    };
-
-    match sub.as_str() {
-        "apply" => chain_sync_apply_cmd(args).await,
-        _ => {
-            eprintln!("unknown chain-sync command: {sub}\n\n{}", usage());
-            Ok(())
-        }
-    }
-}
-
-async fn chain_sync_apply_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
+async fn apply_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
     let flags = parse_flags(args)?;
     let file = required_string(&flags, "file")?;
 
     let yaml = std::fs::read_to_string(&file).with_context(|| format!("read {file}"))?;
+
+    // Determine spec kind from YAML and route.
+    let kind = serde_yaml::from_str::<SpecKind>(&yaml)
+        .with_context(|| format!("parse {file} (expected top-level `kind:`)"))?;
 
     let org_id = std::env::var("ORG_ID")
         .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".to_string())
@@ -70,9 +71,35 @@ async fn chain_sync_apply_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
         .await
         .context("connect state db")?;
 
-    let res = apply_chain_sync_yaml(&pool, org_id, &yaml).await?;
-    println!("job_id={}", res.job_id);
-    Ok(())
+    match kind.kind.as_str() {
+        "chain_sync" => {
+            let res = apply_chain_sync_yaml(&pool, org_id, &yaml).await?;
+            println!("job_id={}", res.job_id);
+            Ok(())
+        }
+        other => {
+            anyhow::bail!(
+                "unsupported spec kind `{other}` (only `chain_sync` is supported today)\n\n{}",
+                usage()
+            );
+        }
+    }
+}
+
+async fn chain_sync_cmd(mut args: VecDeque<String>) -> anyhow::Result<()> {
+    let Some(sub) = args.pop_front() else {
+        eprintln!("{}", usage());
+        return Ok(());
+    };
+
+    match sub.as_str() {
+        // Back-compat alias; delegate to the generic router.
+        "apply" => apply_cmd(args).await,
+        _ => {
+            eprintln!("unknown chain-sync command: {sub}\n\n{}", usage());
+            Ok(())
+        }
+    }
 }
 
 fn parse_flags(

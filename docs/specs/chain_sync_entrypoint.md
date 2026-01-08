@@ -73,7 +73,7 @@ persistence formats/migrations, and entrypoint exports.
     - `range_end` (int, end-exclusive in payload terms)
     - `config_hash` (string)
 - CLI:
-  - Admin-only: `trace-dispatcher chain-sync apply|pause|resume|status` (names TBD).
+  - Admin-only: `trace-dispatcher apply|pause|resume|status` (names TBD).
 - Config semantics:
   - DAG YAML gains a `chain_sync` entrypoint (two candidate shapes in this spec; one will be selected for v1).
 - Persistence format/migration:

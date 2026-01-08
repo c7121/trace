@@ -13,6 +13,7 @@ Before doing anything else, the agent MUST read and follow:
 - Repo-specific constraints (optional):
   - No em dashes (—) in docs; use hyphens (-) or colons
   - Mermaid labels: do not include parentheses `()` in label text (node labels or edge labels); parentheses used only for Mermaid shape syntax are OK
+  - Handoff artifacts: if you must write files outside the repo, only write to the repo parent directory (`../`); do not write to any path above `../` or to `/tmp`
 
 Notes:
 - Shared standards and templates are in docs/* and SHOULD be treated as normative unless explicitly overridden here.
