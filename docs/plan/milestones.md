@@ -244,6 +244,7 @@ Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run â
 - `docs/specs/query_service_task_query.md`
 - `docs/specs/query_sql_gating.md`
 - `docs/deploy/lite_local_cryo_sync.md`
+- `docs/examples/chain_sync.ethereum_mainnet.yaml`
 
 ### Deliverables (high level)
 - Persisted `chain_sync` job definitions (apply/pause/resume/status) and per-stream cursors.

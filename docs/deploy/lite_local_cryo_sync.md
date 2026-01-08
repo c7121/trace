@@ -53,6 +53,8 @@ cd crates/trace-dispatcher
 cargo run -- apply --file ../../docs/examples/chain_sync.ethereum_mainnet.yaml
 ```
 
+The apply command prints `job_id=...`. Copy that job id for the status command below.
+
 ## 5) Run the Cryo worker
 
 Fake mode (default; deterministic Parquet for dev/tests):
@@ -77,6 +79,13 @@ If you use multiple `rpc_pool` values in a job, set per-pool RPC URLs instead:
 
 ## 6) Verify state
 
+Check chain sync progress via the status command:
+
+```bash
+cd crates/trace-dispatcher
+cargo run -- status --job <job_id>
+```
+
 Inspect the dataset version registry:
 
 ```bash
@@ -92,3 +101,30 @@ psql "postgres://trace:trace@localhost:5433/trace_state" -c "select job_id, data
 ```
 
 > Query Service is task-scoped (`POST /v1/task/query`) and only allows datasets granted in the task capability token.
+
+## Real Cryo smoke sync (small range)
+
+This section proves real Cryo can run locally end-to-end. Keep the range small to avoid a long run.
+
+1) Copy the example YAML and set a bounded target, such as `to_block: 5000`.
+   - Note: `to_block` is end-exclusive. To sync through block N inclusive, set `to_block = N + 1`.
+2) Provide pool RPC URLs:
+   - `TRACE_RPC_POOL_STANDARD_URL` for datasets that use `rpc_pool: standard`
+   - `TRACE_RPC_POOL_TRACES_URL` for datasets that use `rpc_pool: traces`
+3) Run the worker in real mode:
+
+```bash
+cd harness
+TRACE_CRYO_MODE=real \\
+TRACE_CRYO_BIN=cryo \\
+cargo run -- cryo-worker
+```
+
+4) Watch progress:
+
+```bash
+cd crates/trace-dispatcher
+cargo run -- status --job <job_id>
+```
+
+Follow-head note: `follow_head` jobs do not complete; they keep scheduling as head advances and maintain a bounded in-flight window.
