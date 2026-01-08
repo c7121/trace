@@ -63,7 +63,7 @@ persistence formats/migrations, and entrypoint exports.
 - Endpoints/RPC:
   - Admin-only: apply/pause/resume/status for `chain_sync` jobs (shape TBD; see “API surface”).
 - Events/schemas:
-  - Task payload schema for `cryo_ingest` tasks planned by `chain_sync` MUST include `{chain_id, dataset_key, range_start, range_end, rpc_pool}` (plus any operator config hash inputs).
+  - Task payload schema for `cryo_ingest` tasks planned by `chain_sync` MUST include `{chain_id, dataset_key, dataset_uuid, range_start, range_end, rpc_pool}` (plus any operator config hash inputs).
 - CLI:
   - Admin-only: `trace-dispatcher chain-sync apply|pause|resume|status` (names TBD).
 - Config semantics:
@@ -102,8 +102,9 @@ Bullets. Include only what is needed to implement/review safely.
   - `dataset_key` is a Cryo dataset identifier (e.g., `blocks`, `logs`, `geth_calls`).
   - Each dataset stream maps to exactly one published dataset UUID in the dataset registry (resolution is part of “apply”).
 - Partition/range: `[start, end)` block interval (end-exclusive).
-- Task: one `{ dataset_key, chain_id, range, rpc_pool }` planned unit of work.
+- Task: one `{ dataset_key, chain_id, dataset_uuid, range, rpc_pool }` planned unit of work.
   - `rpc_pool` selects an RPC pool owned by the RPC Egress Gateway (API keys are not in YAML).
+  - `dataset_uuid` is inserted into the task payload by the Dispatcher at planning time after apply-time resolution.
   - **Single-output rule (v1):** a task attempt is defined to produce **exactly one** `DatasetPublication`.
     - A completion payload that contains zero publications or attempts to publish more than one publication is malformed and MUST be rejected by the Dispatcher.
     - Multi-output tasks (e.g., “one task runs Cryo for blocks+logs+traces in one invocation”) are intentionally not supported in v1 because they couple failure domains and break retry/idempotency invariants.
@@ -186,7 +187,9 @@ The following durable state is required in Postgres *state* (naming is illustrat
 This spec defines the minimum required operations; concrete endpoint/CLI names are not final.
 
 Operations:
-- Apply spec (YAML): creates/updates a `chain_sync` job definition; idempotent by `yaml_hash`.
+- Apply spec (YAML): creates/updates a `chain_sync` job definition.
+  - Apply MUST be idempotent by `(org_id, job name)` (or an explicit `job_id`).
+  - `yaml_hash` is stored as a change detector and audit value, not the identity.
 - Pause/resume: flips job status; planner loop must stop scheduling new work when paused.
 - Status/progress:
   - per dataset stream cursor (`next_block`)
@@ -202,7 +205,7 @@ Constraints (v1):
 - YAML MUST reference RPC pools by name only (`rpc_pool: traces`), never by URL.
 - Each dataset stream becomes its own planned task stream. Tasks are per `{dataset_key, range}`.
 - The single-output rule remains: one successful task completion yields exactly one dataset publication.
-- If YAML includes connections, they connect to dataset streams (for example `chain_sync.blocks`), not to a multi-output task blob.
+- Connections are deferred unless explicitly selected for v1 (see Open decisions).
 
 #### Option A: DAG-native entrypoint
 `chain_sync` is a first-class entrypoint inside the DAG YAML.
@@ -214,15 +217,13 @@ Minimal schema:
   - `chain_id`
   - `mode`:
     - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
+      - Note: to sync through block `N` inclusive, set `to_block = N + 1`.
     - `follow_head`: `{ from_block, tail_lag, max_head_age_seconds }`
   - `streams[]` list of dataset streams:
     - `dataset_key` string (Cryo dataset identifier)
     - `rpc_pool` string (name only)
     - `chunk_size` block count
     - `max_inflight` planned range count cap
-- Optional `connections[]` list:
-  - `from`: dataset stream reference like `entrypoint.<name>.<dataset_key>`
-  - `to`: one or more downstream DAG inputs
 
 Concrete example:
 ```yaml
@@ -235,34 +236,20 @@ entrypoints:
     mode:
       kind: fixed_target
       from_block: 0
-      to_block: 20_000_000
+      to_block: 20000000 # syncs [0, 20000000)
     streams:
       - dataset_key: blocks
         rpc_pool: standard
-        chunk_size: 2_000
+        chunk_size: 2000
         max_inflight: 40
       - dataset_key: logs
         rpc_pool: standard
-        chunk_size: 1_000
+        chunk_size: 1000
         max_inflight: 20
       - dataset_key: geth_calls
         rpc_pool: traces
         chunk_size: 500
         max_inflight: 5
-
-connections:
-  - from: entrypoint.sync_mainnet.blocks
-    to:
-      - job: parquet_compact_blocks
-        input: 0
-  - from: entrypoint.sync_mainnet.logs
-    to:
-      - job: parquet_compact_logs
-        input: 0
-  - from: entrypoint.sync_mainnet.geth_calls
-    to:
-      - job: traces_derived_views
-        input: 0
 ```
 
 Pros:
@@ -284,14 +271,12 @@ Minimal schema:
   - `chain_id`
   - `mode`:
     - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
+      - Note: to sync through block `N` inclusive, set `to_block = N + 1`.
     - `follow_head`: `{ from_block, tail_lag, max_head_age_seconds }`
   - `streams` mapping from `dataset_key` to:
     - `rpc_pool` name only
     - `chunk_size`
     - `max_inflight`
-- Optional `connections[]` list (if supported):
-  - `from`: stream reference like `streams.blocks`
-  - `to`: downstream job input references
 
 Concrete example:
 ```yaml
@@ -302,35 +287,21 @@ chain_id: 1
 mode:
   kind: fixed_target
   from_block: 0
-  to_block: 20_000_000
+  to_block: 20000000 # syncs [0, 20000000)
 
 streams:
   blocks:
     rpc_pool: standard
-    chunk_size: 2_000
+    chunk_size: 2000
     max_inflight: 40
   logs:
     rpc_pool: standard
-    chunk_size: 1_000
+    chunk_size: 1000
     max_inflight: 20
   geth_calls:
     rpc_pool: traces
     chunk_size: 500
     max_inflight: 5
-
-connections:
-  - from: streams.blocks
-    to:
-      - job: parquet_compact_blocks
-        input: 0
-  - from: streams.logs
-    to:
-      - job: parquet_compact_logs
-        input: 0
-  - from: streams.geth_calls
-    to:
-      - job: traces_derived_views
-        input: 0
 ```
 
 Pros:
@@ -354,7 +325,8 @@ Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
 - The planner MUST be idempotent under restart: inserting scheduled ranges MUST be protected by a uniqueness constraint and safe retries (`ON CONFLICT DO NOTHING` or equivalent).
 - Each planned range MUST map to a stable task identity (dedupe key) so duplicate scheduling does not create divergent work.
 - Workers MUST NOT register dataset versions directly; they MUST publish dataset publications only via fenced `/v1/task/complete`.
-- For `cryo_ingest` tasks, `/v1/task/complete` MUST carry **exactly one** dataset publication object and it MUST match the task payload `{chain_id, dataset_key, range_start, range_end}`.
+- For `cryo_ingest` tasks, `/v1/task/complete` MUST carry **exactly one** dataset publication object and it MUST match the task payload `{chain_id, dataset_key, dataset_uuid, range_start, range_end}`.
+  - The completion's `dataset_publication.dataset_uuid` MUST equal the payload's `dataset_uuid`.
   - The Dispatcher MUST reject completions that omit the publication or attempt to include multiple publications (even if identical).
   - The Dispatcher MUST NOT partially accept a subset of publications.
 - Dataset version registration MUST be idempotent: if a dataset version insert conflicts, the stored `{storage_ref, config_hash, range}` MUST match exactly or the completion MUST fail (no silent divergence).
@@ -371,7 +343,8 @@ Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
   - Overbroad dataset grants allow a task to query or scan unrelated storage prefixes.
   - Planner drift causes duplicate/overlapping ranges that produce inconsistent dataset version registry state.
 - Mitigations:
-  - Keep Query Service validation as the single source of truth (`trace_core::query::validate_sql`) + DuckDB runtime hardening + egress allowlist.
+  - Keep Query Service validation as the single source of truth (`trace_core::query::validate_sql`) plus DuckDB runtime hardening.
+  - Remote Parquet scans make Query Service a network-capable process; the threat model assumes deployment egress is limited to object store endpoints (see ADR-0002).
   - Capability tokens must pin dataset UUID/version and bound storage access via S3 read prefixes; Query Service must enforce both.
   - Scheduled-range uniqueness + deterministic dataset versioning at the registry boundary; reject divergence on conflict.
 - Residual risk:
@@ -420,6 +393,7 @@ Required.
   - Planner idempotency: applying the same `chain_sync` spec twice does not duplicate scheduled ranges or tasks.
   - At-least-once safety: retrying a failed range does not double-register a dataset version.
   - Single-output enforcement: a task completion that omits `dataset_publication` or attempts to publish more than one publication is rejected and MUST NOT register any dataset version.
+  - UUID binding: a task completion with a mismatched `dataset_uuid` is rejected and MUST NOT register any dataset version.
   - Security: Query Service continues to reject unsafe SQL and does not allow file/URL reads from untrusted SQL.
 - Observable behavior:
   - Status reports per-stream cursor and inflight counts; fixed-target completion is computed precisely.
