@@ -191,6 +191,159 @@ Operations:
   - last error category + timestamp (no secrets)
   - head observed timestamp (if follow head mode)
 
+### DAG YAML (candidate shapes)
+This section proposes two YAML shapes to express a `chain_sync` entrypoint. One MUST be selected and locked before implementation.
+
+Constraints (v1):
+- YAML MUST NOT contain secrets, including RPC URLs, API keys, or object store credentials.
+- YAML MUST reference RPC pools by name only (`rpc_pool: traces`), never by URL.
+- Each dataset stream becomes its own planned task stream. Tasks are per `{dataset_key, range}`.
+- The single-output rule remains: one successful task completion yields exactly one dataset publication.
+- If YAML includes connections, they connect to dataset streams (for example `chain_sync.blocks`), not to a multi-output task blob.
+
+#### Option A: DAG-native entrypoint
+`chain_sync` is a first-class entrypoint inside the DAG YAML.
+
+Minimal schema:
+- `entrypoints[]` list contains:
+  - `name` unique within the DAG
+  - `kind: chain_sync`
+  - `chain_id`
+  - `mode`:
+    - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
+    - `follow_head`: `{ from_block, tail_lag, max_head_age_seconds }`
+  - `streams[]` list of dataset streams:
+    - `dataset_key` string (Cryo dataset identifier)
+    - `rpc_pool` string (name only)
+    - `chunk_size` block count
+    - `max_inflight` planned range count cap
+- Optional `connections[]` list:
+  - `from`: dataset stream reference like `entrypoint.<name>.<dataset_key>`
+  - `to`: one or more downstream DAG inputs
+
+Concrete example:
+```yaml
+name: mainnet_bootstrap
+
+entrypoints:
+  - name: sync_mainnet
+    kind: chain_sync
+    chain_id: 1
+    mode:
+      kind: fixed_target
+      from_block: 0
+      to_block: 20_000_000
+    streams:
+      - dataset_key: blocks
+        rpc_pool: standard
+        chunk_size: 2_000
+        max_inflight: 40
+      - dataset_key: logs
+        rpc_pool: standard
+        chunk_size: 1_000
+        max_inflight: 20
+      - dataset_key: geth_calls
+        rpc_pool: traces
+        chunk_size: 500
+        max_inflight: 5
+
+connections:
+  - from: entrypoint.sync_mainnet.blocks
+    to:
+      - job: parquet_compact_blocks
+        input: 0
+  - from: entrypoint.sync_mainnet.logs
+    to:
+      - job: parquet_compact_logs
+        input: 0
+  - from: entrypoint.sync_mainnet.geth_calls
+    to:
+      - job: traces_derived_views
+        input: 0
+```
+
+Pros:
+- Single DAG document remains the unit of review and deployment.
+- Keeps future composition explicit: `chain_sync` streams can be wired to downstream jobs without introducing an out-of-band compiler.
+- Reduces drift risk between the DAG config spec and the chain sync config.
+
+Cons:
+- Expands DAG YAML surface area and validator complexity.
+- Requires stable stream referencing rules to avoid ambiguous connections.
+
+#### Option B: Shorthand job YAML
+`chain_sync` is defined in its own document that compiles into Option A.
+
+Minimal schema:
+- Top-level document:
+  - `kind: chain_sync`
+  - `name`
+  - `chain_id`
+  - `mode`:
+    - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
+    - `follow_head`: `{ from_block, tail_lag, max_head_age_seconds }`
+  - `streams` mapping from `dataset_key` to:
+    - `rpc_pool` name only
+    - `chunk_size`
+    - `max_inflight`
+- Optional `connections[]` list (if supported):
+  - `from`: stream reference like `streams.blocks`
+  - `to`: downstream job input references
+
+Concrete example:
+```yaml
+kind: chain_sync
+name: mainnet_bootstrap
+chain_id: 1
+
+mode:
+  kind: fixed_target
+  from_block: 0
+  to_block: 20_000_000
+
+streams:
+  blocks:
+    rpc_pool: standard
+    chunk_size: 2_000
+    max_inflight: 40
+  logs:
+    rpc_pool: standard
+    chunk_size: 1_000
+    max_inflight: 20
+  geth_calls:
+    rpc_pool: traces
+    chunk_size: 500
+    max_inflight: 5
+
+connections:
+  - from: streams.blocks
+    to:
+      - job: parquet_compact_blocks
+        input: 0
+  - from: streams.logs
+    to:
+      - job: parquet_compact_logs
+        input: 0
+  - from: streams.geth_calls
+    to:
+      - job: traces_derived_views
+        input: 0
+```
+
+Pros:
+- Minimizes the amount of DAG scaffolding required for the common "sync a chain" use case.
+- Easier to present as an admin-only workflow without coupling to full DAG evolution.
+
+Cons:
+- Introduces a compiler/translation step that can drift from the canonical DAG spec.
+- Future DAG composition becomes harder to review because the compiled DAG is the true executed artifact.
+
+Open decisions:
+- Select Option A or Option B for v1.
+- Decide whether `connections` are supported in v1 or explicitly deferred.
+- Decide how `dataset_uuid` is resolved:
+  - Recommended: deterministic mapping from `{chain_id, dataset_key}` under the org, rather than user-supplied UUIDs in YAML.
+
 ## Contract requirements
 Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
 - The Dispatcher MUST be the only component that performs planning/scheduling for `chain_sync` (no external loops).
