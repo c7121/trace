@@ -27,6 +27,7 @@ use uuid::Uuid;
 pub const TASK_CAPABILITY_HEADER: &str = "X-Trace-Task-Capability";
 
 pub mod chain_sync;
+pub mod head_observer;
 pub mod planner;
 
 // UUIDv5 namespace for deterministic outbox message IDs (task fencing/idempotency).
@@ -129,6 +130,10 @@ async fn run_dispatcher(
     let mut bg = Vec::<JoinHandle<anyhow::Result<()>>>::new();
     if enable_outbox && enable_chain_sync_planner {
         bg.push(tokio::spawn(chain_sync_planner_loop(
+            state.clone(),
+            shutdown_rx.clone(),
+        )));
+        bg.push(tokio::spawn(chain_head_observer_loop(
             state.clone(),
             shutdown_rx.clone(),
         )));
@@ -1047,6 +1052,47 @@ async fn chain_sync_planner_loop(
                 error = %err,
                 "chain_sync planner tick error"
             );
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            _ = shutdown_rx.changed() => {}
+        }
+    }
+}
+
+async fn chain_head_observer_loop(
+    state: Arc<AppState>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .context("build head observer http client")?;
+
+    let interval = Duration::from_secs(1);
+    loop {
+        if *shutdown_rx.borrow() {
+            return Ok(());
+        }
+
+        match crate::head_observer::head_observer_tick_once(&state.pool, &client).await {
+            Ok(updated) => {
+                if updated > 0 {
+                    tracing::debug!(
+                        event = "trace.dispatcher.chain_head_observer.tick",
+                        updated,
+                        "updated head observations"
+                    );
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    event = "trace.dispatcher.chain_head_observer.error",
+                    error = %err,
+                    "chain head observer tick error"
+                );
+            }
         }
 
         tokio::select! {

@@ -43,34 +43,6 @@ pub async fn planner_tick_once(
             .try_get("max_head_age_seconds")
             .context("max_head_age_seconds")?;
 
-        let eligible_exclusive = match mode.as_str() {
-            "fixed_target" => to_block,
-            "follow_head" => {
-                let Some(max_age) = max_head_age_seconds else {
-                    continue;
-                };
-                let Some(tail_lag) = tail_lag else {
-                    continue;
-                };
-
-                observed_head_eligible_exclusive(pool, chain_id, from_block, tail_lag, max_age)
-                    .await?
-            }
-            other => {
-                tracing::warn!(
-                    event = "trace.dispatcher.chain_sync.mode.unknown",
-                    job_id = %job_id,
-                    mode = %other,
-                    "unknown chain_sync mode; skipping"
-                );
-                None
-            }
-        };
-
-        let Some(eligible_exclusive) = eligible_exclusive else {
-            continue;
-        };
-
         let streams = sqlx::query(
             r#"
             SELECT dataset_key, cryo_dataset_name, rpc_pool, config_hash, chunk_size, max_inflight
@@ -94,6 +66,36 @@ pub async fn planner_tick_once(
             let chunk_size: Option<i64> = stream.try_get("chunk_size").context("chunk_size")?;
             let max_inflight: Option<i64> =
                 stream.try_get("max_inflight").context("max_inflight")?;
+
+            let eligible_exclusive = match mode.as_str() {
+                "fixed_target" => to_block,
+                "follow_head" => {
+                    let Some(max_age) = max_head_age_seconds else {
+                        continue;
+                    };
+                    let Some(tail_lag) = tail_lag else {
+                        continue;
+                    };
+
+                    observed_head_eligible_exclusive(
+                        pool, org_id, chain_id, &rpc_pool, from_block, tail_lag, max_age,
+                    )
+                    .await?
+                }
+                other => {
+                    tracing::warn!(
+                        event = "trace.dispatcher.chain_sync.mode.unknown",
+                        job_id = %job_id,
+                        mode = %other,
+                        "unknown chain_sync mode; skipping"
+                    );
+                    None
+                }
+            };
+
+            let Some(eligible_exclusive) = eligible_exclusive else {
+                continue;
+            };
 
             out.scheduled_ranges += plan_stream_once(
                 pool,
@@ -119,7 +121,9 @@ pub async fn planner_tick_once(
 
 async fn observed_head_eligible_exclusive(
     pool: &PgPool,
+    org_id: Uuid,
     chain_id: i64,
+    rpc_pool: &str,
     from_block: i64,
     tail_lag: i64,
     max_head_age_seconds: i32,
@@ -128,10 +132,14 @@ async fn observed_head_eligible_exclusive(
         r#"
         SELECT head_block, observed_at
         FROM state.chain_head_observations
-        WHERE chain_id = $1
+        WHERE org_id = $1
+          AND chain_id = $2
+          AND rpc_pool = $3
         "#,
     )
+    .bind(org_id)
     .bind(chain_id)
+    .bind(rpc_pool)
     .fetch_optional(pool)
     .await
     .context("select chain_head_observations")?;
