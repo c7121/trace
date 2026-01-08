@@ -8,6 +8,7 @@ use uuid::Uuid;
 fn usage() -> &'static str {
     "usage:\n\
   trace-dispatcher apply --file <path>\n\
+  trace-dispatcher status --job <job_id>\n\
 \
   # Back-compat alias (deprecated):\n\
   trace-dispatcher chain-sync apply --file <path>\n\
@@ -38,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cmd.as_str() {
         "apply" => apply_cmd(args).await,
+        "status" => status_cmd(args).await,
         // NOTE: kept for back-compat / easy muscle memory; prefer `apply`.
         "chain-sync" => chain_sync_cmd(args).await,
         _ => {
@@ -45,6 +47,26 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+async fn status_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
+    let flags = parse_flags(args)?;
+    let job_id = required_string(&flags, "job")?
+        .parse::<Uuid>()
+        .context("parse --job")?;
+
+    let state_database_url = std::env::var("STATE_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://trace:trace@localhost:5433/trace_state".to_string());
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&state_database_url)
+        .await
+        .context("connect state db")?;
+
+    let status = trace_dispatcher::status::fetch_chain_sync_status(&pool, job_id).await?;
+    println!("{}", serde_json::to_string_pretty(&status)?);
+    Ok(())
 }
 
 async fn apply_cmd(args: VecDeque<String>) -> anyhow::Result<()> {

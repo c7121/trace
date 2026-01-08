@@ -15,7 +15,12 @@ const JOB_ERROR_STALE_HEAD_OBSERVATION: &str = "StaleHeadObservation";
 
 const MAX_JOB_ERROR_MESSAGE_BYTES: usize = 1024;
 
-async fn record_job_error(pool: &PgPool, job_id: Uuid, kind: &str, message: &str) -> anyhow::Result<()> {
+async fn record_job_error(
+    pool: &PgPool,
+    job_id: Uuid,
+    kind: &str,
+    message: &str,
+) -> anyhow::Result<()> {
     // This is a human-facing operator hint. Keep it short to avoid bloating rows/logs.
     let mut msg = message.to_string();
     if msg.len() > MAX_JOB_ERROR_MESSAGE_BYTES {
@@ -41,7 +46,6 @@ async fn record_job_error(pool: &PgPool, job_id: Uuid, kind: &str, message: &str
 
     Ok(())
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct PlannerTickResult {
