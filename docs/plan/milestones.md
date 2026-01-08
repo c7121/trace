@@ -52,10 +52,12 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 
 | Milestone | Title | Notes |
 |----------:|-------|-------|
-| 15 | `trace-lite` runnable local stack | Docker Compose + runbook + minimal CLI wrappers to “bring up + sync” |
-| 16 | Bundle manifest + real multi-language UDF runtime | Signed bundle manifests + hash/size checks; Node/Python first; Rust via common tooling |
-| 17 | Minimal user API v1 | Bundle upload + DAG registration + publish datasets + alert definition CRUD |
-| 18 | AWS deployable MVP | IaC + IAM/network boundaries + S3/SQS/Lambda wiring + smoke tests |
+| 15 | Chain sync DAG entrypoint (spec locked) | Spec-only. STOP: do not implement until YAML shape + invariants are approved. |
+| 16 | Chain sync job runner (multi-dataset) | Implement dispatcher-owned planning for per-dataset cursors + scheduled ranges. |
+| 17 | `trace-lite` runnable local stack | Docker Compose + runbook + minimal CLI wrappers to “bring up + sync” |
+| 18 | Bundle manifest + real multi-language UDF runtime | Signed bundle manifests + hash/size checks; Node/Python first; Rust via common tooling |
+| 19 | Minimal user API v1 | Bundle upload + DAG registration + publish datasets + alert definition CRUD |
+| 20 | AWS deployable MVP | IaC + IAM/network boundaries + S3/SQS/Lambda wiring + smoke tests |
 | S1 | Security gate: Query Service egress allowlist | Mandatory before any non-dev deployment that allows remote Parquet scans |
 
 ---
@@ -195,7 +197,60 @@ Prove the data path from “synced Parquet datasets” → “Query Service” �
 
 ---
 
-## Milestone 15: `trace-lite` runnable local stack
+## Milestone 15: Chain sync DAG entrypoint (spec locked; no code)
+
+### Goal
+Lock a v1-safe, declarative `chain_sync` entrypoint that can sync multiple Cryo datasets from genesis to tip while preserving:
+- dispatcher-owned planning (no external loops),
+- leased tasks and at-least-once semantics,
+- idempotent dataset publication and registry behavior, and
+- Query Service fail-closed remote Parquet query safety.
+
+### Context links
+- `docs/specs/chain_sync_entrypoint.md`
+- `docs/specs/ingestion.md`
+- `docs/specs/dag_configuration.md`
+- `docs/architecture/operators/cryo_ingest.md`
+- `docs/architecture/task_lifecycle.md`
+- `docs/architecture/contracts.md`
+- `docs/specs/query_service_task_query.md`
+- `docs/specs/query_sql_gating.md`
+
+### Deliverables
+- A template-complete spec defining:
+  - concepts/definitions (`dataset_key`, range partitions, per-stream cursors),
+  - invariants and completion rules (`fixed_target` vs `follow_head`),
+  - required state model and uniqueness constraints (semantic level only),
+  - two candidate YAML shapes + a recommended v1 choice,
+  - security constraints (dataset grants + QS remote scan egress allowlist).
+- Milestone plan updated to include the spec freeze STOP boundary.
+
+### STOP gate (mandatory)
+Do not implement schema/code until the YAML shape and invariants in the spec are explicitly approved.
+
+---
+
+## Milestone 16: Chain sync job runner (multi-dataset)
+
+### Goal
+Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run “genesis → tip” sync internally for multiple Cryo datasets, with durable per-stream progress and bounded in-flight scheduling.
+
+### Deliverables (high level)
+- Persisted `chain_sync` job definitions (apply/pause/resume/status) and per-stream cursors.
+- Scheduled range ledger per dataset stream to guarantee idempotent planning.
+- Dispatcher loop that tops up inflight work (no external loops), using the outbox + task queue wakeups.
+- Per-task payload includes `{chain_id, dataset_key, range, rpc_pool}`; each successful task publishes exactly one dataset version.
+- Harness/integration tests proving:
+  - re-running planner is idempotent (no duplicate effective work),
+  - retries do not double-register dataset versions,
+  - Query Service remains fail-closed and can query the produced datasets via pinned grants.
+
+### STOP gate
+- `cd harness && cargo test -- --nocapture`
+
+---
+
+## Milestone 17: `trace-lite` runnable local stack
 
 ### Goal
 Make “run it locally and sync a chain” a one-command experience.
@@ -213,7 +268,7 @@ Make “run it locally and sync a chain” a one-command experience.
 
 ---
 
-## Milestone 16: Bundle manifest + real multi-language UDF runtime
+## Milestone 18: Bundle manifest + real multi-language UDF runtime
 
 Goal: replace harness-only runner logic with a real bundle model that is safe under retries and supports multiple languages.
 
@@ -223,13 +278,13 @@ Notes:
 
 ---
 
-## Milestone 17: Minimal user API v1
+## Milestone 19: Minimal user API v1
 
 Goal: expose only the smallest stable public surface (everything else remains internal).
 
 ---
 
-## Milestone 18: AWS deployable MVP
+## Milestone 20: AWS deployable MVP
 
 Goal: move the proven Lite semantics to AWS adapters + deployable infra (S3/SQS/Lambda/IAM/VPC).
 ---
