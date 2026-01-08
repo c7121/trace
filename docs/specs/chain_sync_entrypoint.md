@@ -149,6 +149,7 @@ For each active `chain_sync` job, Dispatcher runs a loop (periodic, e.g. every f
    - `fixed_target`: `to_block` is fixed.
    - `follow_head`:
      - If head is missing or stale, planning MUST skip for that stream (fail closed) rather than guessing.
+     - Observed head MUST be read from `chain_head_observations` for the stream's `{org_id, chain_id, rpc_pool}`.
      - Use end-exclusive math:
        - `to_block = max(from_block, (observed_head + 1) - tail_lag)`
 3) While `inflight_count(stream) < max_inflight(stream)` and `cursor(stream) < to_block`:
@@ -208,7 +209,7 @@ The following durable state is required in Postgres *state* (naming is illustrat
     - `created_at`, `updated_at`
   - uniqueness: `(job_id, dataset_key, range_start, range_end)` MUST be unique
 - Optional head observation (`chain_head_observations`):
-  - key: `{chain_id}`
+  - key: `{org_id, chain_id, rpc_pool}`
   - `head_block` and `observed_at`
   - `source` (e.g., rpc_pool) for debugging only
 

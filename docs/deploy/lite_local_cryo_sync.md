@@ -33,6 +33,9 @@ cd harness
 cargo run -- dispatcher
 ```
 
+For `follow_head` jobs, the Dispatcher must be able to poll `eth_blockNumber` for each `rpc_pool` name referenced by the job.
+Provide pool RPC URLs via env vars such as `TRACE_RPC_POOL_STANDARD_URL` and `TRACE_RPC_POOL_TRACES_URL`.
+
 Query Service:
 
 ```bash
@@ -42,35 +45,12 @@ cargo run
 
 ## 4) Apply a chain_sync job once (no planner loops)
 
-Create a small `chain_sync` YAML job and apply it once. The Dispatcher runs a background planner tick and will
-continuously top up in-flight work for the job until completion.
+Use the committed example at `docs/examples/chain_sync.ethereum_mainnet.yaml` and apply it once. The Dispatcher
+runs a background planner tick and will continuously top up in-flight work for the job until completion.
 
 ```bash
-cat > /tmp/chain_sync.yaml <<'YAML'
-kind: chain_sync
-name: local_mainnet_bootstrap
-chain_id: 1
-
-mode:
-  kind: fixed_target
-  from_block: 0
-  to_block: 1000 # syncs [0, 1000)
-
-streams:
-  blocks:
-    cryo_dataset_name: blocks
-    rpc_pool: standard
-    chunk_size: 200
-    max_inflight: 5
-  geth_calls:
-    cryo_dataset_name: geth_calls
-    rpc_pool: traces
-    chunk_size: 200
-    max_inflight: 2
-YAML
-
 cd crates/trace-dispatcher
-cargo run -- apply --file /tmp/chain_sync.yaml
+cargo run -- apply --file ../../docs/examples/chain_sync.ethereum_mainnet.yaml
 ```
 
 ## 5) Run the Cryo worker
@@ -90,6 +70,10 @@ TRACE_CRYO_MODE=real \\
 TRACE_CRYO_RPC_URL="http://localhost:8545" \\
 cargo run -- cryo-worker
 ```
+
+If you use multiple `rpc_pool` values in a job, set per-pool RPC URLs instead:
+- `TRACE_RPC_POOL_STANDARD_URL`
+- `TRACE_RPC_POOL_TRACES_URL`
 
 ## 6) Verify state
 

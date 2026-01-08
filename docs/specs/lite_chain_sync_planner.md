@@ -1,5 +1,7 @@
 # Lite chain sync planner (ms/13)
 
+Status: Deprecated. Superseded by `docs/specs/chain_sync_entrypoint.md` and the system-managed `chain_sync` job runner (ms/16).
+
 Risk: Medium
 Public surface: Postgres state tables `state.chain_sync_cursor`, `state.chain_sync_scheduled_ranges`; `trace-dispatcher` planner entrypoint + CLI `plan-chain-sync`
 
