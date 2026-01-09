@@ -40,8 +40,11 @@ User-facing `/v1/*` endpoints reachable via the Gateway are enumerated in `user_
   - `org_id`: UUID (deployment org; v1 is single-org but the claim is still required)
   - `task_id`: UUID
   - `attempt`: int
-  - `datasets`: list of `{dataset_uuid, dataset_version, storage_prefix}` grants for `/v1/task/query` (may be empty)
-    - `storage_prefix` is a version-resolved `s3://bucket/prefix/` that contains `_manifest.json` listing Parquet objects for the pinned `dataset_version`.
+  - `datasets`: list of dataset grants for `/v1/task/query` (may be empty)
+    - required: `{dataset_uuid, dataset_version}`
+    - required for Parquet attach: `storage_ref` (fail-closed if missing when attach is required)
+      - S3: `{scheme:"s3", bucket, prefix, glob}`
+      - local dev: `{scheme:"file", prefix, glob}`
     - Query Service uses this to attach authorized datasets as DuckDB relations (trusted attach), then executes gated SQL (untrusted).
   - `s3`: `{read_prefixes[], write_prefixes[]}` where prefixes are canonical `s3://bucket/prefix/` strings for `/v1/task/credentials` (may be empty in Lite)
 
@@ -248,10 +251,10 @@ Request:
   "task_id": "uuid",
   "attempt": 1,
   "lease_token": "uuid",
-  "dataset_uuid": "uuid",
-  "dataset_version": "uuid",
-  "batch_uri": "s3://trace-scratch/buffers/{dataset_uuid}/{task_id}/{attempt}/batch.jsonl",
-  "record_count": 1000
+  "batch_uri": "s3://trace-scratch/buffers/{task_id}/{attempt}/batch.jsonl",
+  "content_type": "application/jsonl",
+  "batch_size_bytes": 123456,
+  "dedupe_scope": "alert_events"
 }
 ```
 
@@ -259,7 +262,7 @@ Dispatcher behavior:
 
 - Persist a buffered publish record and enqueue a Buffer Queue message via the outbox (atomic with Postgres state).
 - Reject if `(task_id, attempt, lease_token)` does not match the current lease.
-- Treat duplicate publishes as idempotent (same `(task_id, attempt, dataset_uuid, batch_uri)`).
+- Treat duplicate publishes as idempotent (same `(task_id, attempt, batch_uri)`).
 
 ### Heartbeat (`/v1/task/heartbeat`)
 
@@ -291,7 +294,7 @@ Task completion includes an `outputs` array so a single task can materialize mul
 
 For Parquet dataset publishing (replace-style outputs), tasks MAY also include a `datasets_published` list. This is the minimal publication shape needed to register `dataset_versions` deterministically:
 - `dataset_uuid`, `dataset_version` (pinned)
-- `storage_prefix` (version-addressed `s3://bucket/prefix/` containing `_manifest.json`)
+- `storage_ref` (version-addressed storage reference for Parquet objects; manifest is optional and Trace-owned)
 - optional metadata such as `config_hash` and `{range_start, range_end}` for range-based datasets (e.g., Cryo bootstrap).
 
 ```json
@@ -311,7 +314,12 @@ For Parquet dataset publishing (replace-style outputs), tasks MAY also include a
     {
       "dataset_uuid": "uuid",
       "dataset_version": "uuid",
-      "storage_prefix": "s3://bucket/cold/datasets/{dataset_uuid}/{dataset_version}/",
+      "storage_ref": {
+        "scheme": "s3",
+        "bucket": "bucket",
+        "prefix": "cold/datasets/{dataset_uuid}/{dataset_version}/",
+        "glob": "*.parquet"
+      },
       "config_hash": "string",
       "range_start": 100,
       "range_end": 200
@@ -403,13 +411,13 @@ Queue message (example):
 
 ```json
 {
-  "kind": "buffer_batch",
-  "org_id": "uuid",
-  "dataset_uuid": "uuid",
-  "dataset_version": "uuid",
-  "batch_uri": "s3://trace-scratch/buffers/{dataset_uuid}/{task_id}/{attempt}/batch.jsonl",
-  "record_count": 1000,
-  "producer": { "task_id": "uuid", "attempt": 1 }
+  "task_id": "uuid",
+  "attempt": 1,
+  "lease_token": "uuid",
+  "batch_uri": "s3://trace-scratch/buffers/{task_id}/{attempt}/batch.jsonl",
+  "content_type": "application/jsonl",
+  "batch_size_bytes": 123456,
+  "dedupe_scope": "alert_events"
 }
 ```
 
@@ -418,5 +426,5 @@ Notes:
 - Queue messages must remain small (<256KB). **Do not embed full records** in queue messages.
 - **Row-level idempotency is required.** Buffered dataset rows must include a deterministic idempotency key (e.g., `dedupe_key`) or a natural unique key that is stable across retries. The sink enforces this with `UNIQUE(...)` + `ON CONFLICT DO NOTHING/UPDATE`.
 - Duplicates across attempts are expected. Batch artifacts may be written per-attempt to avoid S3 key collisions; correctness comes from sink-side row dedupe, not from attempt numbers.
-- **Multi-tenant safety:** the sink must assign `org_id` from the trusted publish record / queue message and must not trust `org_id` values embedded inside batch rows.
+- **Multi-tenant safety (future AWS profile):** the sink must assign `org_id` from a trusted publish record / queue message and must not trust `org_id` values embedded inside batch rows.
 - Producers do not need direct access to the queue backend; the Dispatcher owns queue publishing via the outbox.

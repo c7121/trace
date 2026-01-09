@@ -25,7 +25,9 @@ Claim mapping for the user JWT is defined in: [security_model.md](../standards/s
 
 ### Query
 
-No user-facing query routes are implemented yet.
+- `POST /v1/query` - user-facing interactive query execution (Query Service).
+  - Spec: `docs/specs/query_service_user_query.md`
+  - Notes: minimal v1 surface, inline JSON results only (no exports yet).
 
 ### Datasets (discovery)
 
@@ -73,7 +75,7 @@ The following are intentionally **not** user-facing:
 ## Future (not in allowlist)
 
 The following are planned but are **not** reachable via the Gateway today:
-
-- `POST /v1/query` - user-facing interactive query execution (Query Service).
-  - Blocked on dataset registry + published dataset authz and a stable query results model.
-  - Reference: [query_service.md](containers/query_service.md)
+- Additional query features for `POST /v1/query`:
+  - dataset registry lookup by dataset name
+  - result persistence for large results and exports
+  - tighter OIDC/JWKS verification and authz integration

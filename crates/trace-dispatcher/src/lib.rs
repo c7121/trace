@@ -19,14 +19,17 @@ use sqlx::{PgPool, Row};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use trace_core::{
-    DatasetGrant, DatasetPublication, Queue as QueueTrait, S3Grants, Signer as SignerTrait,
-    TaskCapabilityIssueRequest,
+    DatasetGrant, DatasetPublication, DatasetStorageRef, Queue as QueueTrait, S3Grants,
+    Signer as SignerTrait, TaskCapabilityIssueRequest,
 };
 use uuid::Uuid;
 
 pub const TASK_CAPABILITY_HEADER: &str = "X-Trace-Task-Capability";
 
+pub mod chain_sync;
+pub mod head_observer;
 pub mod planner;
+pub mod status;
 
 // UUIDv5 namespace for deterministic outbox message IDs (task fencing/idempotency).
 const OUTBOX_NAMESPACE: Uuid = Uuid::from_bytes([
@@ -73,6 +76,7 @@ impl DispatcherServer {
         queue: Arc<dyn QueueTrait>,
         bind: SocketAddr,
         enable_outbox: bool,
+        enable_chain_sync_planner: bool,
         enable_lease_reaper: bool,
     ) -> anyhow::Result<Self> {
         let listener = TcpListener::bind(bind)
@@ -96,6 +100,7 @@ impl DispatcherServer {
             shutdown_tx.clone(),
             shutdown_rx,
             enable_outbox,
+            enable_chain_sync_planner,
             enable_lease_reaper,
         ));
 
@@ -120,9 +125,20 @@ async fn run_dispatcher(
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
     enable_outbox: bool,
+    enable_chain_sync_planner: bool,
     enable_lease_reaper: bool,
 ) -> anyhow::Result<()> {
     let mut bg = Vec::<JoinHandle<anyhow::Result<()>>>::new();
+    if enable_outbox && enable_chain_sync_planner {
+        bg.push(tokio::spawn(chain_sync_planner_loop(
+            state.clone(),
+            shutdown_rx.clone(),
+        )));
+        bg.push(tokio::spawn(chain_head_observer_loop(
+            state.clone(),
+            shutdown_rx.clone(),
+        )));
+    }
     if enable_outbox {
         bg.push(tokio::spawn(outbox_drain_loop(
             state.clone(),
@@ -486,7 +502,7 @@ async fn task_complete(
 
     let row = sqlx::query(
         r#"
-        SELECT attempt, status, lease_token
+        SELECT attempt, status, lease_token, payload
         FROM state.tasks
         WHERE task_id = $1
         FOR UPDATE
@@ -505,6 +521,7 @@ async fn task_complete(
     let current_status: String = row.try_get("status").map_err(ApiError::internal)?;
     let current_lease_token: Option<Uuid> =
         row.try_get("lease_token").map_err(ApiError::internal)?;
+    let current_payload: Value = row.try_get("payload").map_err(ApiError::internal)?;
 
     if current_attempt != req.fence.attempt
         || current_status != "running"
@@ -513,10 +530,38 @@ async fn task_complete(
         return Err(ApiError::conflict("stale task fence"));
     }
 
+    let chain_sync_range = sqlx::query(
+        r#"
+        SELECT job_id, dataset_key, range_start, range_end
+        FROM state.chain_sync_scheduled_ranges
+        WHERE task_id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(req.fence.task_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if chain_sync_range.is_some() {
+        enforce_chain_sync_completion_rules(
+            &req.outcome,
+            &req.datasets_published,
+            &current_payload,
+            chain_sync_range.as_ref().unwrap(),
+        )?;
+    } else if req.datasets_published.len() > 1 {
+        return Err(ApiError::bad_request(
+            "multiple dataset publications are not supported",
+        ));
+    }
+
     match req.outcome {
         TaskOutcome::Success => {
-            register_dataset_publications(&mut tx, &req.datasets_published).await?;
             if !req.datasets_published.is_empty() {
+                register_dataset_publications(&mut tx, &req.datasets_published).await?;
+            }
+            if chain_sync_range.is_some() {
                 mark_chain_sync_range_completed(&mut tx, req.fence.task_id).await?;
             }
             sqlx::query(
@@ -591,27 +636,99 @@ async fn task_complete(
     Ok(StatusCode::OK)
 }
 
+fn enforce_chain_sync_completion_rules(
+    outcome: &TaskOutcome,
+    datasets_published: &[DatasetPublication],
+    task_payload: &Value,
+    range_row: &sqlx::postgres::PgRow,
+) -> ApiResult<()> {
+    #[derive(Debug, Deserialize)]
+    struct ChainSyncTaskPayload {
+        dataset_uuid: Uuid,
+        range_start: i64,
+        range_end: i64,
+        config_hash: String,
+    }
+
+    let expected: ChainSyncTaskPayload = serde_json::from_value(task_payload.clone())
+        .map_err(|_| ApiError::bad_request("invalid chain_sync task payload"))?;
+
+    let range_start: i64 = range_row
+        .try_get("range_start")
+        .map_err(ApiError::internal)?;
+    let range_end: i64 = range_row.try_get("range_end").map_err(ApiError::internal)?;
+
+    if expected.range_start != range_start || expected.range_end != range_end {
+        return Err(ApiError::conflict(
+            "task payload does not match scheduled range",
+        ));
+    }
+
+    match outcome {
+        TaskOutcome::Success => {
+            if datasets_published.len() != 1 {
+                return Err(ApiError::bad_request(
+                    "chain_sync completion must include exactly one dataset publication",
+                ));
+            }
+
+            let pubd = &datasets_published[0];
+            let matches = pubd.dataset_uuid == expected.dataset_uuid
+                && pubd.config_hash == expected.config_hash
+                && pubd.range_start == expected.range_start
+                && pubd.range_end == expected.range_end;
+
+            if !matches {
+                return Err(ApiError::conflict(
+                    "dataset publication does not match task payload",
+                ));
+            }
+        }
+        TaskOutcome::RetryableError | TaskOutcome::FatalError => {
+            if !datasets_published.is_empty() {
+                return Err(ApiError::bad_request(
+                    "non-success completion must not include dataset publications",
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn register_dataset_publications(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     datasets: &[DatasetPublication],
 ) -> ApiResult<()> {
     for pubd in datasets {
+        let (storage_prefix, storage_glob) = match &pubd.storage_ref {
+            DatasetStorageRef::S3 {
+                bucket,
+                prefix,
+                glob,
+                ..
+            } => (format!("s3://{bucket}/{prefix}"), glob.clone()),
+            DatasetStorageRef::File { prefix, glob } => (format!("file://{prefix}"), glob.clone()),
+        };
+
         let inserted = sqlx::query(
             r#"
             INSERT INTO state.dataset_versions (
               dataset_version,
               dataset_uuid,
               storage_prefix,
+              storage_glob,
               config_hash,
               range_start,
               range_end
-            ) VALUES ($1, $2, $3, $4, $5, $6)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (dataset_version) DO NOTHING
             "#,
         )
         .bind(pubd.dataset_version)
         .bind(pubd.dataset_uuid)
-        .bind(&pubd.storage_prefix)
+        .bind(&storage_prefix)
+        .bind(&storage_glob)
         .bind(&pubd.config_hash)
         .bind(pubd.range_start)
         .bind(pubd.range_end)
@@ -627,7 +744,7 @@ async fn register_dataset_publications(
         // all metadata matches (fail closed on divergence).
         let row = sqlx::query(
             r#"
-            SELECT dataset_uuid, storage_prefix, config_hash, range_start, range_end
+            SELECT dataset_uuid, storage_prefix, storage_glob, config_hash, range_start, range_end
             FROM state.dataset_versions
             WHERE dataset_version = $1
             "#,
@@ -641,13 +758,16 @@ async fn register_dataset_publications(
             row.try_get("dataset_uuid").map_err(ApiError::internal)?;
         let existing_storage_prefix: String =
             row.try_get("storage_prefix").map_err(ApiError::internal)?;
+        let existing_storage_glob: String =
+            row.try_get("storage_glob").map_err(ApiError::internal)?;
         let existing_config_hash: String =
             row.try_get("config_hash").map_err(ApiError::internal)?;
         let existing_range_start: i64 = row.try_get("range_start").map_err(ApiError::internal)?;
         let existing_range_end: i64 = row.try_get("range_end").map_err(ApiError::internal)?;
 
         let matches = existing_dataset_uuid == pubd.dataset_uuid
-            && existing_storage_prefix == pubd.storage_prefix
+            && existing_storage_prefix == storage_prefix
+            && existing_storage_glob == storage_glob
             && existing_config_hash == pubd.config_hash
             && existing_range_start == pubd.range_start
             && existing_range_end == pubd.range_end;
@@ -873,6 +993,13 @@ struct ApiError {
 }
 
 impl ApiError {
+    fn bad_request(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message,
+        }
+    }
+
     fn unauthorized(message: &'static str) -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
@@ -903,6 +1030,75 @@ impl ApiError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: "internal error",
+        }
+    }
+}
+
+async fn chain_sync_planner_loop(
+    state: Arc<AppState>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> anyhow::Result<()> {
+    let interval = Duration::from_millis(state.cfg.outbox_poll_ms.max(200));
+
+    loop {
+        if *shutdown_rx.borrow() {
+            return Ok(());
+        }
+
+        if let Err(err) =
+            crate::planner::planner_tick_once(&state.pool, &state.cfg.task_wakeup_queue).await
+        {
+            tracing::warn!(
+                event = "harness.dispatcher.chain_sync_planner.error",
+                error = %err,
+                "chain_sync planner tick error"
+            );
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            _ = shutdown_rx.changed() => {}
+        }
+    }
+}
+
+async fn chain_head_observer_loop(
+    state: Arc<AppState>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .context("build head observer http client")?;
+
+    let interval = Duration::from_secs(1);
+    loop {
+        if *shutdown_rx.borrow() {
+            return Ok(());
+        }
+
+        match crate::head_observer::head_observer_tick_once(&state.pool, &client).await {
+            Ok(updated) => {
+                if updated > 0 {
+                    tracing::debug!(
+                        event = "trace.dispatcher.chain_head_observer.tick",
+                        updated,
+                        "updated head observations"
+                    );
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    event = "trace.dispatcher.chain_head_observer.error",
+                    error = %err,
+                    "chain head observer tick error"
+                );
+            }
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            _ = shutdown_rx.changed() => {}
         }
     }
 }

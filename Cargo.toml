@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/trace-core",
+  "crates/trace-dispatcher",
+  "crates/trace-query-service",
+  "crates/trace-sink",
+  "crates/trace-lite",
+  "harness",
+]
+

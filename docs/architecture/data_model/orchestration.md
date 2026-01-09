@@ -148,7 +148,7 @@ CREATE TABLE dataset_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- dataset_version
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     created_at TIMESTAMPTZ DEFAULT now(),
-    storage_location TEXT NOT NULL,                -- S3/Parquet: version-addressed `s3://bucket/prefix/` containing `_manifest.json`; Postgres data (v1): stable table/view name
+    storage_location TEXT NOT NULL,                -- S3/Parquet: version-addressed storage reference (prefix + glob) for Parquet objects; Postgres data (v1): stable table/view name
     config_hash TEXT NOT NULL,                     -- stable hash of producer config + dataset kind + chain_id + range + etc
     schema_hash TEXT,
 
@@ -168,8 +168,7 @@ CREATE TABLE dag_version_datasets (
 );
 ```
 
-For S3/Parquet datasets, `storage_location` is a version-resolved prefix (ending with `/`) that contains `_manifest.json`.
-The manifest lists the Parquet objects (S3 URIs) that make up the pinned `dataset_version` (see ADR 0009 query pinning).
+For S3/Parquet datasets, `storage_location` is a version-resolved prefix (ending with `/`) that contains Parquet objects. Query Service attaches datasets by prefix+glob (fail-closed on authz mismatch). A Trace-owned file list manifest may exist as an optimization, but Cryo output must not require it.
 
 ### Runtime Execution Model
 

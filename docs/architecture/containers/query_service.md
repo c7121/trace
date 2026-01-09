@@ -10,7 +10,7 @@ Stateless service for interactive and batch SQL queries across hot and cold stor
 | **Runtime** | Rust + embedded DuckDB |
 | **Deployment** | ECS Fargate, behind ALB |
 
-**Implementation note (v1):** Only `POST /v1/task/query` is implemented today. It executes against Parquet datasets that Query Service attaches via a pinned manifest referenced by the **task capability token** (Lite/harness uses a deterministic fixture dataset in MinIO). The federation diagram below reflects the intended future topology; the implemented v1 contract is specified in `docs/specs/query_service_task_query.md`.
+**Implementation note (v1):** Only `POST /v1/task/query` is implemented today. It executes against Parquet datasets that Query Service attaches via a pinned **storage reference** carried in the **task capability token** (Lite/harness uses deterministic fixture Parquet in MinIO). The federation diagram below reflects the intended future topology; the implemented v1 contract is specified in `docs/specs/query_service_task_query.md`.
 
 
 ## Component View (future topology)
@@ -49,7 +49,7 @@ Canonical gate spec and required tests live in: `docs/specs/query_sql_gating.md`
 
 At a minimum, Query Service supports:
 - A single `SELECT` (including `WITH` / CTEs).
-- Reads from published/pinned datasets (Postgres views and/or S3 Parquet manifests).
+- Reads from published/pinned datasets (Postgres views and/or S3 Parquet storage references).
 - Common relational operators: joins, filters, aggregates, and window functions (as permitted by the gate).
 
 Explicitly not supported:
@@ -61,10 +61,11 @@ Explicitly not supported:
 
 Status (v1):
 - Implemented: `POST /v1/task/query` (task-scoped; internal-only; capability token gated)
-- Not implemented yet: `POST /v1/query` (user-facing; blocked on dataset registry + authz + result persistence)
+- Implemented: `POST /v1/query` (user-scoped; Bearer JWT; inline JSON results only)
 
 v1 references:
 - Task Query API spec: `docs/specs/query_service_task_query.md`
+- User Query API spec: `docs/specs/query_service_user_query.md`
 - SQL gate spec: `docs/specs/query_sql_gating.md`
 
 ## Implemented (v1): Task Query API (UDF)
@@ -88,29 +89,46 @@ The request/response shape is a constrained subset of the Query Service contract
 
 ### Dataset attach hardening
 
-Even though dataset manifests are produced by Trace components, Query Service treats `_manifest.json` as **untrusted input**.
-
-Hard limits (defaults) are enforced to prevent accidental or adversarial resource exhaustion:
-
-- `DATASET_MAX_MANIFEST_BYTES` (default: 1 MiB)
-- `DATASET_MAX_PARQUET_OBJECTS` (default: 2048)
-- `DATASET_MAX_PARQUET_OBJECT_BYTES` (default: 256 MiB)
-- `DATASET_MAX_TOTAL_PARQUET_BYTES` (default: 1 GiB)
+Remote scan stance (v1):
+- Query Service MUST NOT download Parquet objects into memory or local disk as part of dataset attach.
+- Query Service attaches datasets as a stable relation named `dataset` via a TEMP VIEW over `read_parquet(...)`, preserving Parquet predicate and projection pushdown.
+- Because remote scans require network access, the Query Service runtime MUST enforce an egress allowlist that permits only the configured object store endpoint(s) (and required in-VPC services) and does not allow arbitrary internet egress.
+  - See: `docs/adr/0002-networking.md`
+- DuckDB spill-to-disk MUST be constrained:
+  - Configure DuckDB `temp_directory` explicitly to an isolated per-request directory with `0700` permissions.
+  - Prefer tmpfs (`/dev/shm`) when available; otherwise use a dedicated `/tmp` subdirectory.
+  - In real deployments, ensure `/tmp` is tmpfs or container ephemeral disk (and not a persistent/shared volume).
 
 Failure modes are classified:
 
 - **Permanent**: malformed manifest, exceeds size limits, structural violations.
 - **Retryable**: object store temporarily unavailable (network errors, server 5xx, missing objects).
 
-## Future: User Query API
+## Implemented (v1): User Query API
 
-This user-facing endpoint is not implemented yet.
+This user-facing endpoint returns inline JSON results only (no exports or result persistence).
 
 ```
 POST /v1/query
-Authorization: Bearer <token>
+Authorization: Bearer <user_jwt>
 Content-Type: application/json
 ```
+
+Lite auth note:
+- Lite uses an HS256 dev secret configured by env.
+- The user token carries dataset grants and object-store prefix grants (dev-only). AWS/OIDC integration is future work.
+
+Request shape (minimal):
+- `dataset_id` (UUID)
+- `sql` (string)
+- `limit` (optional, clamped)
+
+Response shape matches the task query endpoint:
+- `columns`, `rows`, `truncated`
+
+## Future: User Query API expansions
+
+The sections below are not implemented yet. They document a possible future shape for richer user query workflows (exports, batch mode, and result persistence).
 
 ### Request
 
@@ -224,7 +242,7 @@ Query Service enforces a read-only SQL surface using **both**:
 - **Runtime hardening:** DuckDB settings such as disabling the `LocalFileSystem`, locking configuration, and disabling extension auto-install.
 
 v1 attaches Parquet datasets via a **trusted attach** step:
-- Query Service resolves a pinned dataset manifest and validates it against capability-token S3 grants.
+- Query Service consumes a pinned dataset storage reference from the capability token and validates it against capability-token S3 grants.
 - Query Service attaches the dataset as a stable relation (name: `dataset`) using a TEMP VIEW over `read_parquet(...)`.
   - This preserves Parquet projection/predicate pushdown.
   - The Parquet files may be remote (HTTP/S3). This means DuckDB needs network access for those authorized scans.

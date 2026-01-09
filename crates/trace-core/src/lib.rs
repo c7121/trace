@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{fmt, time::Duration};
+use std::{fmt, path::Path, time::Duration};
 use uuid::Uuid;
 
 pub mod lite;
@@ -21,6 +21,7 @@ pub mod lite;
 pub mod aws;
 
 pub mod fixtures;
+pub mod manifest;
 pub mod query;
 pub mod runtime;
 pub mod udf;
@@ -116,6 +117,15 @@ pub trait ObjectStore: Send + Sync {
         content_type: &str,
     ) -> Result<()>;
 
+    /// Upload a local file to the object store without reading the full contents into memory.
+    async fn put_file(
+        &self,
+        bucket: &str,
+        key: &str,
+        local_path: &Path,
+        content_type: &str,
+    ) -> Result<()>;
+
     async fn get_bytes(&self, bucket: &str, key: &str) -> Result<Vec<u8>>;
 }
 
@@ -164,14 +174,36 @@ pub struct DatasetGrant {
     /// not yet carry storage references. Query Service MUST fail-closed if it requires attach and
     /// this is missing.
     #[serde(default)]
-    pub storage_prefix: Option<String>,
+    pub storage_ref: Option<DatasetStorageRef>,
+}
+
+fn default_parquet_glob() -> String {
+    "*.parquet".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "scheme", rename_all = "snake_case")]
+pub enum DatasetStorageRef {
+    S3 {
+        bucket: String,
+        /// Object key prefix (expected to end with `/`).
+        prefix: String,
+        #[serde(default = "default_parquet_glob")]
+        glob: String,
+    },
+    File {
+        /// Absolute directory prefix (expected to end with `/`).
+        prefix: String,
+        #[serde(default = "default_parquet_glob")]
+        glob: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetPublication {
     pub dataset_uuid: Uuid,
     pub dataset_version: Uuid,
-    pub storage_prefix: String,
+    pub storage_ref: DatasetStorageRef,
     pub config_hash: String,
     pub range_start: i64,
     pub range_end: i64,

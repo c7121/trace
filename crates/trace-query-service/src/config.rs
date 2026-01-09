@@ -51,27 +51,73 @@ pub struct QueryServiceConfig {
     #[arg(long, env = "TASK_CAPABILITY_TTL_SECS", default_value_t = 300)]
     pub task_capability_ttl_secs: u64,
 
-    /// MinIO/S3 endpoint for dataset manifests and Parquet objects (Lite mode).
+    /// User JWT issuer (Lite dev-only; `POST /v1/query`).
+    #[arg(long, env = "USER_JWT_ISS", default_value = "trace-lite")]
+    pub user_jwt_iss: String,
+
+    /// User JWT audience (Lite dev-only; `POST /v1/query`).
+    #[arg(long, env = "USER_JWT_AUD", default_value = "trace.user")]
+    pub user_jwt_aud: String,
+
+    /// User JWT key id (`kid`) (Lite dev-only; `POST /v1/query`).
+    #[arg(long, env = "USER_JWT_KID", default_value = "dev-user")]
+    pub user_jwt_kid: String,
+
+    /// User JWT HMAC secret (HS256; Lite dev-only; `POST /v1/query`).
+    #[arg(long, env = "USER_JWT_SECRET", default_value = "trace-user-dev-secret")]
+    pub user_jwt_secret: String,
+
+    /// Next user JWT key id (`kid`) accepted during overlap window (optional).
+    #[arg(long, env = "USER_JWT_NEXT_KID")]
+    pub user_jwt_next_kid: Option<String>,
+
+    /// Next user JWT HMAC secret accepted during overlap window (optional).
+    #[arg(long, env = "USER_JWT_NEXT_SECRET")]
+    pub user_jwt_next_secret: Option<String>,
+
+    /// MinIO/S3 endpoint for Parquet dataset objects (Lite mode).
     #[arg(long, env = "S3_ENDPOINT", default_value = "http://localhost:9000")]
     pub s3_endpoint: String,
 
-    /// Max allowed size of a dataset manifest JSON document in bytes.
-    ///
-    /// Treat the manifest as untrusted input even if "produced by us".
-    #[arg(long, env = "DATASET_MAX_MANIFEST_BYTES", default_value_t = 1_048_576)]
-    pub dataset_max_manifest_bytes: usize,
+    /// Max bytes allowed for the dataset manifest (`_manifest.json`).
+    #[arg(
+        long,
+        env = "QUERY_SERVICE_MAX_MANIFEST_BYTES",
+        default_value_t = 1_048_576
+    )]
+    pub max_manifest_bytes: usize,
 
-    /// Max allowed number of Parquet objects referenced by a dataset manifest.
-    #[arg(long, env = "DATASET_MAX_OBJECTS", default_value_t = 2_048)]
-    pub dataset_max_objects: usize,
+    /// Max parquet objects allowed in the dataset manifest.
+    #[arg(
+        long,
+        env = "QUERY_SERVICE_MAX_MANIFEST_OBJECTS",
+        default_value_t = 1024
+    )]
+    pub max_manifest_objects: usize,
 
-    /// Max allowed size of any single Parquet object in bytes.
-    #[arg(long, env = "DATASET_MAX_OBJECT_BYTES", default_value_t = 268_435_456)]
-    pub dataset_max_object_bytes: u64,
+    /// S3 access key for DuckDB httpfs S3 access (Lite mode; defaults match `harness/docker-compose.yml`).
+    #[arg(long, env = "S3_ACCESS_KEY", default_value = "trace")]
+    pub s3_access_key: String,
 
-    /// Max total bytes downloaded per dataset attachment (sum of Parquet objects).
-    #[arg(long, env = "DATASET_MAX_TOTAL_BYTES", default_value_t = 1_073_741_824)]
-    pub dataset_max_total_bytes: u64,
+    /// S3 secret key for DuckDB httpfs S3 access (Lite mode).
+    #[arg(long, env = "S3_SECRET_KEY", default_value = "tracepassword")]
+    pub s3_secret_key: String,
+
+    /// S3 region for DuckDB httpfs S3 access (Lite mode).
+    #[arg(long, env = "S3_REGION", default_value = "us-east-1")]
+    pub s3_region: String,
+
+    /// S3 URL style for DuckDB (`path` for MinIO; `vhost` for AWS).
+    #[arg(long, env = "S3_URL_STYLE", default_value = "path")]
+    pub s3_url_style: String,
+
+    /// Allow local file-based dataset storage refs (`scheme:"file"`) under `QUERY_SERVICE_LOCAL_FILE_ROOT`.
+    #[arg(long, env = "QUERY_SERVICE_ALLOW_LOCAL_FILES", default_value_t = false)]
+    pub allow_local_files: bool,
+
+    /// Root directory allowed for local file dataset reads (required if local files are enabled).
+    #[arg(long, env = "QUERY_SERVICE_LOCAL_FILE_ROOT")]
+    pub local_file_root: Option<String>,
 }
 
 impl std::fmt::Debug for QueryServiceConfig {
@@ -80,6 +126,8 @@ impl std::fmt::Debug for QueryServiceConfig {
             .task_capability_next_secret
             .as_deref()
             .map(|_| "<redacted>");
+        let user_jwt_next_secret = self.user_jwt_next_secret.as_deref().map(|_| "<redacted>");
+        let s3_secret_key = "<redacted>";
         f.debug_struct("QueryServiceConfig")
             .field("data_database_url", &"<redacted>")
             .field("bind", &self.bind)
@@ -90,11 +138,21 @@ impl std::fmt::Debug for QueryServiceConfig {
             .field("task_capability_next_kid", &self.task_capability_next_kid)
             .field("task_capability_next_secret", &task_capability_next_secret)
             .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
+            .field("user_jwt_iss", &self.user_jwt_iss)
+            .field("user_jwt_aud", &self.user_jwt_aud)
+            .field("user_jwt_kid", &self.user_jwt_kid)
+            .field("user_jwt_secret", &"<redacted>")
+            .field("user_jwt_next_kid", &self.user_jwt_next_kid)
+            .field("user_jwt_next_secret", &user_jwt_next_secret)
             .field("s3_endpoint", &self.s3_endpoint)
-            .field("dataset_max_manifest_bytes", &self.dataset_max_manifest_bytes)
-            .field("dataset_max_objects", &self.dataset_max_objects)
-            .field("dataset_max_object_bytes", &self.dataset_max_object_bytes)
-            .field("dataset_max_total_bytes", &self.dataset_max_total_bytes)
+            .field("max_manifest_bytes", &self.max_manifest_bytes)
+            .field("max_manifest_objects", &self.max_manifest_objects)
+            .field("s3_access_key", &"<redacted>")
+            .field("s3_secret_key", &s3_secret_key)
+            .field("s3_region", &self.s3_region)
+            .field("s3_url_style", &self.s3_url_style)
+            .field("allow_local_files", &self.allow_local_files)
+            .field("local_file_root", &self.local_file_root)
             .finish()
     }
 }

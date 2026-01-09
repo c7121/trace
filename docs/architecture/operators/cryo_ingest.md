@@ -36,8 +36,7 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Chain data | `s3://{bucket}/cold/datasets/{dataset_uuid}/{dataset_version}/` | Parquet |
-| Manifest | `<storage_prefix>/_manifest.json` | JSON |
+| Chain data | `s3://{bucket}/cryo/{chain_id}/{dataset}/{start_block}_{end_block}/{dataset_version}/...` | Parquet |
 
 ## Execution
 
@@ -48,10 +47,17 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ## Behavior
 
 - Idempotent: re-running the same `{chain_id, range, config_hash}` produces the same deterministic `dataset_version` and `storage_prefix`
-- Writes deterministic Parquet object keys that keep the range visible for debugging (end is inclusive), e.g. `cryo_{start}_{end}.parquet`
+- Writes deterministic Parquet object keys that keep the range visible for debugging (end is inclusive).
 
 ### Lite/harness note
-In the harness, `cryo_ingest` is implemented as a deterministic stub that writes a small Parquet dataset + `_manifest.json` without requiring the real Cryo binary or chain RPC access. Real Cryo integration is introduced later.
+In the harness, `cryo_ingest` defaults to a deterministic stub that writes a small Parquet dataset without requiring the real Cryo binary or chain RPC access. Real Cryo integration is opt-in and introduced incrementally.
+
+### Local staging (Lite)
+When running Cryo locally (or in Lite mode), the worker MUST:
+- write Cryo output only to a per-task staging directory (e.g. `/tmp/trace/cryo/<task_id>/<attempt>/`),
+- delete the staging directory after upload-to-object-store succeeds,
+- delete stale staging dirs older than N hours on worker startup (crash cleanup),
+- ensure Query Service does not have access to the staging dir (do not mount it into the QS container).
 
 ## Scaling
 
@@ -92,3 +98,7 @@ This removes the need for `worker_pools` and avoids per-slot task definition spr
   update_strategy: replace
   timeout_seconds: 3600
 ```
+
+## Future work
+
+- **Cryo as a Rust library:** Wrap Cryo as a library and plumb a custom writer/output abstraction so Parquet objects can be streamed directly to the configured object store (S3/MinIO) without local staging. Track this in `docs/plan/backlog.md`.

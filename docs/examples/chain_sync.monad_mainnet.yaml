@@ -1,0 +1,37 @@
+kind: chain_sync
+name: monad_mainnet_bootstrap
+chain_id: 143
+
+mode:
+  kind: fixed_target
+  from_block: 0
+  # Note: to_block is end-exclusive. To sync through block N inclusive, set to_block = N + 1.
+  to_block: 46000000
+
+streams:
+  blocks:
+    cryo_dataset_name: blocks
+    rpc_pool: standard
+    chunk_size: 5000
+    max_inflight: 20
+  logs:
+    cryo_dataset_name: logs
+    rpc_pool: standard
+    chunk_size: 5000
+    max_inflight: 20
+  geth_calls:
+    cryo_dataset_name: geth_calls
+    rpc_pool: traces
+    chunk_size: 5000
+    max_inflight: 20
+  transactions:
+    cryo_dataset_name: transactions
+    rpc_pool: standard
+    chunk_size: 5000
+    max_inflight: 20
+  geth_balance_diffs:
+    cryo_dataset_name: geth_balance_diffs
+    rpc_pool: traces
+    chunk_size: 5000
+    max_inflight: 20
+

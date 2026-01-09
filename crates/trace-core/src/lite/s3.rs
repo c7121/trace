@@ -2,6 +2,7 @@ use crate::{Error, ObjectStore as ObjectStoreTrait, Result};
 use anyhow::Context;
 use async_trait::async_trait;
 use reqwest::Url;
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -47,6 +48,43 @@ impl ObjectStore {
         Ok(())
     }
 
+    pub async fn put_file(
+        &self,
+        bucket: &str,
+        key: &str,
+        local_path: &Path,
+        content_type: &str,
+    ) -> Result<()> {
+        let url = object_url(&self.endpoint, bucket, key)?;
+        let meta = tokio::fs::metadata(local_path)
+            .await
+            .with_context(|| format!("stat file path={}", local_path.display()))
+            .map_err(Error::from)?;
+        let size = meta.len();
+        let file = tokio::fs::File::open(local_path)
+            .await
+            .with_context(|| format!("open file path={}", local_path.display()))
+            .map_err(Error::from)?;
+
+        let resp = self
+            .client
+            .put(url)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .header(reqwest::header::CONTENT_LENGTH, size.to_string())
+            .body(file)
+            .send()
+            .await
+            .context("PUT object (streaming)")
+            .map_err(Error::from)?;
+
+        let resp = resp
+            .error_for_status()
+            .context("PUT object status")
+            .map_err(Error::from)?;
+        drop(resp);
+        Ok(())
+    }
+
     pub async fn get_bytes(&self, bucket: &str, key: &str) -> Result<Vec<u8>> {
         let url = object_url(&self.endpoint, bucket, key)?;
         let resp = self
@@ -79,6 +117,16 @@ impl ObjectStoreTrait for ObjectStore {
         content_type: &str,
     ) -> Result<()> {
         self.put_bytes(bucket, key, bytes, content_type).await
+    }
+
+    async fn put_file(
+        &self,
+        bucket: &str,
+        key: &str,
+        local_path: &Path,
+        content_type: &str,
+    ) -> Result<()> {
+        self.put_file(bucket, key, local_path, content_type).await
     }
 
     async fn get_bytes(&self, bucket: &str, key: &str) -> Result<Vec<u8>> {

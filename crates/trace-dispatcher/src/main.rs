@@ -1,13 +1,29 @@
 use anyhow::Context;
+use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::VecDeque;
-use trace_dispatcher::planner::{plan_chain_sync, PlanChainSyncRequest};
+use trace_dispatcher::chain_sync::{apply_chain_sync_yaml, set_chain_sync_enabled};
+use uuid::Uuid;
 
 fn usage() -> &'static str {
-    "usage: trace-dispatcher plan-chain-sync --chain-id <id> --to-block <exclusive> [--from-block <n>] [--chunk-size <n>] [--max-inflight <n>]\n\
+    "usage:\n\
+  trace-dispatcher apply --file <path>\n\
+  trace-dispatcher status [--job <job_id>]\n\
+\
+  # Back-compat alias (deprecated):\n\
+  trace-dispatcher chain-sync apply --file <path>\n\
+  trace-dispatcher chain-sync pause --org-id <uuid> --name <job_name>\n\
+  trace-dispatcher chain-sync resume --org-id <uuid> --name <job_name>\n\
+\
 env:\n\
+  ORG_ID             (default 00000000-0000-0000-0000-000000000001)\n\
   STATE_DATABASE_URL (default postgres://trace:trace@localhost:5433/trace_state)\n\
-  TASK_WAKEUP_QUEUE  (default task_wakeup)\n"
+"
+}
+
+#[derive(Debug, Deserialize)]
+struct SpecKind {
+    kind: String,
 }
 
 #[tokio::main]
@@ -24,7 +40,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match cmd.as_str() {
-        "plan-chain-sync" => plan_chain_sync_cmd(args).await,
+        "apply" => apply_cmd(args).await,
+        "status" => status_cmd(args).await,
+        // NOTE: kept for back-compat / easy muscle memory; prefer `apply`.
+        "chain-sync" => chain_sync_cmd(args).await,
         _ => {
             eprintln!("unknown command: {cmd}\n\n{}", usage());
             Ok(())
@@ -32,19 +51,11 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn plan_chain_sync_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
+async fn status_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
     let flags = parse_flags(args)?;
-
-    let chain_id: i64 = required_i64(&flags, "chain-id")?;
-    let to_block: i64 = required_i64(&flags, "to-block")?;
-    let from_block: i64 = optional_i64(&flags, "from-block")?.unwrap_or(0);
-    let chunk_size: i64 = optional_i64(&flags, "chunk-size")?.unwrap_or(1_000);
-    let max_inflight: i64 = optional_i64(&flags, "max-inflight")?.unwrap_or(10);
 
     let state_database_url = std::env::var("STATE_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://trace:trace@localhost:5433/trace_state".to_string());
-    let task_wakeup_queue =
-        std::env::var("TASK_WAKEUP_QUEUE").unwrap_or_else(|_| "task_wakeup".to_string());
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -52,28 +63,117 @@ async fn plan_chain_sync_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
         .await
         .context("connect state db")?;
 
-    let res = plan_chain_sync(
-        &pool,
-        &task_wakeup_queue,
-        PlanChainSyncRequest {
-            chain_id,
-            from_block,
-            to_block,
-            chunk_size,
-            max_inflight,
-        },
-    )
-    .await?;
+    if let Some(job) = optional_string(&flags, "job") {
+        let job_id = job.parse::<Uuid>().context("parse --job")?;
+        let status = trace_dispatcher::status::fetch_chain_sync_status(&pool, job_id).await?;
+        println!("{}", serde_json::to_string_pretty(&status)?);
+        return Ok(());
+    }
 
-    println!(
-        "scheduled_ranges={} next_block={}",
-        res.scheduled_ranges, res.next_block
-    );
+    let job_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT job_id
+        FROM state.chain_sync_jobs
+        ORDER BY updated_at DESC
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .context("list chain_sync jobs")?;
+
+    let mut out = Vec::with_capacity(job_ids.len());
+    for job_id in job_ids {
+        out.push(trace_dispatcher::status::fetch_chain_sync_status(&pool, job_id).await?);
+    }
+    println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
 }
 
-fn parse_flags(mut args: VecDeque<String>) -> anyhow::Result<std::collections::HashMap<String, String>>
-{
+async fn apply_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
+    let flags = parse_flags(args)?;
+    let file = required_string(&flags, "file")?;
+
+    let yaml = std::fs::read_to_string(&file).with_context(|| format!("read {file}"))?;
+
+    // Determine spec kind from YAML and route.
+    let kind = serde_yaml::from_str::<SpecKind>(&yaml)
+        .with_context(|| format!("parse {file} (expected top-level `kind:`)"))?;
+
+    let org_id = std::env::var("ORG_ID")
+        .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".to_string())
+        .parse::<Uuid>()
+        .context("parse ORG_ID")?;
+
+    let state_database_url = std::env::var("STATE_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://trace:trace@localhost:5433/trace_state".to_string());
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&state_database_url)
+        .await
+        .context("connect state db")?;
+
+    match kind.kind.as_str() {
+        "chain_sync" => {
+            let res = apply_chain_sync_yaml(&pool, org_id, &yaml).await?;
+            println!("job_id={}", res.job_id);
+            Ok(())
+        }
+        other => {
+            anyhow::bail!(
+                "unsupported spec kind `{other}` (only `chain_sync` is supported today)\n\n{}",
+                usage()
+            );
+        }
+    }
+}
+
+async fn chain_sync_cmd(mut args: VecDeque<String>) -> anyhow::Result<()> {
+    let Some(sub) = args.pop_front() else {
+        eprintln!("{}", usage());
+        return Ok(());
+    };
+
+    match sub.as_str() {
+        // Back-compat alias; delegate to the generic router.
+        "apply" => {
+            eprintln!(
+                "warning: `trace-dispatcher chain-sync apply` is deprecated; use `trace-dispatcher apply --file <path>`"
+            );
+            apply_cmd(args).await
+        }
+        "pause" | "resume" => {
+            let flags = parse_flags(args)?;
+            let org_id = required_string(&flags, "org-id")?
+                .parse::<Uuid>()
+                .context("parse --org-id")?;
+            let name = required_string(&flags, "name")?;
+
+            let state_database_url = std::env::var("STATE_DATABASE_URL").unwrap_or_else(|_| {
+                "postgres://trace:trace@localhost:5433/trace_state".to_string()
+            });
+
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .connect(&state_database_url)
+                .await
+                .context("connect state db")?;
+
+            let enabled = sub == "resume";
+            let job_id = set_chain_sync_enabled(&pool, org_id, &name, enabled).await?;
+            println!("job_id={job_id}");
+            Ok(())
+        }
+        _ => {
+            eprintln!("unknown chain-sync command: {sub}\n\n{}", usage());
+            Ok(())
+        }
+    }
+}
+
+fn parse_flags(
+    mut args: VecDeque<String>,
+) -> anyhow::Result<std::collections::HashMap<String, String>> {
     let mut out = std::collections::HashMap::<String, String>::new();
     while let Some(arg) = args.pop_front() {
         if !arg.starts_with("--") {
@@ -94,23 +194,16 @@ fn parse_flags(mut args: VecDeque<String>) -> anyhow::Result<std::collections::H
     Ok(out)
 }
 
-fn required_i64(flags: &std::collections::HashMap<String, String>, key: &str) -> anyhow::Result<i64> {
+fn required_string(
+    flags: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> anyhow::Result<String> {
     let Some(v) = flags.get(key) else {
         anyhow::bail!("missing --{key}\n\n{}", usage());
     };
-    v.parse::<i64>()
-        .with_context(|| format!("parse --{key}={v}"))
+    Ok(v.to_string())
 }
 
-fn optional_i64(
-    flags: &std::collections::HashMap<String, String>,
-    key: &str,
-) -> anyhow::Result<Option<i64>> {
-    let Some(v) = flags.get(key) else {
-        return Ok(None);
-    };
-    Ok(Some(
-        v.parse::<i64>()
-            .with_context(|| format!("parse --{key}={v}"))?,
-    ))
+fn optional_string(flags: &std::collections::HashMap<String, String>, key: &str) -> Option<String> {
+    flags.get(key).map(|v| v.to_string())
 }
