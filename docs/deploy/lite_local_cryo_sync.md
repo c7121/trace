@@ -45,12 +45,12 @@ cargo run
 
 ## 4) Apply a chain_sync job once (no planner loops)
 
-Use the committed example at `docs/examples/chain_sync.ethereum_mainnet.yaml` and apply it once. The Dispatcher
+Use the committed example at `docs/examples/chain_sync.monad_mainnet.yaml` and apply it once. The Dispatcher
 runs a background planner tick and will continuously top up in-flight work for the job until completion.
 
 ```bash
 cd crates/trace-dispatcher
-cargo run -- apply --file ../../docs/examples/chain_sync.ethereum_mainnet.yaml
+cargo run -- apply --file ../../docs/examples/chain_sync.monad_mainnet.yaml
 ```
 
 The apply command prints `job_id=...`. Copy that job id for the status command below.
@@ -68,8 +68,12 @@ Real mode (runs `cryo` CLI; opt-in):
 
 ```bash
 cd harness
-TRACE_CRYO_MODE=real \\
-TRACE_CRYO_RPC_URL="http://localhost:8545" \\
+export TRACE_CRYO_MODE=real
+export TRACE_CRYO_BIN=cryo
+export TRACE_RPC_POOL_STANDARD_URL="http://localhost:8545"
+export TRACE_RPC_POOL_TRACES_URL="http://localhost:8545"
+# Optional fallback used if TRACE_RPC_POOL_* is not set:
+# export TRACE_CRYO_RPC_URL="http://localhost:8545"
 cargo run -- cryo-worker
 ```
 
@@ -114,9 +118,14 @@ This section proves real Cryo can run locally end-to-end. Keep the range small t
 3) Run the worker in real mode:
 
 ```bash
+# Terminal A: start a Cryo worker in real mode
 cd harness
-TRACE_CRYO_MODE=real \\
-TRACE_CRYO_BIN=cryo \\
+export TRACE_CRYO_MODE=real
+export TRACE_CRYO_BIN=cryo
+export TRACE_RPC_POOL_STANDARD_URL="http://..."
+export TRACE_RPC_POOL_TRACES_URL="http://..."
+# Optional fallback used if a specific TRACE_RPC_POOL_* isn't set:
+# export TRACE_CRYO_RPC_URL="http://..."
 cargo run -- cryo-worker
 ```
 

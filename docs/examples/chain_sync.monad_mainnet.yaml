@@ -13,15 +13,15 @@ streams:
     cryo_dataset_name: blocks
     rpc_pool: standard
     chunk_size: 5000
-    max_inflight: 5
+    max_inflight: 20
   logs:
     cryo_dataset_name: logs
     rpc_pool: standard
     chunk_size: 5000
-    max_inflight: 5
+    max_inflight: 20
   geth_calls:
     cryo_dataset_name: geth_calls
     rpc_pool: traces
     chunk_size: 5000
-    max_inflight: 2
+    max_inflight: 20
 

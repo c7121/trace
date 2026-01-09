@@ -244,18 +244,20 @@ Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run �
 - `docs/specs/query_service_task_query.md`
 - `docs/specs/query_sql_gating.md`
 - `docs/deploy/lite_local_cryo_sync.md`
-- `docs/examples/chain_sync.ethereum_mainnet.yaml`
+- `docs/examples/chain_sync.monad_mainnet.yaml`
 
 ### Deliverables (high level)
-- Persisted `chain_sync` job definitions (apply/pause/resume/status) and per-stream cursors.
+- Persisted `chain_sync` job definitions via `trace-dispatcher apply --file <job.yaml>` and per-stream cursors.
+  - Pausing is done by re-applying the YAML with `enabled: false` (no separate pause/resume subcommands in v1).
 - Scheduled range ledger per dataset stream to guarantee idempotent planning.
 - Dispatcher loop that tops up inflight work (no external loops), using the outbox + task queue wakeups.
 - Per-task payload includes `{chain_id, dataset_key, dataset_uuid, range, rpc_pool}`.
 - Each successful task completion publishes exactly one dataset version (single-publication rule).
 - Harness/integration tests proving:
-  - re-running planner is idempotent (no duplicate effective work),
-  - retries do not double-register dataset versions,
+  - re-running planner is idempotent (no duplicate effective work).
+  - retries do not double-register dataset versions.
   - Query Service remains fail-closed and can query the produced datasets via pinned grants.
+  - fixed_target planning + Cryo invocation are end-exclusive: syncing [from_block, to_block) includes block (to_block - 1).
 
 ### STOP gate
 - `cd harness && cargo test -- --nocapture`
@@ -272,8 +274,10 @@ Make “run it locally and sync a chain” a one-command experience.
   - Postgres (state), MinIO, dispatcher, sink, query-service, and cryo workers
 - Minimal CLI wrappers:
   - `trace-lite up`
-  - `trace-lite sync --chain-id ... --from ... --to ... --chunk-size ... --workers N`
-  - `trace-lite status`
+  - `trace-lite apply --file <path/to/job.yaml>`
+    - YAML is the source of truth for the job graph; `trace-lite` must *not* re-invent planner flags.
+  - `trace-lite status --job <job_id>`
+    - Thin wrapper around `trace-dispatcher status --job <job_id>`.
 
 ### STOP gate
 - Documented smoke test checklist with expected artifacts (datasets in MinIO + registry rows + query success)
