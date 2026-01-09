@@ -35,7 +35,7 @@ Environment variables you’ll commonly set:
 - `TRACE_CRYO_BIN=/path/to/cryo` (or ensure `cryo` is on `PATH`)
 - `TRACE_CRYO_MODE=fake|real` (default is fake; use `real` for actual sync)
 - RPC pool URLs (choose names that match your YAML `rpc_pool` fields):
-  - `TRACE_RPC_POOL_DEFAULT_URL=...`
+  - `TRACE_RPC_POOL_STANDARD_URL=...`
   - `TRACE_RPC_POOL_TRACES_URL=...` (if you want traces on a separate endpoint)
 
 ## Recommended: use `trace-lite`
@@ -48,10 +48,10 @@ Terminal A:
 
 ```bash
 export TRACE_CRYO_MODE=real
-export CRYO_BIN=/absolute/path/to/cryo
+export TRACE_CRYO_BIN=/absolute/path/to/cryo
 
 # At minimum, provide the pools referenced by your YAML.
-export TRACE_RPC_POOL_DEFAULT_URL='https://…'
+export TRACE_RPC_POOL_STANDARD_URL='https://…'
 export TRACE_RPC_POOL_TRACES_URL='https://…'
 
 cargo run -p trace-lite -- up
@@ -98,9 +98,12 @@ If you want to run each piece directly (useful when debugging):
 # Start Postgres + MinIO
 cd harness && docker compose up -d
 
+# Run migrations (state + data)
+cargo run -p trace-harness -- migrate
+
 # Start services (separate terminals)
 cargo run -p trace-query-service
-cargo run -p trace-dispatcher -- serve
+cargo run -p trace-harness -- dispatcher
 cargo run -p trace-harness -- sink
 cargo run -p trace-harness -- cryo-worker
 
@@ -116,3 +119,9 @@ When in doubt, run the test suite (it encodes the invariants we care about):
 ```bash
 (cd harness && cargo test -- --nocapture)
 ```
+
+## Common failure modes
+
+- Missing `TRACE_RPC_POOL_<POOL>_URL`: follow-head planning cannot advance. The dispatcher logs a warning event `trace.dispatcher.chain_head_observer.missing_rpc_url`.
+- Cryo exit code 2: treated as fatal (bad dataset name or invalid args), so the task fails without retrying.
+- Artifact caps hit: the task fails as fatal. Reduce `chunk_size` in YAML or split ranges to keep per-range outputs smaller.
