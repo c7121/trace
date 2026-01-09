@@ -24,4 +24,14 @@ streams:
     rpc_pool: traces
     chunk_size: 5000
     max_inflight: 20
+  transactions:
+    cryo_dataset_name: transactions
+    rpc_pool: standard
+    chunk_size: 5000
+    max_inflight: 20
+  geth_balance_diffs:
+    cryo_dataset_name: geth_balance_diffs
+    rpc_pool: traces
+    chunk_size: 5000
+    max_inflight: 20
 
