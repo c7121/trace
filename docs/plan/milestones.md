@@ -27,6 +27,9 @@ Each completed milestone is pinned by an annotated git tag `ms/<N>` pointing at 
 | 12 | ms/12 | 339bef6 | Cryo ingest worker writes Parquet+manifest to MinIO; registers dataset_versions idempotently |
 | 13 | ms/13 | 93e74da | Lite chain sync planner (cursor + scheduled ranges) + harness E2E |
 | 14 | ms/14 | 005036d | Alert evaluation over Parquet datasets (QS -> UDF -> sink) + harness E2E |
+| 15 | ms/15 | c4cfdaf | Chain sync entrypoint spec locked (no code) |
+| 16 | ms/16 | f973a14 | Chain sync job runner (multi-dataset) + runnable examples |
+| 17 | ms/17 | 9391915 | `trace-lite` local stack runner + runbook fixes |
 
 ### How to review a milestone
 
@@ -40,7 +43,7 @@ Then run the milestone gates described in `AGENTS.md` (root of repo).
 
 ## Planned milestones (next)
 
-Milestones **after ms/14** are sequenced to prove a full **Lite** deployment that can:
+Milestones **after ms/17** are sequenced to prove a full **Lite** deployment that can:
 
 - run the platform services locally,
 - sync a chain locally using **Cryo**,
@@ -52,9 +55,6 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 
 | Milestone | Title | Notes |
 |----------:|-------|-------|
-| 15 | Chain sync DAG entrypoint (spec locked) | Spec-only. STOP: do not implement until YAML shape + invariants are approved. |
-| 16 | Chain sync job runner (multi-dataset) | Implement dispatcher-owned planning for per-dataset cursors + scheduled ranges. |
-| 17 | `trace-lite` runnable local stack | Docker Compose + runbook + minimal CLI wrappers to “bring up + sync” |
 | 18 | Bundle manifest + real multi-language UDF runtime | Signed bundle manifests + hash/size checks; Node/Python first; Rust via common tooling |
 | 19 | Minimal user API v1 | Bundle upload + DAG registration + publish datasets + alert definition CRUD |
 | 20 | AWS deployable MVP | IaC + IAM/network boundaries + S3/SQS/Lambda wiring + smoke tests |
@@ -199,6 +199,8 @@ Prove the data path from “synced Parquet datasets” → “Query Service” �
 
 ## Milestone 15: Chain sync DAG entrypoint (spec locked; no code)
 
+Status: **complete** (tag: `ms/15`).
+
 ### Goal
 Lock a v1-safe, declarative `chain_sync` entrypoint that can sync multiple Cryo datasets from genesis to tip while preserving:
 - dispatcher-owned planning (no external loops),
@@ -231,6 +233,8 @@ Do not implement schema/code until the YAML shape and invariants in the spec are
 ---
 
 ## Milestone 16: Chain sync job runner (multi-dataset)
+
+Status: **complete** (tag: `ms/16`).
 
 ### Goal
 Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run “genesis → tip” sync internally for multiple Cryo datasets, with durable per-stream progress and bounded in-flight scheduling.
@@ -265,6 +269,8 @@ Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run �
 ---
 
 ## Milestone 17: `trace-lite` runnable local stack
+
+Status: **complete** (tag: `ms/17`).
 
 ### Goal
 Make “run it locally and sync a chain” a one-command experience.
@@ -302,6 +308,8 @@ Notes:
 ## Milestone 19: Minimal user API v1
 
 Goal: expose only the smallest stable public surface (everything else remains internal).
+
+Note: `POST /v1/query` is already implemented in `trace-query-service` (commit: `ce206d7`).
 
 Deliverables:
 - Bundle upload + DAG registration
