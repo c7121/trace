@@ -294,6 +294,14 @@ Notes:
 
 Goal: expose only the smallest stable public surface (everything else remains internal).
 
+Deliverables:
+- Bundle upload + DAG registration
+- Publish datasets (make chain sync datasets queryable by users)
+- `POST /v1/query` - user-facing interactive query endpoint (Query Service)
+  - Requires: dataset registry lookup, user/org authz (JWT), result persistence for large results
+  - Blocked by: dataset publishing mechanism from chain sync
+- Alert definition CRUD
+
 ---
 
 ## Milestone 20: AWS deployable MVP
