@@ -45,8 +45,8 @@ Constraints:
 ```mermaid
 flowchart LR
   DISP[Dispatcher] -->|invoke + capability token| RUN[Lambda UDF runner]
-  RUN -->|task query (capability token)| QS[Query Service]
-  RUN -->|task-scoped APIs (capability token + lease fencing)| DISP
+  RUN -->|task query: capability token| QS[Query Service]
+  RUN -->|task-scoped APIs: capability token + lease fencing| DISP
 ```
 
 ## Proposed design

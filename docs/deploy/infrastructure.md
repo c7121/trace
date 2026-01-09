@@ -7,7 +7,7 @@ AWS architecture and Terraform structure.
 ```mermaid
 flowchart TB
     %% API Gateway is an AWS-managed edge service.
-    %% In v1, API Gateway uses a private integration (VPC Link) to an internal ALB.
+    %% In v1, API Gateway uses a private integration via VPC Link to an internal ALB.
     subgraph Edge["AWS Edge / Managed"]
         APIGW[API Gateway]
     end
@@ -50,7 +50,7 @@ flowchart TB
     ALB --> QUERY_SVC
 
     EVENTBRIDGE --> SOURCE_LAMBDA
-    APIGW -->|webhooks (optional)| SOURCE_LAMBDA
+    APIGW -->|webhooks: optional| SOURCE_LAMBDA
     SOURCE_LAMBDA --> DISPATCHER_SVC
 
     DISPATCHER_SVC -->|invoke runtime=lambda| UDF_LAMBDA
