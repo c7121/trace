@@ -656,8 +656,8 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
     ensure_duckdb_httpfs_installed()?;
 
     let (cfg, _pool, app) = setup().await?;
-    let (bucket, _fixture_prefix) =
-        parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX).context("parse fixture storage prefix")?;
+    let (bucket, _fixture_prefix) = parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX)
+        .context("parse fixture storage prefix")?;
 
     // Use a unique keyspace per test run to avoid collisions across parallel test execution.
     let keyspace = format!("prefix-collision/{}/", Uuid::new_v4());
@@ -697,12 +697,7 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
     };
     let manifest_bytes = serde_json::to_vec(&manifest)?;
     object_store
-        .put_bytes(
-            &bucket,
-            &manifest_key,
-            manifest_bytes,
-            CONTENT_TYPE_JSON,
-        )
+        .put_bytes(&bucket, &manifest_key, manifest_bytes, CONTENT_TYPE_JSON)
         .await?;
 
     // Issue a token that (a) grants the dataset, and (b) grants an S3 prefix *without* a trailing slash.
@@ -722,10 +717,7 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
             }),
         }],
         S3Grants {
-            read_prefixes: vec![format!(
-                "s3://{}/{}",
-                bucket, good_prefix_no_trailing_slash
-            )],
+            read_prefixes: vec![format!("s3://{}/{}", bucket, good_prefix_no_trailing_slash)],
             write_prefixes: vec![],
         },
     )?;

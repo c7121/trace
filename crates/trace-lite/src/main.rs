@@ -53,9 +53,12 @@ async fn cmd_up(repo: &Path) -> anyhow::Result<()> {
         .await
         .context("docker compose up -d")?;
 
-    cargo_build(repo, &["trace-harness", "trace-query-service", "trace-dispatcher"])
-        .await
-        .context("cargo build required packages")?;
+    cargo_build(
+        repo,
+        &["trace-harness", "trace-query-service", "trace-dispatcher"],
+    )
+    .await
+    .context("cargo build required packages")?;
 
     run_migrations(repo).await.context("run migrations")?;
 
@@ -192,7 +195,9 @@ async fn cargo_build(repo: &Path, packages: &[&str]) -> anyhow::Result<()> {
 
 async fn run_docker_compose(repo: &Path, args: &[&str]) -> anyhow::Result<()> {
     let mut cmd = Command::new("docker");
-    cmd.current_dir(repo.join("harness")).arg("compose").args(args);
+    cmd.current_dir(repo.join("harness"))
+        .arg("compose")
+        .args(args);
     run_cmd(&mut cmd).await.context("docker compose")?;
     Ok(())
 }
@@ -200,7 +205,9 @@ async fn run_docker_compose(repo: &Path, args: &[&str]) -> anyhow::Result<()> {
 async fn run_bin(bin: &Path, args: &[&str]) -> anyhow::Result<()> {
     let mut cmd = Command::new(bin);
     cmd.args(args);
-    run_cmd(&mut cmd).await.with_context(|| format!("run {}", bin.display()))
+    run_cmd(&mut cmd)
+        .await
+        .with_context(|| format!("run {}", bin.display()))
 }
 
 async fn run_cmd(cmd: &mut Command) -> anyhow::Result<()> {
@@ -235,4 +242,3 @@ fn find_repo_root() -> anyhow::Result<PathBuf> {
     }
     anyhow::bail!("could not locate repo root (expected harness/docker-compose.yml)")
 }
-

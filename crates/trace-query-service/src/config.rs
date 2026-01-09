@@ -56,11 +56,19 @@ pub struct QueryServiceConfig {
     pub s3_endpoint: String,
 
     /// Max bytes allowed for the dataset manifest (`_manifest.json`).
-    #[arg(long, env = "QUERY_SERVICE_MAX_MANIFEST_BYTES", default_value_t = 1_048_576)]
+    #[arg(
+        long,
+        env = "QUERY_SERVICE_MAX_MANIFEST_BYTES",
+        default_value_t = 1_048_576
+    )]
     pub max_manifest_bytes: usize,
 
     /// Max parquet objects allowed in the dataset manifest.
-    #[arg(long, env = "QUERY_SERVICE_MAX_MANIFEST_OBJECTS", default_value_t = 1024)]
+    #[arg(
+        long,
+        env = "QUERY_SERVICE_MAX_MANIFEST_OBJECTS",
+        default_value_t = 1024
+    )]
     pub max_manifest_objects: usize,
 
     /// S3 access key for DuckDB httpfs S3 access (Lite mode; defaults match `harness/docker-compose.yml`).

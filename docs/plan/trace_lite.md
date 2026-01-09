@@ -28,7 +28,10 @@ cargo run -p trace-lite -- apply --file docs/examples/chain_sync.monad_mainnet.y
 Check progress:
 
 ```bash
-# The job_id comes from your YAML (or from the output of `trace-lite apply`).
+# List all jobs:
+cargo run -p trace-lite -- status
+
+# Or filter to a single job_id from your YAML (or from the output of `trace-lite apply`):
 cargo run -p trace-lite -- status --job 4e20d260-8623-4e1c-a64a-9c4f4c8265d3
 ```
 

@@ -1,5 +1,5 @@
-use anyhow::Context;
 use crate::config::QueryServiceConfig;
+use anyhow::Context;
 use duckdb::{Config, Connection};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -101,11 +101,9 @@ impl DuckDbSandbox {
                     .map_err(DuckDbQueryError::Query)
             });
 
-        handle
-            .await
-            .map_err(|err| {
-                DuckDbQueryError::Query(anyhow::Error::new(err).context("join duckdb worker"))
-            })?
+        handle.await.map_err(|err| {
+            DuckDbQueryError::Query(anyhow::Error::new(err).context("join duckdb worker"))
+        })?
     }
 
     pub async fn query_with_file_scan(
@@ -136,11 +134,9 @@ impl DuckDbSandbox {
                     .map_err(DuckDbQueryError::Query)
             });
 
-        handle
-            .await
-            .map_err(|err| {
-                DuckDbQueryError::Query(anyhow::Error::new(err).context("join duckdb worker"))
-            })?
+        handle.await.map_err(|err| {
+            DuckDbQueryError::Query(anyhow::Error::new(err).context("join duckdb worker"))
+        })?
     }
 }
 
@@ -182,7 +178,8 @@ fn open_in_memory(external_access: bool) -> anyhow::Result<(Connection, SpillDir
         .with("temp_directory", spill_dir_str)
         .context("set duckdb temp_directory")?;
 
-    let conn = Connection::open_in_memory_with_flags(config).context("open in-memory connection")?;
+    let conn =
+        Connection::open_in_memory_with_flags(config).context("open in-memory connection")?;
     Ok((conn, spill_dir))
 }
 
@@ -210,10 +207,8 @@ fn lock_down_local_filesystem(conn: &Connection) -> anyhow::Result<()> {
     // DuckDB hardening: disallow the LocalFileSystem so untrusted SQL cannot access the host
     // filesystem even if the SQL gate misses a file-reading function.
     //
-    conn.execute_batch(
-        "SET disabled_filesystems='LocalFileSystem';\nSET lock_configuration=true;",
-    )
-    .context("disable local filesystem")?;
+    conn.execute_batch("SET disabled_filesystems='LocalFileSystem';\nSET lock_configuration=true;")
+        .context("disable local filesystem")?;
     Ok(())
 }
 
@@ -223,7 +218,8 @@ fn load_httpfs(conn: &Connection) -> anyhow::Result<()> {
 }
 
 fn load_parquet(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch("LOAD parquet;").context("LOAD parquet")?;
+    conn.execute_batch("LOAD parquet;")
+        .context("LOAD parquet")?;
     Ok(())
 }
 
@@ -286,9 +282,8 @@ fn escape_sql_string(value: &str) -> String {
 
 fn attach_parquet_dataset_view(conn: &Connection, scan: &str) -> anyhow::Result<()> {
     let scan = escape_sql_string(scan);
-    let create = format!(
-        "CREATE OR REPLACE TEMP VIEW dataset AS SELECT * FROM read_parquet('{scan}');"
-    );
+    let create =
+        format!("CREATE OR REPLACE TEMP VIEW dataset AS SELECT * FROM read_parquet('{scan}');");
     conn.execute_batch(&create)
         .context("create temp dataset view")?;
     Ok(())
@@ -310,9 +305,8 @@ fn attach_parquet_dataset_view_list(conn: &Connection, uris: &[String]) -> anyho
     }
     list.push(']');
 
-    let create = format!(
-        "CREATE OR REPLACE TEMP VIEW dataset AS SELECT * FROM read_parquet({list});"
-    );
+    let create =
+        format!("CREATE OR REPLACE TEMP VIEW dataset AS SELECT * FROM read_parquet({list});");
     conn.execute_batch(&create)
         .context("create temp dataset view")?;
     Ok(())

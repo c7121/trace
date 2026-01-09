@@ -8,7 +8,7 @@ use uuid::Uuid;
 fn usage() -> &'static str {
     "usage:\n\
   trace-dispatcher apply --file <path>\n\
-  trace-dispatcher status --job <job_id>\n\
+  trace-dispatcher status [--job <job_id>]\n\
 \
   # Back-compat alias (deprecated):\n\
   trace-dispatcher chain-sync apply --file <path>\n\
@@ -51,9 +51,6 @@ async fn main() -> anyhow::Result<()> {
 
 async fn status_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
     let flags = parse_flags(args)?;
-    let job_id = required_string(&flags, "job")?
-        .parse::<Uuid>()
-        .context("parse --job")?;
 
     let state_database_url = std::env::var("STATE_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://trace:trace@localhost:5433/trace_state".to_string());
@@ -64,8 +61,29 @@ async fn status_cmd(args: VecDeque<String>) -> anyhow::Result<()> {
         .await
         .context("connect state db")?;
 
-    let status = trace_dispatcher::status::fetch_chain_sync_status(&pool, job_id).await?;
-    println!("{}", serde_json::to_string_pretty(&status)?);
+    if let Some(job) = optional_string(&flags, "job") {
+        let job_id = job.parse::<Uuid>().context("parse --job")?;
+        let status = trace_dispatcher::status::fetch_chain_sync_status(&pool, job_id).await?;
+        println!("{}", serde_json::to_string_pretty(&status)?);
+        return Ok(());
+    }
+
+    let job_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT job_id
+        FROM state.chain_sync_jobs
+        ORDER BY updated_at DESC
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .context("list chain_sync jobs")?;
+
+    let mut out = Vec::with_capacity(job_ids.len());
+    for job_id in job_ids {
+        out.push(trace_dispatcher::status::fetch_chain_sync_status(&pool, job_id).await?);
+    }
+    println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
 }
 
@@ -160,4 +178,8 @@ fn required_string(
         anyhow::bail!("missing --{key}\n\n{}", usage());
     };
     Ok(v.to_string())
+}
+
+fn optional_string(flags: &std::collections::HashMap<String, String>, key: &str) -> Option<String> {
+    flags.get(key).map(|v| v.to_string())
 }

@@ -107,10 +107,7 @@ impl Sink {
                 serde_json::from_value(msg.payload.clone()).context("decode buffer pointer")?;
 
             if pointer.content_type != CONTENT_TYPE_JSONL {
-                return Err(anyhow!(
-                    "unsupported content_type={}",
-                    pointer.content_type
-                ));
+                return Err(anyhow!("unsupported content_type={}", pointer.content_type));
             }
 
             let (bucket, key) = parse_s3_uri(&pointer.batch_uri).context("parse batch_uri")?;

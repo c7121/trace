@@ -73,9 +73,8 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     .context("init task capability signer")?;
 
     let duckdb = DuckDbSandbox::new();
-    let object_store: Arc<dyn ObjectStoreTrait> = Arc::new(
-        LiteObjectStore::new(&cfg.s3_endpoint).context("init object store")?,
-    );
+    let object_store: Arc<dyn ObjectStoreTrait> =
+        Arc::new(LiteObjectStore::new(&cfg.s3_endpoint).context("init object store")?);
 
     Ok(AppState {
         cfg,
@@ -142,25 +141,37 @@ async fn task_query(
 
     let mut results = match storage_ref {
         DatasetStorageRef::S3 { bucket, prefix, .. } => {
-            let parquet_uris =
-                resolve_parquet_uris_from_manifest(&state.cfg, state.object_store.as_ref(), &claims.s3, &grant, &bucket, &prefix)
-                    .await
-                    .map_err(|err| {
-                        tracing::warn!(
-                            event = "query_service.manifest.error",
-                            kind = ?err.kind,
-                            error = %err,
-                            "dataset manifest resolution failed"
-                        );
-                        match err.kind {
-                            ManifestErrorKind::TooLarge => ApiError::payload_too_large("dataset manifest too large"),
-                            ManifestErrorKind::InvalidJson | ManifestErrorKind::InvalidSchema => {
-                                ApiError::unprocessable("dataset manifest invalid")
-                            }
-                            ManifestErrorKind::Unauthorized => ApiError::forbidden("dataset storage not authorized"),
-                            ManifestErrorKind::FetchFailed => ApiError::internal("dataset manifest fetch failed"),
-                        }
-                    })?;
+            let parquet_uris = resolve_parquet_uris_from_manifest(
+                &state.cfg,
+                state.object_store.as_ref(),
+                &claims.s3,
+                &grant,
+                &bucket,
+                &prefix,
+            )
+            .await
+            .map_err(|err| {
+                tracing::warn!(
+                    event = "query_service.manifest.error",
+                    kind = ?err.kind,
+                    error = %err,
+                    "dataset manifest resolution failed"
+                );
+                match err.kind {
+                    ManifestErrorKind::TooLarge => {
+                        ApiError::payload_too_large("dataset manifest too large")
+                    }
+                    ManifestErrorKind::InvalidJson | ManifestErrorKind::InvalidSchema => {
+                        ApiError::unprocessable("dataset manifest invalid")
+                    }
+                    ManifestErrorKind::Unauthorized => {
+                        ApiError::forbidden("dataset storage not authorized")
+                    }
+                    ManifestErrorKind::FetchFailed => {
+                        ApiError::internal("dataset manifest fetch failed")
+                    }
+                }
+            })?;
 
             state
                 .duckdb
@@ -176,7 +187,10 @@ async fn task_query(
                 );
                 ApiError::unprocessable("dataset storage not authorized")
             })?;
-            state.duckdb.query_with_file_scan(scan, req.sql, limit + 1).await
+            state
+                .duckdb
+                .query_with_file_scan(scan, req.sql, limit + 1)
+                .await
         }
     }
     .map_err(|err| match err {
@@ -317,7 +331,9 @@ fn validate_manifest(
     if manifest.version != DatasetManifestV1::VERSION {
         anyhow::bail!("unsupported manifest version {}", manifest.version);
     }
-    if manifest.dataset_uuid != grant.dataset_uuid || manifest.dataset_version != grant.dataset_version {
+    if manifest.dataset_uuid != grant.dataset_uuid
+        || manifest.dataset_version != grant.dataset_version
+    {
         anyhow::bail!("manifest does not match dataset grant");
     }
 
@@ -445,11 +461,7 @@ fn authorize_dataset_storage(
         .ok_or_else(|| ApiError::forbidden("dataset storage not authorized"))?;
 
     let storage_prefix = match &storage_ref {
-        DatasetStorageRef::S3 {
-            bucket,
-            prefix,
-            ..
-        } => {
+        DatasetStorageRef::S3 { bucket, prefix, .. } => {
             let prefix_dir = prefix.trim_start_matches('/').trim_end_matches('/');
             if prefix_dir.is_empty() {
                 return Err(ApiError::unprocessable("invalid dataset storage prefix"));
@@ -457,7 +469,7 @@ fn authorize_dataset_storage(
 
             // Confirm the resolved storage location is under the caller's S3 grants.
             format!("s3://{bucket}/{prefix_dir}/")
-        },
+        }
         DatasetStorageRef::File { prefix, .. } => {
             if !cfg.allow_local_files {
                 return Err(ApiError::forbidden("dataset storage not authorized"));
@@ -485,8 +497,7 @@ fn authorize_dataset_storage(
         }
     };
 
-    if matches!(storage_ref, DatasetStorageRef::S3 { .. })
-        && !s3_read_allowed(s3, &storage_prefix)
+    if matches!(storage_ref, DatasetStorageRef::S3 { .. }) && !s3_read_allowed(s3, &storage_prefix)
     {
         return Err(ApiError::forbidden("dataset storage not authorized"));
     }
