@@ -303,6 +303,11 @@ Notes:
 - Signed manifests, hash/size checks, and fail-closed fetch/execution rules.
 - Node/Python first; Rust follows common packaging/tooling.
 
+### Context links
+- `docs/specs/udf_bundle_manifest.md`
+- `docs/specs/udf.md`
+- `docs/adr/0003-udf-bundles.md`
+
 ---
 
 ## Milestone 19: Minimal user API v1
