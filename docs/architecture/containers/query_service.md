@@ -61,10 +61,11 @@ Explicitly not supported:
 
 Status (v1):
 - Implemented: `POST /v1/task/query` (task-scoped; internal-only; capability token gated)
-- Not implemented yet: `POST /v1/query` (user-facing; blocked on dataset registry + authz + result persistence)
+- Implemented: `POST /v1/query` (user-scoped; Bearer JWT; inline JSON results only)
 
 v1 references:
 - Task Query API spec: `docs/specs/query_service_task_query.md`
+- User Query API spec: `docs/specs/query_service_user_query.md`
 - SQL gate spec: `docs/specs/query_sql_gating.md`
 
 ## Implemented (v1): Task Query API (UDF)
@@ -103,15 +104,31 @@ Failure modes are classified:
 - **Permanent**: malformed manifest, exceeds size limits, structural violations.
 - **Retryable**: object store temporarily unavailable (network errors, server 5xx, missing objects).
 
-## Future: User Query API
+## Implemented (v1): User Query API
 
-This user-facing endpoint is not implemented yet.
+This user-facing endpoint returns inline JSON results only (no exports or result persistence).
 
 ```
 POST /v1/query
-Authorization: Bearer <token>
+Authorization: Bearer <user_jwt>
 Content-Type: application/json
 ```
+
+Lite auth note:
+- Lite uses an HS256 dev secret configured by env.
+- The user token carries dataset grants and object-store prefix grants (dev-only). AWS/OIDC integration is future work.
+
+Request shape (minimal):
+- `dataset_id` (UUID)
+- `sql` (string)
+- `limit` (optional, clamped)
+
+Response shape matches the task query endpoint:
+- `columns`, `rows`, `truncated`
+
+## Future: User Query API expansions
+
+The sections below are not implemented yet. They document a possible future shape for richer user query workflows (exports, batch mode, and result persistence).
 
 ### Request
 

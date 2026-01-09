@@ -1,8 +1,8 @@
 # Query Service: User Query API
 
-Status: Draft
+Status: Implemented
 Owner: Platform
-Last updated: 2026-01-08
+Last updated: 2026-01-09
 
 ## Summary
 Add a minimal user-facing `POST /v1/query` endpoint to Query Service so a human can run validated, read-only SQL against an authorized dataset. The endpoint is intentionally a thin wrapper around `trace_core::query::validate_sql`, trusted dataset attach, and dataset-level audit logging.

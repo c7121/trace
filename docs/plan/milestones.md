@@ -307,8 +307,8 @@ Deliverables:
 - Bundle upload + DAG registration
 - Publish datasets (make chain sync datasets queryable by users)
 - `POST /v1/query` - user-facing interactive query endpoint (Query Service)
-  - Requires: dataset registry lookup, user/org authz (JWT), result persistence for large results
-  - Blocked by: dataset publishing mechanism from chain sync
+  - Implemented minimal in Lite: Bearer JWT with dataset grants, inline JSON results only
+  - Future: dataset registry lookup, OIDC/JWKS verification, result persistence and exports
 - Alert definition CRUD
 
 ---
