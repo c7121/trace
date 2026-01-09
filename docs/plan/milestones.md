@@ -252,7 +252,7 @@ Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run â
 
 ### Deliverables (high level)
 - Persisted `chain_sync` job definitions via `trace-dispatcher apply --file <job.yaml>` and per-stream cursors.
-  - Pausing is done by re-applying the YAML with `enabled: false` (no separate pause/resume subcommands in v1).
+  - Pause/resume is supported via `trace-dispatcher chain-sync pause|resume` which toggles `state.chain_sync_jobs.enabled`.
 - Scheduled range ledger per dataset stream to guarantee idempotent planning.
 - Dispatcher loop that tops up inflight work (no external loops), using the outbox + task queue wakeups.
 - Per-task payload includes `{chain_id, dataset_key, dataset_uuid, range, rpc_pool}`.

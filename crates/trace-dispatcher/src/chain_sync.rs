@@ -252,6 +252,37 @@ pub async fn apply_chain_sync_yaml(
     Ok(AppliedChainSyncJob { job_id })
 }
 
+pub async fn set_chain_sync_enabled(
+    pool: &PgPool,
+    org_id: Uuid,
+    name: &str,
+    enabled: bool,
+) -> anyhow::Result<Uuid> {
+    let res = sqlx::query(
+        r#"
+        UPDATE state.chain_sync_jobs
+        SET enabled = $3,
+            updated_at = now()
+        WHERE org_id = $1
+          AND name = $2
+        RETURNING job_id
+        "#,
+    )
+    .bind(org_id)
+    .bind(name)
+    .bind(enabled)
+    .fetch_optional(pool)
+    .await
+    .context("update chain_sync job enabled")?;
+
+    let Some(row) = res else {
+        anyhow::bail!("chain_sync job not found: org_id={org_id} name={name}");
+    };
+
+    row.try_get::<Uuid, _>("job_id")
+        .context("read updated job_id")
+}
+
 pub fn derive_dataset_uuid(org_id: Uuid, chain_id: i64, dataset_key: &str) -> anyhow::Result<Uuid> {
     anyhow::ensure!(chain_id > 0, "chain_id must be > 0");
     validate_stream_key(dataset_key)?;

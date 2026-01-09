@@ -2,7 +2,7 @@ use anyhow::Context;
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::VecDeque;
-use trace_dispatcher::chain_sync::apply_chain_sync_yaml;
+use trace_dispatcher::chain_sync::{apply_chain_sync_yaml, set_chain_sync_enabled};
 use uuid::Uuid;
 
 fn usage() -> &'static str {
@@ -12,6 +12,8 @@ fn usage() -> &'static str {
 \
   # Back-compat alias (deprecated):\n\
   trace-dispatcher chain-sync apply --file <path>\n\
+  trace-dispatcher chain-sync pause --org-id <uuid> --name <job_name>\n\
+  trace-dispatcher chain-sync resume --org-id <uuid> --name <job_name>\n\
 \
 env:\n\
   ORG_ID             (default 00000000-0000-0000-0000-000000000001)\n\
@@ -139,6 +141,28 @@ async fn chain_sync_cmd(mut args: VecDeque<String>) -> anyhow::Result<()> {
                 "warning: `trace-dispatcher chain-sync apply` is deprecated; use `trace-dispatcher apply --file <path>`"
             );
             apply_cmd(args).await
+        }
+        "pause" | "resume" => {
+            let flags = parse_flags(args)?;
+            let org_id = required_string(&flags, "org-id")?
+                .parse::<Uuid>()
+                .context("parse --org-id")?;
+            let name = required_string(&flags, "name")?;
+
+            let state_database_url = std::env::var("STATE_DATABASE_URL").unwrap_or_else(|_| {
+                "postgres://trace:trace@localhost:5433/trace_state".to_string()
+            });
+
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .connect(&state_database_url)
+                .await
+                .context("connect state db")?;
+
+            let enabled = sub == "resume";
+            let job_id = set_chain_sync_enabled(&pool, org_id, &name, enabled).await?;
+            println!("job_id={job_id}");
+            Ok(())
         }
         _ => {
             eprintln!("unknown chain-sync command: {sub}\n\n{}", usage());
