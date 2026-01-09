@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use aws_sdk_s3::primitives::ByteStream;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use crate::{runtime::RuntimeInvoker, udf::UdfInvocationPayload};
 
@@ -235,6 +235,31 @@ impl ObjectStoreTrait for S3ObjectStore {
             .key(key)
             .content_type(content_type)
             .body(ByteStream::from(bytes))
+            .send()
+            .await
+            .with_context(|| format!("s3 PutObject bucket={bucket} key={key}"))
+            .map_err(Error::from)?;
+        Ok(())
+    }
+
+    async fn put_file(
+        &self,
+        bucket: &str,
+        key: &str,
+        local_path: &Path,
+        content_type: &str,
+    ) -> Result<()> {
+        let body = ByteStream::from_path(local_path)
+            .await
+            .with_context(|| format!("open file path={}", local_path.display()))
+            .map_err(Error::from)?;
+
+        self.client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .content_type(content_type)
+            .body(body)
             .send()
             .await
             .with_context(|| format!("s3 PutObject bucket={bucket} key={key}"))

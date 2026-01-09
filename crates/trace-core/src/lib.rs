@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{fmt, time::Duration};
+use std::{fmt, path::Path, time::Duration};
 use uuid::Uuid;
 
 pub mod lite;
@@ -114,6 +114,15 @@ pub trait ObjectStore: Send + Sync {
         bucket: &str,
         key: &str,
         bytes: Vec<u8>,
+        content_type: &str,
+    ) -> Result<()>;
+
+    /// Upload a local file to the object store without reading the full contents into memory.
+    async fn put_file(
+        &self,
+        bucket: &str,
+        key: &str,
+        local_path: &Path,
         content_type: &str,
     ) -> Result<()>;
 

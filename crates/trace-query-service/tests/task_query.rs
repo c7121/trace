@@ -380,6 +380,18 @@ impl trace_core::ObjectStore for RecordingObjectStore {
         self.inner.put_bytes(bucket, key, bytes, content_type).await
     }
 
+    async fn put_file(
+        &self,
+        bucket: &str,
+        key: &str,
+        local_path: &std::path::Path,
+        content_type: &str,
+    ) -> trace_core::Result<()> {
+        self.inner
+            .put_file(bucket, key, local_path, content_type)
+            .await
+    }
+
     async fn get_bytes(&self, bucket: &str, key: &str) -> trace_core::Result<Vec<u8>> {
         self.gets
             .lock()
