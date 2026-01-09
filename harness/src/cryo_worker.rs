@@ -23,10 +23,56 @@ const CONTENT_TYPE_JSON: &str = "application/json";
 
 const DEFAULT_STAGING_TTL_HOURS: u64 = 24;
 
+const DEFAULT_MAX_PARQUET_FILES_PER_RANGE: usize = 256;
+const DEFAULT_MAX_PARQUET_BYTES_PER_FILE: u64 = 512 * 1024 * 1024;
+const DEFAULT_MAX_TOTAL_PARQUET_BYTES_PER_RANGE: u64 = 2 * 1024 * 1024 * 1024;
+
 // UUIDv5 namespace for deterministic dataset version IDs.
 const DATASET_VERSION_NAMESPACE: Uuid = Uuid::from_bytes([
     0x6e, 0x48, 0x4f, 0x2c, 0x56, 0x7a, 0x44, 0xf3, 0x8a, 0x5e, 0xc0, 0x65, 0x0b, 0x2a, 0x16, 0x9f,
 ]);
+
+#[derive(Debug, Clone)]
+struct CryoArtifactCaps {
+    max_parquet_files_per_range: usize,
+    max_parquet_bytes_per_file: u64,
+    max_total_parquet_bytes_per_range: u64,
+}
+
+impl CryoArtifactCaps {
+    fn from_env() -> anyhow::Result<Self> {
+        Ok(Self {
+            max_parquet_files_per_range: parse_env_usize(
+                "MAX_PARQUET_FILES_PER_RANGE",
+                DEFAULT_MAX_PARQUET_FILES_PER_RANGE,
+            )?,
+            max_parquet_bytes_per_file: parse_env_u64(
+                "MAX_PARQUET_BYTES_PER_FILE",
+                DEFAULT_MAX_PARQUET_BYTES_PER_FILE,
+            )?,
+            max_total_parquet_bytes_per_range: parse_env_u64(
+                "MAX_TOTAL_PARQUET_BYTES_PER_RANGE",
+                DEFAULT_MAX_TOTAL_PARQUET_BYTES_PER_RANGE,
+            )?,
+        })
+    }
+}
+
+fn parse_env_u64(key: &str, default: u64) -> anyhow::Result<u64> {
+    match std::env::var(key) {
+        Ok(v) => v.parse::<u64>().with_context(|| format!("parse {key}={v}")),
+        Err(_) => Ok(default),
+    }
+}
+
+fn parse_env_usize(key: &str, default: usize) -> anyhow::Result<usize> {
+    match std::env::var(key) {
+        Ok(v) => v
+            .parse::<usize>()
+            .with_context(|| format!("parse {key}={v}")),
+        Err(_) => Ok(default),
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct TaskWakeup {
@@ -95,6 +141,17 @@ pub async fn run_task(
     dispatcher: &DispatcherClient,
     task_id: Uuid,
 ) -> anyhow::Result<Option<DatasetPublication>> {
+    let caps = CryoArtifactCaps::from_env().context("parse cryo artifact caps")?;
+    run_task_with_caps(cfg, object_store, dispatcher, task_id, &caps).await
+}
+
+async fn run_task_with_caps(
+    cfg: &HarnessConfig,
+    object_store: &dyn ObjectStoreTrait,
+    dispatcher: &DispatcherClient,
+    task_id: Uuid,
+    caps: &CryoArtifactCaps,
+) -> anyhow::Result<Option<DatasetPublication>> {
     let Some(claim) = dispatcher.task_claim(task_id).await? else {
         return Ok(None);
     };
@@ -104,7 +161,15 @@ pub async fn run_task(
 
     let pubd = derive_dataset_publication(&cfg.s3_bucket, &payload);
 
-    match write_dataset_artifacts(object_store, &pubd, &payload, claim.task_id, claim.attempt).await
+    match write_dataset_artifacts(
+        object_store,
+        &pubd,
+        &payload,
+        claim.task_id,
+        claim.attempt,
+        caps,
+    )
+    .await
     {
         Ok(()) => {
             let complete_req = CompleteRequest {
@@ -157,8 +222,13 @@ pub async fn run_task(
 }
 
 pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
+    let staging_root = staging_root();
+    ensure_private_dir(&staging_root)
+        .await
+        .context("ensure cryo staging root")?;
+
     cleanup_stale_staging_dirs(
-        staging_root(),
+        staging_root.clone(),
         Duration::from_secs(
             std::env::var("TRACE_CRYO_STAGING_TTL_HOURS")
                 .ok()
@@ -169,6 +239,8 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
     )
     .await
     .context("cleanup stale cryo staging dirs")?;
+
+    let caps = CryoArtifactCaps::from_env().context("parse cryo artifact caps")?;
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -206,7 +278,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
                 }
 
                 for msg in messages {
-                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &dispatcher, msg, requeue_delay).await {
+                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &dispatcher, msg, requeue_delay, &caps).await {
                         tracing::warn!(
                             event = "harness.cryo_worker.message.error",
                             error = %err,
@@ -226,6 +298,7 @@ async fn handle_message(
     dispatcher: &DispatcherClient,
     msg: crate::pgqueue::Message,
     requeue_delay: Duration,
+    caps: &CryoArtifactCaps,
 ) -> anyhow::Result<()> {
     let message_id = msg.message_id.clone();
     let ack_token = msg.ack_token.clone();
@@ -244,7 +317,7 @@ async fn handle_message(
     };
 
     let res: anyhow::Result<()> = async {
-        let _ = run_task(cfg, object_store, dispatcher, wakeup.task_id).await?;
+        let _ = run_task_with_caps(cfg, object_store, dispatcher, wakeup.task_id, caps).await?;
         queue.ack(&ack_token).await?;
         Ok(())
     }
@@ -265,9 +338,10 @@ async fn write_dataset_artifacts(
     payload: &CryoIngestPayload,
     task_id: Uuid,
     attempt: i64,
+    caps: &CryoArtifactCaps,
 ) -> Result<(), CryoArtifactError> {
     let staging_dir = staging_dir_for_task(task_id, attempt);
-    tokio::fs::create_dir_all(&staging_dir)
+    ensure_private_dir(&staging_dir)
         .await
         .with_context(|| format!("create staging dir {}", staging_dir.display()))
         .map_err(CryoArtifactError::Retryable)?;
@@ -276,7 +350,7 @@ async fn write_dataset_artifacts(
         .unwrap_or_else(|_| "fake".to_string())
         .to_ascii_lowercase();
     if mode == "real" {
-        write_dataset_artifacts_real(object_store, pubd, payload, &staging_dir).await?;
+        write_dataset_artifacts_real(object_store, pubd, payload, &staging_dir, caps).await?;
     } else {
         write_dataset_artifacts_fake(object_store, pubd, payload, &staging_dir).await?;
     }
@@ -305,12 +379,8 @@ async fn write_dataset_artifacts_fake(
     let parquet_path = build_parquet_file(staging_dir, payload)
         .await
         .map_err(CryoArtifactError::Retryable)?;
-    let parquet_bytes = tokio::fs::read(&parquet_path)
-        .await
-        .with_context(|| format!("read parquet file {}", parquet_path.display()))
-        .map_err(CryoArtifactError::Retryable)?;
     object_store
-        .put_bytes(&bucket, &parquet_key, parquet_bytes, CONTENT_TYPE_PARQUET)
+        .put_file(&bucket, &parquet_key, &parquet_path, CONTENT_TYPE_PARQUET)
         .await
         .context("upload parquet")
         .map_err(CryoArtifactError::Retryable)?;
@@ -342,6 +412,7 @@ async fn write_dataset_artifacts_real(
     pubd: &DatasetPublication,
     payload: &CryoIngestPayload,
     staging_dir: &Path,
+    caps: &CryoArtifactCaps,
 ) -> Result<(), CryoArtifactError> {
     let rpc_url = payload
         .rpc_pool
@@ -399,21 +470,19 @@ async fn write_dataset_artifacts_real(
         )));
     }
 
+    enforce_parquet_caps(&parquet_files, caps)?;
+
     let mut parquet_keys = Vec::with_capacity(parquet_files.len());
-    for file_path in parquet_files {
+    for file in parquet_files {
+        let file_path = file.path;
         let rel = file_path
             .strip_prefix(staging_dir)
             .unwrap_or(file_path.as_path());
         let rel = rel.to_string_lossy().replace('\\', "/");
         let key = join_key(&prefix_key, &rel);
 
-        let bytes = tokio::fs::read(&file_path)
-            .await
-            .with_context(|| format!("read parquet file {}", file_path.display()))
-            .map_err(CryoArtifactError::Retryable)?;
-
         object_store
-            .put_bytes(&bucket, &key, bytes, CONTENT_TYPE_PARQUET)
+            .put_file(&bucket, &key, &file_path, CONTENT_TYPE_PARQUET)
             .await
             .with_context(|| format!("upload parquet object {key}"))
             .map_err(CryoArtifactError::Retryable)?;
@@ -422,6 +491,48 @@ async fn write_dataset_artifacts_real(
     }
 
     write_manifest(object_store, pubd, &bucket, &prefix_key, parquet_keys).await?;
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct ParquetFile {
+    path: PathBuf,
+    size_bytes: u64,
+}
+
+fn enforce_parquet_caps(
+    parquet_files: &[ParquetFile],
+    caps: &CryoArtifactCaps,
+) -> Result<(), CryoArtifactError> {
+    if parquet_files.len() > caps.max_parquet_files_per_range {
+        return Err(CryoArtifactError::Fatal(anyhow::anyhow!(
+            "parquet file count exceeds MAX_PARQUET_FILES_PER_RANGE: got={} max={}",
+            parquet_files.len(),
+            caps.max_parquet_files_per_range
+        )));
+    }
+
+    let mut total_bytes = 0_u64;
+    for file in parquet_files {
+        if file.size_bytes > caps.max_parquet_bytes_per_file {
+            return Err(CryoArtifactError::Fatal(anyhow::anyhow!(
+                "parquet file exceeds MAX_PARQUET_BYTES_PER_FILE: path={} size_bytes={} max={}",
+                file.path.display(),
+                file.size_bytes,
+                caps.max_parquet_bytes_per_file
+            )));
+        }
+
+        total_bytes = total_bytes.saturating_add(file.size_bytes);
+        if total_bytes > caps.max_total_parquet_bytes_per_range {
+            return Err(CryoArtifactError::Fatal(anyhow::anyhow!(
+                "total parquet bytes exceeds MAX_TOTAL_PARQUET_BYTES_PER_RANGE: total_bytes={} max={}",
+                total_bytes,
+                caps.max_total_parquet_bytes_per_range
+            )));
+        }
+    }
 
     Ok(())
 }
@@ -518,13 +629,13 @@ async fn run_cryo_cli(
     }
 }
 
-fn collect_parquet_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+fn collect_parquet_files(dir: &Path) -> anyhow::Result<Vec<ParquetFile>> {
     let mut out = Vec::new();
     collect_parquet_files_into(dir, &mut out)?;
     Ok(out)
 }
 
-fn collect_parquet_files_into(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+fn collect_parquet_files_into(dir: &Path, out: &mut Vec<ParquetFile>) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir).with_context(|| format!("read_dir {}", dir.display()))? {
         let entry = entry.context("read_dir entry")?;
         let path = entry.path();
@@ -543,7 +654,12 @@ fn collect_parquet_files_into(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Res
                 .extension()
                 .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("parquet"))
         {
-            out.push(path);
+            let meta =
+                std::fs::metadata(&path).with_context(|| format!("metadata {}", path.display()))?;
+            out.push(ParquetFile {
+                path,
+                size_bytes: meta.len(),
+            });
         }
     }
     Ok(())
@@ -557,6 +673,22 @@ fn staging_dir_for_task(task_id: Uuid, attempt: i64) -> PathBuf {
     staging_root()
         .join(task_id.to_string())
         .join(attempt.to_string())
+}
+
+async fn ensure_private_dir(path: &Path) -> anyhow::Result<()> {
+    tokio::fs::create_dir_all(path)
+        .await
+        .with_context(|| format!("create dir {}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+            .await
+            .with_context(|| format!("set permissions {}", path.display()))?;
+    }
+
+    Ok(())
 }
 
 async fn cleanup_stale_staging_dirs(root: PathBuf, ttl: Duration) -> anyhow::Result<()> {
@@ -685,4 +817,199 @@ async fn write_manifest(
         .with_context(|| format!("upload manifest object {manifest_key}"))
         .map_err(CryoArtifactError::Retryable)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
+    use trace_core::{Error, Result as CoreResult};
+
+    #[derive(Default, Clone)]
+    struct RecordingObjectStore {
+        puts: Arc<Mutex<Vec<PutOp>>>,
+    }
+
+    #[derive(Debug, Clone)]
+    enum PutOp {
+        Bytes { key: String, content_type: String },
+        File { key: String },
+    }
+
+    impl RecordingObjectStore {
+        fn ops(&self) -> Vec<PutOp> {
+            self.puts
+                .lock()
+                .expect("mutex poisoned")
+                .iter()
+                .cloned()
+                .collect()
+        }
+    }
+
+    #[async_trait]
+    impl ObjectStoreTrait for RecordingObjectStore {
+        async fn put_bytes(
+            &self,
+            _bucket: &str,
+            key: &str,
+            _bytes: Vec<u8>,
+            content_type: &str,
+        ) -> CoreResult<()> {
+            if content_type == CONTENT_TYPE_PARQUET {
+                return Err(Error::msg(
+                    "regression: parquet uploads must use put_file (streaming), not put_bytes",
+                ));
+            }
+            self.puts
+                .lock()
+                .expect("mutex poisoned")
+                .push(PutOp::Bytes {
+                    key: key.to_string(),
+                    content_type: content_type.to_string(),
+                });
+            Ok(())
+        }
+
+        async fn put_file(
+            &self,
+            _bucket: &str,
+            key: &str,
+            local_path: &Path,
+            content_type: &str,
+        ) -> CoreResult<()> {
+            if content_type != CONTENT_TYPE_PARQUET {
+                return Err(Error::msg(format!(
+                    "unexpected put_file content_type={content_type} path={}",
+                    local_path.display()
+                )));
+            }
+            if !local_path.exists() {
+                return Err(Error::msg(format!(
+                    "put_file local_path missing: {}",
+                    local_path.display()
+                )));
+            }
+            self.puts.lock().expect("mutex poisoned").push(PutOp::File {
+                key: key.to_string(),
+            });
+            Ok(())
+        }
+
+        async fn get_bytes(&self, _bucket: &str, _key: &str) -> CoreResult<Vec<u8>> {
+            Err(Error::msg("unexpected get_bytes in cryo worker test"))
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_artifact_upload_uses_put_file_for_parquet() -> anyhow::Result<()> {
+        let object_store = RecordingObjectStore::default();
+        let payload = CryoIngestPayload {
+            dataset_uuid: Uuid::new_v4(),
+            chain_id: 1,
+            range_start: 0,
+            range_end: 10,
+            config_hash: "cryo_ingest.blocks:1".to_string(),
+            dataset_key: Some("blocks".to_string()),
+            cryo_dataset_name: Some("blocks".to_string()),
+            rpc_pool: None,
+        };
+        let pubd = derive_dataset_publication("test-bucket", &payload);
+
+        let staging_dir = std::env::temp_dir().join(format!("trace-cryo-test-{}", Uuid::new_v4()));
+        ensure_private_dir(&staging_dir).await?;
+        let res = write_dataset_artifacts_fake(&object_store, &pubd, &payload, &staging_dir).await;
+        let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+        res.map_err(|err| anyhow::anyhow!("{err:?}"))?;
+
+        let ops = object_store.ops();
+        for op in &ops {
+            match op {
+                PutOp::Bytes { key, content_type } => {
+                    assert!(
+                        content_type == CONTENT_TYPE_JSON,
+                        "unexpected content type for put_bytes: {content_type}"
+                    );
+                    assert!(
+                        key.ends_with("/_manifest.json"),
+                        "expected manifest key, got {key}"
+                    );
+                }
+                PutOp::File { key } => {
+                    assert!(key.ends_with(".parquet"), "expected parquet key, got {key}");
+                }
+            }
+        }
+        let file_puts = ops
+            .iter()
+            .filter(|op| matches!(op, PutOp::File { .. }))
+            .count();
+        let json_puts = ops
+            .iter()
+            .filter(|op| matches!(op, PutOp::Bytes { content_type, .. } if content_type == CONTENT_TYPE_JSON))
+            .count();
+
+        assert_eq!(
+            file_puts, 1,
+            "expected one parquet put_file call: ops={ops:?}"
+        );
+        assert_eq!(
+            json_puts, 1,
+            "expected one manifest put_bytes call: ops={ops:?}"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn parquet_caps_exceeded_is_fatal() {
+        let caps = CryoArtifactCaps {
+            max_parquet_files_per_range: 1,
+            max_parquet_bytes_per_file: 10,
+            max_total_parquet_bytes_per_range: 20,
+        };
+
+        let files = vec![
+            ParquetFile {
+                path: PathBuf::from("a.parquet"),
+                size_bytes: 1,
+            },
+            ParquetFile {
+                path: PathBuf::from("b.parquet"),
+                size_bytes: 1,
+            },
+        ];
+
+        match enforce_parquet_caps(&files, &caps) {
+            Err(CryoArtifactError::Fatal(_)) => {}
+            other => panic!("expected fatal error, got {other:?}"),
+        }
+
+        let files = vec![ParquetFile {
+            path: PathBuf::from("big.parquet"),
+            size_bytes: 11,
+        }];
+
+        match enforce_parquet_caps(&files, &caps) {
+            Err(CryoArtifactError::Fatal(_)) => {}
+            other => panic!("expected fatal error, got {other:?}"),
+        }
+
+        let files = vec![
+            ParquetFile {
+                path: PathBuf::from("a.parquet"),
+                size_bytes: 10,
+            },
+            ParquetFile {
+                path: PathBuf::from("b.parquet"),
+                size_bytes: 11,
+            },
+        ];
+
+        match enforce_parquet_caps(&files, &caps) {
+            Err(CryoArtifactError::Fatal(_)) => {}
+            other => panic!("expected fatal error, got {other:?}"),
+        }
+    }
 }

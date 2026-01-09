@@ -14,7 +14,12 @@ If you’re doing this for the first time, use the `trace-lite` runner. The olde
 - **Query Service does not download Parquet objects**; it only fetches `_manifest.json`, then DuckDB scans remote Parquet via `httpfs`.
 - **The Cryo worker does write Parquet locally**, but only into a **temporary staging directory** and then uploads to the object store.
   - On success, the staging dir is deleted.
-  - On crashes, temp dirs may remain (standard caveat).
+  - On crashes, temp dirs may remain, but the worker deletes stale staging dirs older than `TRACE_CRYO_STAGING_TTL_HOURS` (default 24h).
+  - Staging dirs are created with restrictive permissions (0700 on Unix).
+  - The worker enforces artifact caps (fail-fast, permanent error if exceeded):
+    - `MAX_PARQUET_FILES_PER_RANGE` (default 256)
+    - `MAX_PARQUET_BYTES_PER_FILE` (default 536870912)
+    - `MAX_TOTAL_PARQUET_BYTES_PER_RANGE` (default 2147483648)
 
 If you need stronger guarantees, run the worker in a container with an ephemeral filesystem, or point `TMPDIR` at a dedicated encrypted/ephemeral mount.
 
@@ -27,7 +32,7 @@ If you need stronger guarantees, run the worker in a container with an ephemeral
 
 Environment variables you’ll commonly set:
 
-- `CRYO_BIN=/path/to/cryo` (or ensure `cryo` is on `PATH`)
+- `TRACE_CRYO_BIN=/path/to/cryo` (or ensure `cryo` is on `PATH`)
 - `TRACE_CRYO_MODE=fake|real` (default is fake; use `real` for actual sync)
 - RPC pool URLs (choose names that match your YAML `rpc_pool` fields):
   - `TRACE_RPC_POOL_DEFAULT_URL=...`
