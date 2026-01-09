@@ -276,11 +276,16 @@ Make “run it locally and sync a chain” a one-command experience.
   - `trace-lite up`
   - `trace-lite apply --file <path/to/job.yaml>`
     - YAML is the source of truth for the job graph; `trace-lite` must *not* re-invent planner flags.
-  - `trace-lite status --job <job_id>`
-    - Thin wrapper around `trace-dispatcher status --job <job_id>`.
+  - `trace-lite status [--job <job_id>]`
+    - Thin wrapper around `trace-dispatcher status [--job <job_id>]`.
+
+Docs
+- `docs/plan/trace_lite.md` (what `trace-lite` does / does not do)
+- `docs/deploy/lite_local_cryo_sync.md` (end-to-end runbook + smoke-test checklist)
 
 ### STOP gate
 - Documented smoke test checklist with expected artifacts (datasets in MinIO + registry rows + query success)
+  - See: `docs/deploy/lite_local_cryo_sync.md`
 
 ---
 

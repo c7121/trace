@@ -31,7 +31,7 @@ enum CommandKind {
     /// Show job progress via `trace-dispatcher status`.
     Status {
         #[arg(long)]
-        job: String,
+        job: Option<String>,
     },
 }
 
@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
         CommandKind::Up => cmd_up(&repo).await,
         CommandKind::Down => cmd_down(&repo).await,
         CommandKind::Apply { file } => cmd_apply(&repo, &file).await,
-        CommandKind::Status { job } => cmd_status(&repo, &job).await,
+        CommandKind::Status { job } => cmd_status(&repo, job.as_deref()).await,
     }
 }
 
@@ -125,15 +125,21 @@ async fn cmd_apply(repo: &Path, file: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_status(repo: &Path, job: &str) -> anyhow::Result<()> {
+async fn cmd_status(repo: &Path, job: Option<&str>) -> anyhow::Result<()> {
     cargo_build(repo, &["trace-dispatcher"])
         .await
         .context("cargo build trace-dispatcher")?;
 
     let dispatcher_bin = bin_path(repo, "trace-dispatcher");
-    run_bin(&dispatcher_bin, &["status", "--job", job])
+    let mut args: Vec<&str> = vec!["status"];
+    if let Some(job) = job {
+        args.push("--job");
+        args.push(job);
+    }
+
+    run_bin(&dispatcher_bin, &args)
         .await
-        .context("trace-dispatcher status --job")?;
+        .context("trace-dispatcher status")?;
     Ok(())
 }
 
