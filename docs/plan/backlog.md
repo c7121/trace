@@ -7,6 +7,7 @@ Non-phase-specific items deferred from v1.
 - Untrusted `ecs_udf` execution (v2) once a zero-trust isolation/credential story exists.
 - Multi-tenant (shared infra) and/or physical tenant isolation (per-org deployments).
 - Multiple chains beyond the initial target.
+- Cryo as a library + custom writer/output abstraction: invoke Cryo crates directly and stream Parquet to the configured object store (S3/MinIO) without local staging; emit deterministic manifests and delete temp state on failure.
 - Automatic garbage collection policies for committed dataset versions (v1 uses manual purge; see ADR 0009).
 
 ## Orchestration

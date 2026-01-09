@@ -98,3 +98,7 @@ This removes the need for `worker_pools` and avoids per-slot task definition spr
   update_strategy: replace
   timeout_seconds: 3600
 ```
+
+## Future work
+
+- **Cryo as a Rust library:** Wrap Cryo as a library and plumb a custom writer/output abstraction so Parquet objects can be streamed directly to the configured object store (S3/MinIO) without local staging. Track this in `docs/plan/backlog.md`.
