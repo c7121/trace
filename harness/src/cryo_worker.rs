@@ -459,7 +459,7 @@ async fn run_cryo_cli(
     end_block: i64,
     output_dir: &Path,
 ) -> Result<(), CryoArtifactError> {
-    let end_inclusive = end_block.saturating_sub(1);
+    // Cryo's --blocks start:end syntax is end-exclusive, matching our range convention.
     let out = tokio::task::spawn_blocking({
         let cryo_bin = cryo_bin.to_string();
         let dataset = dataset.to_string();
@@ -475,7 +475,7 @@ async fn run_cryo_cli(
                 .arg("--rpc")
                 .arg(rpc_url)
                 .arg("--blocks")
-                .arg(format!("{}:{}", start_block, end_inclusive))
+                .arg(format!("{}:{}", start_block, end_block))
                 .arg("--output-dir")
                 .arg(output_dir.to_string_lossy().to_string())
                 .output()
