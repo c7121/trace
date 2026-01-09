@@ -8,11 +8,12 @@ use crate::duckdb::{DuckDbQueryError, DuckDbSandbox, QueryResultSet};
 use anyhow::Context;
 use axum::{
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -39,6 +40,7 @@ const MAX_LIMIT: usize = 10_000;
 pub struct AppState {
     pub cfg: QueryServiceConfig,
     pub signer: TaskCapability,
+    pub user_jwt: UserJwtVerifier,
     pub duckdb: DuckDbSandbox,
     pub data_pool: sqlx::PgPool,
     pub object_store: Arc<dyn ObjectStoreTrait>,
@@ -50,6 +52,7 @@ impl std::fmt::Debug for AppState {
             .field("cfg", &self.cfg)
             .field("data_pool", &"<PgPool>")
             .field("signer", &"<TaskCapability>")
+            .field("user_jwt", &"<UserJwtVerifier>")
             .finish()
     }
 }
@@ -72,6 +75,8 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     })
     .context("init task capability signer")?;
 
+    let user_jwt = UserJwtVerifier::from_config(&cfg).context("init user jwt verifier")?;
+
     let duckdb = DuckDbSandbox::new();
     let object_store: Arc<dyn ObjectStoreTrait> =
         Arc::new(LiteObjectStore::new(&cfg.s3_endpoint).context("init object store")?);
@@ -79,6 +84,7 @@ pub async fn build_state(cfg: QueryServiceConfig) -> anyhow::Result<AppState> {
     Ok(AppState {
         cfg,
         signer,
+        user_jwt,
         duckdb,
         data_pool,
         object_store,
@@ -89,6 +95,7 @@ pub fn router(state: AppState) -> Router {
     let state = Arc::new(state);
     Router::new()
         .route("/v1/task/query", post(task_query))
+        .route("/v1/query", post(user_query))
         .with_state(state)
 }
 
@@ -103,6 +110,20 @@ pub struct TaskQueryRequest {
 
 #[derive(Debug, Serialize)]
 pub struct TaskQueryResponse {
+    pub columns: Vec<QueryColumnResponse>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UserQueryRequest {
+    pub dataset_id: Uuid,
+    pub sql: String,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserQueryResponse {
     pub columns: Vec<QueryColumnResponse>,
     pub rows: Vec<Vec<serde_json::Value>>,
     pub truncated: bool,
@@ -227,6 +248,124 @@ async fn task_query(
     .await?;
 
     Ok(Json(TaskQueryResponse {
+        columns: columns_to_response(&results),
+        rows: results.rows,
+        truncated,
+    }))
+}
+
+async fn user_query(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<UserQueryRequest>,
+) -> Result<Json<UserQueryResponse>, ApiError> {
+    let claims = require_user_bearer(&state.user_jwt, &headers)?;
+    let grant = require_dataset_grant_user(&claims, req.dataset_id)?;
+
+    trace_core::query::validate_sql(&req.sql).map_err(|err| {
+        tracing::info!(
+            event = "query_service.sql.rejected",
+            error = %err,
+            "sql rejected"
+        );
+        ApiError::bad_request("invalid sql")
+    })?;
+
+    let storage_ref = authorize_dataset_storage(&state.cfg, &claims.s3, &grant)?;
+
+    let limit = req
+        .limit
+        .map(|v| v as usize)
+        .unwrap_or(DEFAULT_LIMIT)
+        .clamp(1, MAX_LIMIT);
+
+    let mut results = match storage_ref {
+        DatasetStorageRef::S3 { bucket, prefix, .. } => {
+            let parquet_uris = resolve_parquet_uris_from_manifest(
+                &state.cfg,
+                state.object_store.as_ref(),
+                &claims.s3,
+                &grant,
+                &bucket,
+                &prefix,
+            )
+            .await
+            .map_err(|err| {
+                tracing::warn!(
+                    event = "query_service.manifest.error",
+                    kind = ?err.kind,
+                    error = %err,
+                    "dataset manifest resolution failed"
+                );
+                match err.kind {
+                    ManifestErrorKind::TooLarge => {
+                        ApiError::payload_too_large("dataset manifest too large")
+                    }
+                    ManifestErrorKind::InvalidJson | ManifestErrorKind::InvalidSchema => {
+                        ApiError::unprocessable("dataset manifest invalid")
+                    }
+                    ManifestErrorKind::Unauthorized => {
+                        ApiError::forbidden("dataset storage not authorized")
+                    }
+                    ManifestErrorKind::FetchFailed => {
+                        ApiError::internal("dataset manifest fetch failed")
+                    }
+                }
+            })?;
+
+            state
+                .duckdb
+                .query_with_s3_parquet_uris(&state.cfg, parquet_uris, req.sql, limit + 1)
+                .await
+        }
+        DatasetStorageRef::File { prefix, glob } => {
+            let scan = file_scan_target(&prefix, &glob).map_err(|err| {
+                tracing::warn!(
+                    event = "query_service.file_scan.invalid",
+                    error = %err,
+                    "invalid file scan target"
+                );
+                ApiError::unprocessable("dataset storage not authorized")
+            })?;
+            state
+                .duckdb
+                .query_with_file_scan(scan, req.sql, limit + 1)
+                .await
+        }
+    }
+    .map_err(|err| match err {
+        DuckDbQueryError::Attach(err) => {
+            tracing::warn!(
+                event = "query_service.duckdb.attach_failed",
+                error = ?err,
+                "duckdb dataset attach failed"
+            );
+            ApiError::internal("query execution failed")
+        }
+        DuckDbQueryError::Query(_err) => {
+            tracing::warn!(
+                event = "query_service.duckdb.query_failed",
+                "duckdb query failed"
+            );
+            ApiError::internal("query execution failed")
+        }
+    })?;
+
+    let truncated = results.rows.len() > limit;
+    if truncated {
+        results.rows.truncate(limit);
+    }
+
+    insert_user_query_audit(
+        &state.data_pool,
+        claims.org_id,
+        &claims.sub,
+        req.dataset_id,
+        results.rows.len() as i64,
+    )
+    .await?;
+
+    Ok(Json(UserQueryResponse {
         columns: columns_to_response(&results),
         rows: results.rows,
         truncated,
@@ -378,6 +517,137 @@ fn columns_to_response(results: &QueryResultSet) -> Vec<QueryColumnResponse> {
             r#type: c.r#type.clone(),
         })
         .collect()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct UserJwtClaims {
+    iss: String,
+    aud: String,
+    sub: String,
+    exp: usize,
+    iat: usize,
+
+    org_id: Uuid,
+    datasets: Vec<DatasetGrant>,
+    s3: S3Grants,
+}
+
+#[derive(Clone)]
+pub struct UserJwtVerifier {
+    issuer: String,
+    audience: String,
+    current_kid: String,
+    next_kid: Option<String>,
+    current_decoding_key: DecodingKey,
+    next_decoding_key: Option<DecodingKey>,
+}
+
+impl std::fmt::Debug for UserJwtVerifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let next_decoding_key = self.next_decoding_key.as_ref().map(|_| "<redacted>");
+        f.debug_struct("UserJwtVerifier")
+            .field("issuer", &self.issuer)
+            .field("audience", &self.audience)
+            .field("current_kid", &self.current_kid)
+            .field("next_kid", &self.next_kid)
+            .field("current_decoding_key", &"<redacted>")
+            .field("next_decoding_key", &next_decoding_key)
+            .finish()
+    }
+}
+
+impl UserJwtVerifier {
+    pub fn from_config(cfg: &QueryServiceConfig) -> anyhow::Result<Self> {
+        if cfg.user_jwt_next_kid.is_some() != cfg.user_jwt_next_secret.is_some() {
+            anyhow::bail!("USER_JWT_NEXT_KID and USER_JWT_NEXT_SECRET must be set together");
+        }
+
+        Ok(Self {
+            issuer: cfg.user_jwt_iss.clone(),
+            audience: cfg.user_jwt_aud.clone(),
+            current_kid: cfg.user_jwt_kid.clone(),
+            next_kid: cfg.user_jwt_next_kid.clone(),
+            current_decoding_key: DecodingKey::from_secret(cfg.user_jwt_secret.as_bytes()),
+            next_decoding_key: cfg
+                .user_jwt_next_secret
+                .as_deref()
+                .map(|s| DecodingKey::from_secret(s.as_bytes())),
+        })
+    }
+
+    fn verify(&self, token: &str) -> anyhow::Result<UserJwtClaims> {
+        let header = decode_header(token).context("decode jwt header")?;
+        let kid = header.kid.as_deref().context("missing jwt kid")?;
+
+        let decoding_key = if kid == self.current_kid {
+            &self.current_decoding_key
+        } else if self.next_kid.as_deref() == Some(kid) {
+            self.next_decoding_key
+                .as_ref()
+                .context("next jwt key not configured")?
+        } else {
+            anyhow::bail!("invalid jwt kid");
+        };
+
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.set_issuer(std::slice::from_ref(&self.issuer));
+        validation.set_audience(std::slice::from_ref(&self.audience));
+
+        let data =
+            decode::<UserJwtClaims>(token, decoding_key, &validation).context("verify jwt")?;
+        Ok(data.claims)
+    }
+}
+
+fn require_user_bearer(
+    verifier: &UserJwtVerifier,
+    headers: &HeaderMap,
+) -> Result<UserJwtClaims, ApiError> {
+    let value = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| ApiError::unauthorized("missing authorization"))?;
+
+    let token = value
+        .strip_prefix("Bearer ")
+        .ok_or_else(|| ApiError::unauthorized("invalid authorization"))?;
+
+    let claims = verifier.verify(token).map_err(|err| {
+        tracing::warn!(
+            event = "query_service.user_jwt.invalid",
+            error = %err,
+            "invalid user jwt"
+        );
+        ApiError::unauthorized("invalid authorization")
+    })?;
+
+    // Basic claim sanity checks (defense-in-depth; signature/exp are handled by `jsonwebtoken` validation).
+    if claims.exp < claims.iat || claims.iss.is_empty() || claims.aud.is_empty() {
+        return Err(ApiError::unauthorized("invalid authorization"));
+    }
+
+    Ok(claims)
+}
+
+fn require_dataset_grant_user(
+    claims: &UserJwtClaims,
+    dataset_id: Uuid,
+) -> Result<DatasetGrant, ApiError> {
+    let mut grants = claims
+        .datasets
+        .iter()
+        .filter(|grant| grant.dataset_uuid == dataset_id)
+        .cloned();
+
+    let Some(grant) = grants.next() else {
+        return Err(ApiError::forbidden("dataset not authorized"));
+    };
+
+    if grants.next().is_some() {
+        return Err(ApiError::unprocessable("ambiguous dataset grant"));
+    }
+
+    Ok(grant)
 }
 
 fn require_task_capability(
@@ -534,6 +804,42 @@ async fn insert_query_audit(
             event = "query_service.audit.insert_failed",
             error = %err,
             "audit insert failed"
+        );
+        ApiError::internal("audit insert failed")
+    })?;
+
+    Ok(())
+}
+
+async fn insert_user_query_audit(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    user_sub: &str,
+    dataset_id: Uuid,
+    result_row_count: i64,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        INSERT INTO data.user_query_audit (
+          org_id,
+          user_sub,
+          dataset_id,
+          columns_accessed,
+          result_row_count
+        ) VALUES ($1, $2, $3, NULL, $4)
+        "#,
+    )
+    .bind(org_id)
+    .bind(user_sub)
+    .bind(dataset_id)
+    .bind(result_row_count)
+    .execute(pool)
+    .await
+    .map_err(|err| {
+        tracing::warn!(
+            event = "query_service.user_audit.insert_failed",
+            error = %err,
+            "user query audit insert failed"
         );
         ApiError::internal("audit insert failed")
     })?;

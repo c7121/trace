@@ -51,6 +51,30 @@ pub struct QueryServiceConfig {
     #[arg(long, env = "TASK_CAPABILITY_TTL_SECS", default_value_t = 300)]
     pub task_capability_ttl_secs: u64,
 
+    /// User JWT issuer (Lite dev-only; `POST /v1/query`).
+    #[arg(long, env = "USER_JWT_ISS", default_value = "trace-lite")]
+    pub user_jwt_iss: String,
+
+    /// User JWT audience (Lite dev-only; `POST /v1/query`).
+    #[arg(long, env = "USER_JWT_AUD", default_value = "trace.user")]
+    pub user_jwt_aud: String,
+
+    /// User JWT key id (`kid`) (Lite dev-only; `POST /v1/query`).
+    #[arg(long, env = "USER_JWT_KID", default_value = "dev-user")]
+    pub user_jwt_kid: String,
+
+    /// User JWT HMAC secret (HS256; Lite dev-only; `POST /v1/query`).
+    #[arg(long, env = "USER_JWT_SECRET", default_value = "trace-user-dev-secret")]
+    pub user_jwt_secret: String,
+
+    /// Next user JWT key id (`kid`) accepted during overlap window (optional).
+    #[arg(long, env = "USER_JWT_NEXT_KID")]
+    pub user_jwt_next_kid: Option<String>,
+
+    /// Next user JWT HMAC secret accepted during overlap window (optional).
+    #[arg(long, env = "USER_JWT_NEXT_SECRET")]
+    pub user_jwt_next_secret: Option<String>,
+
     /// MinIO/S3 endpoint for Parquet dataset objects (Lite mode).
     #[arg(long, env = "S3_ENDPOINT", default_value = "http://localhost:9000")]
     pub s3_endpoint: String,
@@ -102,6 +126,7 @@ impl std::fmt::Debug for QueryServiceConfig {
             .task_capability_next_secret
             .as_deref()
             .map(|_| "<redacted>");
+        let user_jwt_next_secret = self.user_jwt_next_secret.as_deref().map(|_| "<redacted>");
         let s3_secret_key = "<redacted>";
         f.debug_struct("QueryServiceConfig")
             .field("data_database_url", &"<redacted>")
@@ -113,6 +138,12 @@ impl std::fmt::Debug for QueryServiceConfig {
             .field("task_capability_next_kid", &self.task_capability_next_kid)
             .field("task_capability_next_secret", &task_capability_next_secret)
             .field("task_capability_ttl_secs", &self.task_capability_ttl_secs)
+            .field("user_jwt_iss", &self.user_jwt_iss)
+            .field("user_jwt_aud", &self.user_jwt_aud)
+            .field("user_jwt_kid", &self.user_jwt_kid)
+            .field("user_jwt_secret", &"<redacted>")
+            .field("user_jwt_next_kid", &self.user_jwt_next_kid)
+            .field("user_jwt_next_secret", &user_jwt_next_secret)
             .field("s3_endpoint", &self.s3_endpoint)
             .field("max_manifest_bytes", &self.max_manifest_bytes)
             .field("max_manifest_objects", &self.max_manifest_objects)

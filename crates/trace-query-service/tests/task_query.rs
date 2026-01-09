@@ -3,10 +3,13 @@ use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
 use duckdb::Connection;
 use http_body_util::BodyExt;
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tower::util::ServiceExt;
 use trace_core::fixtures::{
     ALERTS_FIXTURE_DATASET_ID, ALERTS_FIXTURE_DATASET_STORAGE_PREFIX,
@@ -18,7 +21,7 @@ use trace_core::manifest::DatasetManifestV1;
 use trace_core::Signer as _;
 use trace_core::{DatasetGrant, DatasetStorageRef, S3Grants, TaskCapabilityIssueRequest};
 use trace_query_service::{
-    build_state, config::QueryServiceConfig, router, AppState, TaskQueryRequest,
+    build_state, config::QueryServiceConfig, router, AppState, TaskQueryRequest, UserQueryRequest,
     TASK_CAPABILITY_HEADER,
 };
 use uuid::Uuid;
@@ -164,14 +167,10 @@ async fn seed_fixture_dataset(
     Ok(())
 }
 
-fn issue_token(
-    cfg: &QueryServiceConfig,
-    task_id: Uuid,
-    attempt: i64,
-    dataset_uuids: &[Uuid],
-) -> anyhow::Result<String> {
+fn fixture_grants(dataset_uuids: &[Uuid]) -> anyhow::Result<(Vec<DatasetGrant>, S3Grants)> {
     let (bucket, prefix) = parse_s3_uri(ALERTS_FIXTURE_DATASET_STORAGE_PREFIX)
         .context("parse fixture storage prefix")?;
+
     let datasets = dataset_uuids
         .iter()
         .copied()
@@ -199,6 +198,17 @@ fn issue_token(
     } else {
         S3Grants::empty()
     };
+
+    Ok((datasets, s3))
+}
+
+fn issue_token(
+    cfg: &QueryServiceConfig,
+    task_id: Uuid,
+    attempt: i64,
+    dataset_uuids: &[Uuid],
+) -> anyhow::Result<String> {
+    let (datasets, s3) = fixture_grants(dataset_uuids)?;
 
     issue_token_with_datasets(cfg, task_id, attempt, datasets, s3)
 }
@@ -230,6 +240,63 @@ fn issue_token_with_datasets(
     Ok(signer.issue_task_capability(&req)?)
 }
 
+#[derive(Debug, Serialize)]
+struct UserJwtClaims {
+    iss: String,
+    aud: String,
+    sub: String,
+    exp: usize,
+    iat: usize,
+
+    org_id: Uuid,
+    datasets: Vec<DatasetGrant>,
+    s3: S3Grants,
+}
+
+fn issue_user_token(
+    cfg: &QueryServiceConfig,
+    sub: &str,
+    dataset_uuids: &[Uuid],
+) -> anyhow::Result<String> {
+    let (datasets, s3) = fixture_grants(dataset_uuids)?;
+    issue_user_token_with_datasets(cfg, sub, datasets, s3, &cfg.user_jwt_secret)
+}
+
+fn issue_user_token_with_datasets(
+    cfg: &QueryServiceConfig,
+    sub: &str,
+    datasets: Vec<DatasetGrant>,
+    s3: S3Grants,
+    secret: &str,
+) -> anyhow::Result<String> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("read clock")?
+        .as_secs();
+    let iat: usize = now.try_into().unwrap_or(0);
+    let exp: usize = (now + 300).try_into().unwrap_or(usize::MAX);
+
+    let claims = UserJwtClaims {
+        iss: cfg.user_jwt_iss.clone(),
+        aud: cfg.user_jwt_aud.clone(),
+        sub: sub.to_string(),
+        exp,
+        iat,
+        org_id: Uuid::parse_str("00000000-0000-0000-0000-000000000001")?,
+        datasets,
+        s3,
+    };
+
+    let mut header = Header::new(Algorithm::HS256);
+    header.kid = Some(cfg.user_jwt_kid.clone());
+    encode(
+        &header,
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .context("encode user jwt")
+}
+
 async fn send_query(
     app: axum::Router,
     token: Option<String>,
@@ -242,6 +309,28 @@ async fn send_query(
 
     if let Some(token) = token {
         builder = builder.header(TASK_CAPABILITY_HEADER, token);
+    }
+
+    let request = builder.body(Body::from(serde_json::to_vec(req)?))?;
+    let response = app.oneshot(request).await?;
+    let status = response.status();
+    let bytes = response.into_body().collect().await?.to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&bytes)?;
+    Ok((status, body))
+}
+
+async fn send_user_query(
+    app: axum::Router,
+    token: Option<String>,
+    req: &UserQueryRequest,
+) -> anyhow::Result<(StatusCode, serde_json::Value)> {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/v1/query")
+        .header("content-type", "application/json");
+
+    if let Some(token) = token {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
     }
 
     let request = builder.body(Body::from(serde_json::to_vec(req)?))?;
@@ -330,6 +419,7 @@ async fn setup_with_recording_store() -> anyhow::Result<(
     let AppState {
         cfg: state_cfg,
         signer,
+        user_jwt,
         duckdb,
         data_pool,
         object_store: _,
@@ -345,6 +435,7 @@ async fn setup_with_recording_store() -> anyhow::Result<(
     let state = AppState {
         cfg: state_cfg,
         signer,
+        user_jwt,
         duckdb,
         data_pool,
         object_store,
@@ -742,5 +833,203 @@ async fn manifest_parquet_keys_must_be_under_dataset_prefix_directory() -> anyho
         .await?;
 
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_auth_required_missing_token() -> anyhow::Result<()> {
+    let (_cfg, _pool, app) = setup().await?;
+
+    let req = UserQueryRequest {
+        dataset_id: ALERTS_FIXTURE_DATASET_ID,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+
+    let (status, _body) = send_user_query(app, None, &req).await?;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_invalid_token_rejected() -> anyhow::Result<()> {
+    let (cfg, _pool, app) = setup().await?;
+
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let (datasets, s3) = fixture_grants(&[dataset_id])?;
+    let token = issue_user_token_with_datasets(&cfg, "user:test", datasets, s3, "wrong-secret")?;
+
+    let req = UserQueryRequest {
+        dataset_id,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+
+    let (status, _body) = send_user_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_dataset_grant_required() -> anyhow::Result<()> {
+    let (cfg, _pool, app) = setup().await?;
+
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let token = issue_user_token(&cfg, "user:test", &[])?;
+
+    let req = UserQueryRequest {
+        dataset_id,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+
+    let (status, _body) = send_user_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_gate_rejects_unsafe_sql() -> anyhow::Result<()> {
+    let (cfg, _pool, app) = setup().await?;
+
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let token = issue_user_token(&cfg, "user:test", &[dataset_id])?;
+
+    for sql in [
+        "INSTALL httpfs",
+        "LOAD httpfs",
+        "ATTACH 'foo.db' AS other",
+        "SELECT * FROM read_csv('data')",
+        "SELECT * FROM read_parquet('http://example.com/x.parquet')",
+        "SELECT * FROM 'local.csv'",
+    ] {
+        let req = UserQueryRequest {
+            dataset_id,
+            sql: sql.to_string(),
+            limit: None,
+        };
+        let (status, _body) = send_user_query(app.clone(), Some(token.clone()), &req).await?;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "sql should be rejected: {sql}"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_overblocking_url_literal_allowed() -> anyhow::Result<()> {
+    let (cfg, _pool, app) = setup().await?;
+
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let token = issue_user_token(&cfg, "user:test", &[dataset_id])?;
+
+    let req = UserQueryRequest {
+        dataset_id,
+        sql: "SELECT 'https://example.com'".to_string(),
+        limit: None,
+    };
+    let (status, body) = send_user_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(body["rows"][0][0].as_str(), Some("https://example.com"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_allowed_select_returns_deterministic_fixture() -> anyhow::Result<()> {
+    let (cfg, _pool, app) = setup().await?;
+
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let token = issue_user_token(&cfg, "user:test", &[dataset_id])?;
+
+    let req = UserQueryRequest {
+        dataset_id,
+        sql: "SELECT dedupe_key FROM dataset ORDER BY dedupe_key".to_string(),
+        limit: None,
+    };
+    let (status, body) = send_user_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(body["truncated"].as_bool(), Some(false));
+
+    let rows = body["rows"]
+        .as_array()
+        .context("rows is array")?
+        .iter()
+        .map(|r| r[0].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(rows, vec!["dedupe-001", "dedupe-002", "dedupe-003"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_audit_emitted_after_success() -> anyhow::Result<()> {
+    let (cfg, pool, app) = setup().await?;
+
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let user_sub = "user:test";
+    let token = issue_user_token(&cfg, user_sub, &[dataset_id])?;
+
+    let req = UserQueryRequest {
+        dataset_id,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+    let (status, body) = send_user_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+
+    let row = sqlx::query(
+        r#"
+        SELECT org_id, user_sub, dataset_id, result_row_count, columns_accessed
+        FROM data.user_query_audit
+        ORDER BY query_time DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    let org_id: Uuid = row.try_get("org_id")?;
+    let logged_user_sub: String = row.try_get("user_sub")?;
+    let logged_dataset_id: Uuid = row.try_get("dataset_id")?;
+    let result_row_count: i64 = row.try_get("result_row_count")?;
+    let columns_accessed: Option<serde_json::Value> = row.try_get("columns_accessed")?;
+
+    assert_eq!(
+        org_id,
+        Uuid::parse_str("00000000-0000-0000-0000-000000000001")?
+    );
+    assert_eq!(logged_user_sub, user_sub);
+    assert_eq!(logged_dataset_id, dataset_id);
+    assert_eq!(result_row_count, 1);
+    assert!(columns_accessed.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_query_fetches_only_manifest_via_object_store() -> anyhow::Result<()> {
+    let (cfg, _pool, app, gets) = setup_with_recording_store().await?;
+
+    let dataset_id = ALERTS_FIXTURE_DATASET_ID;
+    let token = issue_user_token(&cfg, "user:test", &[dataset_id])?;
+
+    let req = UserQueryRequest {
+        dataset_id,
+        sql: "SELECT 1".to_string(),
+        limit: None,
+    };
+
+    let (status, body) = send_user_query(app, Some(token), &req).await?;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+
+    let got = gets.lock().expect("mutex poisoned").clone();
+    assert!(
+        got.iter().all(|p| p.ends_with("/_manifest.json")),
+        "unexpected get_bytes targets: {got:?}"
+    );
+    assert!(!got.is_empty(), "expected manifest fetch");
     Ok(())
 }
