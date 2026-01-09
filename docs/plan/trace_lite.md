@@ -45,9 +45,10 @@ cargo run -p trace-lite -- down
 
 At minimum you usually want:
 
-- `TRACE_RPC_POOL_DEFAULT_URL` (or per-pool overrides like `TRACE_RPC_POOL_ARCHIVE_URL`).
+- `TRACE_RPC_POOL_<POOL>_URL` for any RPC pool referenced by your chain-sync YAML
+  (e.g. `rpc_pool: standard` -> `TRACE_RPC_POOL_STANDARD_URL`).
 - `TRACE_CRYO_MODE=real` if you want to run the real Cryo binary.
-- `CRYO_BIN=/path/to/cryo` if the `cryo` binary is not already on your `PATH`.
+- `TRACE_CRYO_BIN=/path/to/cryo` if the `cryo` binary is not already on your `PATH`.
 
 See the full end-to-end runbook:
 
