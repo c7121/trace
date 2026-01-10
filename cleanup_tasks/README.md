@@ -8,7 +8,7 @@ How to use:
 - I will implement only that task, keeping the diff focused.
 
 Task list (recommended order):
-- `cleanup_tasks/009-doc-hygiene-sweep.md`: Mechanical hygiene pass (no em dashes, Mermaid label punctuation checks, link validation).
+None.
 
 Completed:
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
