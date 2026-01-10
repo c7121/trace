@@ -8,7 +8,6 @@ How to use:
 - I will implement only that task, keeping the diff focused.
 
 Task list (recommended order):
-- `cleanup_tasks/007-consolidate-milestone-micro-specs.md`: Remove tiny milestone specs by folding into the milestone ledger.
 - `cleanup_tasks/008-deploy-docs-reduction.md`: Reduce and reorg deploy docs into a single "how to deploy" path.
 - `cleanup_tasks/009-doc-hygiene-sweep.md`: Mechanical hygiene pass (no em dashes, Mermaid label punctuation checks, link validation).
 
@@ -19,3 +18,4 @@ Completed:
 - `004-consolidate-query-service-docs`: trimmed `docs/architecture/containers/query_service.md` to be link-first; moved non-C4 details into specs and ops/monitoring docs.
 - `005-consolidate-dispatcher-docs`: trimmed `docs/architecture/containers/dispatcher.md` to be link-first; moved credential minting contract to `docs/architecture/contracts.md`; linked lifecycle to `docs/architecture/task_lifecycle.md`.
 - `006-merge-dag-configuration-docs`: made `docs/specs/dag_configuration.md` config-only and `docs/architecture/dag_deployment.md` deploy-only; removed overlap and linkified ownership.
+- `007-consolidate-milestone-micro-specs`: folded milestone micro-spec content into `docs/plan/milestones.md`; removed obsolete micro specs from `docs/specs/`.

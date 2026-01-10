@@ -28,7 +28,8 @@ If Risk is High:
 Today, Lite bootstrap sync is proven via:
 - `cryo_ingest` producing Parquet + a Trace-owned manifest under a deterministic version-addressed prefix (ms/12),
 - `dataset_versions` registered in Postgres state idempotently on task completion, and
-- a planner CLI (`plan-chain-sync`, ms/13) that schedules bounded ranges but requires an external caller to re-run it and only plans a single dataset stream per invocation.
+- ms/13's Lite bootstrap planner (`plan-chain-sync`) which scheduled bounded ranges but required an external caller to re-run it and planned only a single dataset stream per invocation.
+  - This approach is superseded by the system-managed `chain_sync` job runner and `trace-dispatcher apply --file <spec.yaml>` (ms/16).
 
 Problem statement:
 Users want to specify “sync this chain” once and have the system run to completion (or continuously follow head) across multiple Cryo datasets, without external planning loops. The outputs must remain queryable via Query Service while preserving the existing sandbox and security invariants (capability tokens, dataset grants, remote Parquet scan, fail-closed behavior).
@@ -73,7 +74,7 @@ persistence formats/migrations, and entrypoint exports.
     - `range_end` (int, end-exclusive in payload terms)
     - `config_hash` (string)
 - CLI:
-  - Admin-only: `trace-dispatcher apply|pause|resume|status` (names TBD).
+  - Admin-only: `trace-dispatcher apply --file <path>`, `trace-dispatcher status [--job <job_id>]`, and `trace-dispatcher chain-sync pause|resume --org-id <uuid> --name <job_name>`.
 - Config semantics:
   - DAG YAML gains a `chain_sync` entrypoint (two candidate shapes in this spec; one will be selected for v1).
 - Persistence format/migration:
@@ -419,8 +420,8 @@ Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
 - If Query Service remote Parquet scans are enabled, the deployment MUST enforce an egress allowlist permitting only object-store endpoints; otherwise Query Service MUST fail closed.
 
 ## Compatibility and migrations
-- This entrypoint is intended to subsume the ms/13 `plan-chain-sync` CLI usage for new deployments.
-- Existing Lite tests that rely on `plan-chain-sync` remain valid until the entrypoint is implemented and adopted.
+- ms/13's `plan-chain-sync` CLI is deprecated and not available on `main`.
+- Use `trace-dispatcher apply --file <spec.yaml>` to create/update `chain_sync` jobs; the Dispatcher owns planning and continuously tops up work.
 
 ## Security considerations
 - Threats:
@@ -452,7 +453,7 @@ Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
   - Implement fixed-target first; follow-head mode is feature-complete only when head observation is implemented.
 - Rollback strategy:
   - Pause the job (stop scheduling) without deleting state.
-  - If required, fall back to manual `plan-chain-sync` (ms/13) for bounded ranges.
+  - If required, re-apply a fixed-target spec with an explicit bound; avoid manual scheduling loops.
 
 ## Reduction pass
 Required.
@@ -467,7 +468,7 @@ How does this reduce or avoid expanding surface area?
 
 ## Alternatives considered
 Brief.
-- Alternative: keep planning as an external CLI loop (`plan-chain-sync`) and document runbooks.
+- Alternative: keep planning as an external CLI loop (ms/13-style planner) and document runbooks.
   - Why not: it is operationally fragile and violates “system manages planning internally”.
 - Alternative: fully express chain sync as a generic DAG with explicit `range_splitter` nodes and per-dataset ingestion nodes.
   - Why not: heavier YAML surface for the common bootstrap case; harder to keep stable for v1.
