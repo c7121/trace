@@ -11,7 +11,7 @@
     "status": "not-started",
     "action": "replace-em-dashes",
     "path": "docs/**/*.md",
-    "rationale": "Replace 116 em dashes with standard hyphens or colons for consistency and tooling compatibility"
+    "rationale": "Replace 116 em dashes (—) with standard hyphens or colons for consistency and tooling compatibility"
   },
   {
     "id": 3,
