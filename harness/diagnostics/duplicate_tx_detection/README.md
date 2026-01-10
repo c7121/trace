@@ -2,7 +2,7 @@
 
 Manual diagnostic tool to verify the DuckDB query correctly detects transaction hashes appearing in multiple blocks - a data integrity issue that could indicate reorgs, RPC bugs, or ingestion errors.
 
-See also: [Data Verification Runbook](../../../docs/runbooks/data_verification.md)
+See also: [Data Verification Runbook](../../../docs/examples/data_verification.md)
 
 ## Query
 

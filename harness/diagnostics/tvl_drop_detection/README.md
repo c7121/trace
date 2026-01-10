@@ -2,7 +2,7 @@
 
 Detects if a contract's Total Value Locked (TVL) has dropped more than a specified threshold within a sliding window of blocks. Useful for monitoring DeFi protocols for potential exploits, rug pulls, or anomalous behavior.
 
-See also: [Data Verification Runbook](../../../docs/runbooks/data_verification.md)
+See also: [Data Verification Runbook](../../../docs/examples/data_verification.md)
 
 ## Two Query Types
 

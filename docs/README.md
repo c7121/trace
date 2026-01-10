@@ -20,7 +20,7 @@ If you are designing or changing behavior:
 
 If you are operating or deploying:
 - Deploy: [deploy/](deploy/)
-- Runbooks: [runbooks/](runbooks/)
+- Examples: [examples/](examples/)
 
 If you are working on operators:
 - Operator catalog: [architecture/operators/README.md](architecture/operators/README.md)

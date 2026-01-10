@@ -2,7 +2,7 @@
 
 Verifies that every `Withdraw` event from the Monad staking precompile has a corresponding `Undelegate` event that was called beforehand.
 
-See also: [Data Verification Runbook](../../../docs/runbooks/data_verification.md)
+See also: [Data Verification Runbook](../../../docs/examples/data_verification.md)
 
 ## Background
 
