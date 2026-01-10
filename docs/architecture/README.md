@@ -2,7 +2,21 @@
 
 Start here if you are implementing Trace.
 
+## Core concepts
+
+These are the nouns used throughout the architecture docs:
+
+- **DAG**: versioned YAML definition (jobs + edges + publish). Canonical schema: `docs/specs/dag_configuration.md`.
+- **Job**: a named node in a DAG (operator + runtime + config) that produces one or more outputs.
+- **Task**: one execution of a job for a specific input update or partition, created and leased by the Dispatcher.
+- **Attempt**: a retry counter for a task. Only the current attempt may heartbeat or complete.
+- **Lease**: a time-bounded right to execute the current attempt (`lease_token`, `lease_expires_at`).
+- **Outbox**: a durable record of a side effect (enqueue, route) written in the same transaction as orchestration state.
+- **Dataset identity**: `{dataset_uuid, dataset_version}` identifies the data version used for routing, pinning, and lineage.
+
 ## Canonical documents (read in this order)
+
+After reading Core concepts above:
 
 1. **System invariants**: `invariants.md` (non-negotiable correctness + security truths)
 2. **Security model**: `security.md` (trust boundaries, auth model, enforceable invariants)

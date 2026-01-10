@@ -2,6 +2,8 @@
 
 This document defines the durable execution model for tasks: how tasks are created, claimed, retried, and recovered after failures.
 
+Core concepts (task, attempt, lease, outbox): [Architecture index - Core concepts](README.md#core-concepts).
+
 **Summary:** **Postgres state** is the source of truth. Side effects are recorded in an **outbox**. **SQS** is a wake-up mechanism.
 
 ## Guarantees
