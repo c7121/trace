@@ -8,7 +8,6 @@ How to use:
 - I will implement only that task, keeping the diff focused.
 
 Task list (recommended order):
-- `cleanup_tasks/015-demote-canonical-ddl-and-dedrift-data-model-docs.md`: Remove drift and contradictions in `docs/architecture/data_model/` and clarify migrations as source of truth.
 - `cleanup_tasks/016-move-operator-recipes-to-examples.md`: Move operator "Recipe" sections into `docs/examples/` to reduce operator doc section sprawl.
 - `cleanup_tasks/017-fix-mermaid-label-parentheses.md`: Fix Mermaid label text that contains parentheses across docs.
 - `cleanup_tasks/020-clarify-data-versioning-doc-ownership.md`: Clarify behavior vs schema ownership for data versioning docs.
@@ -26,6 +25,7 @@ Completed:
 - `011-align-cryo-cli-docs`: aligned `harness/NOTES.md` to the Cryo CLI invocation used by the harness cryo worker.
 - `012-docs-navigation-workflow`: added a docs workflow section and cross-linked the C4 tour with the AWS infrastructure view.
 - `013-specs-index-jtbd`: added `docs/specs/README.md` as an index and linked it from `docs/README.md`.
+- `015-demote-canonical-ddl-and-dedrift-data-model-docs`: clarified `harness/migrations/` as the schema source of truth and made ERDs relationship-focused to reduce drift.
 - `014-normalize-block-range-semantics`: normalized block range semantics across contracts, operator specs, and planning docs (start-inclusive, end-exclusive).
 - `018-modularize-interface-contracts`: split `docs/architecture/contracts.md` into smaller focused contract docs under `docs/architecture/contracts/` and made `docs/architecture/contracts.md` an index.
 - `019-rehome-operator-docs-as-specs`: moved operator docs under `docs/specs/operators/`, added status lines, and updated links.
