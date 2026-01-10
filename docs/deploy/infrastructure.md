@@ -2,6 +2,8 @@
 
 AWS architecture and Terraform structure.
 
+For the canonical C4 system and container views, see [../architecture/c4.md](../architecture/c4.md).
+
 ## AWS Architecture
 
 ```mermaid
