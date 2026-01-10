@@ -1,6 +1,8 @@
 # Address Labels Data Model
 
-Canonical DDL for the `address_labels` table.
+Schema notes for the `address_labels` table.
+
+Canonical DDL lives in `harness/migrations/data/` (applied in order). SQL blocks in this document should be treated as illustrative unless they explicitly reference a migration file.
 
 > These tables live in **Postgres data**. Columns like `org_id`/`user_id` refer to entities in **Postgres state** and are **soft references** (no cross-DB foreign keys).
 

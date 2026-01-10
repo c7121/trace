@@ -1,6 +1,8 @@
 # Query Service Data Model
 
-Canonical DDL for Query Service tables.
+Schema notes for Query Service tables.
+
+Canonical DDL lives in `harness/migrations/data/` (applied in order). SQL blocks in this document may describe future tables and should be treated as illustrative unless they explicitly reference a migration file.
 
 > These tables live in **Postgres data**. `org_id`/`user_id`/`task_id` are **soft references** to entities in **Postgres state** (no cross-DB foreign keys).
 

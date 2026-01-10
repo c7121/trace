@@ -1,6 +1,8 @@
 # Data Versioning Data Model
 
-Canonical DDL for tables that track incremental materialization and invalidation.
+Schema notes for tables that track incremental materialization and invalidation.
+
+Canonical DDL lives in `harness/migrations/` (applied in order). SQL blocks in this document should be treated as illustrative unless they explicitly reference a migration file.
 
 Note: `dataset_versions` (dataset generations) is defined in [orchestration.md](orchestration.md).
 

@@ -2,6 +2,8 @@
 
 Core schemas for job orchestration, task management, and lineage tracking.
 
+Note: canonical DDL lives in `harness/migrations/state/` (applied in order). This document is a schema sketch and may describe future tables. Treat SQL blocks here as illustrative unless they explicitly reference a migration file.
+
 ## Organizations
 
 ```sql
