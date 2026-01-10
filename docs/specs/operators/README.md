@@ -23,8 +23,13 @@ Most operators described here are planned. Each operator doc includes a `Status:
 | [validator_stats](validator_stats.md) | planned | lambda | source | - | Track validator performance over time |
 | [query](duckdb_query.md) | planned | ecs_platform | reactive | PerUpdate | Batch query execution (DuckDB) |
 
+## Recipes
+
+- [Chain liveliness monitoring](../../examples/chain_liveliness_monitoring.md) (operator: [liveliness_monitor](liveliness_monitor.md))
+- [RPC integrity checking](../../examples/rpc_integrity_checking.md) (operator: [rpc_integrity_check](rpc_integrity_check.md))
+- [Validator monitoring](../../examples/validator_monitoring.md) (operator: [validator_stats](validator_stats.md))
+
 ## Related
 
 - DAG schema: [dag_configuration.md](../dag_configuration.md)
 - Architecture container tour: [c4.md](../../architecture/c4.md)
-
