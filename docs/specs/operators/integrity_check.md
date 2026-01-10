@@ -2,6 +2,8 @@
 
 Defense-in-depth verification and repair against canonical chain state.
 
+Status: Planned
+
 ## Overview
 
 | Property | Value |
@@ -45,7 +47,7 @@ Validates that finalized data in cold storage (S3 Parquet) matches the canonical
   - Mismatch: flag for recompaction
 - If issues found:
   - Logs affected block numbers
-  - Triggers `parquet_compact` for affected partitions (typically via a `data_invalidations` partition invalidation; see [data_versioning.md](../data_versioning.md#data-invalidations))
+  - Triggers `parquet_compact` for affected partitions (typically via a `data_invalidations` partition invalidation; see [data_versioning.md](../../architecture/data_versioning.md#data-invalidations))
   - Alerts ops channel
 - Supports sampling for large datasets
 - Idempotent: safe to run repeatedly

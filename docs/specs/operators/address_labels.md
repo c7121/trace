@@ -2,6 +2,8 @@
 
 User-defined labels for blockchain addresses, stored as a joinable dataset.
 
+Status: Planned
+
 ## Overview
 
 | Property | Value |
@@ -20,7 +22,7 @@ Allows users to upload or define labels for blockchain addresses. Produces a dat
 |-------|------|-------------|
 | `address` | user input | Blockchain address |
 | `label` | user input | User-defined label |
-| `visibility` | user input | Visibility (see [pii.md](../data_model/pii.md)) |
+| `visibility` | user input | Visibility (see [pii.md](../../architecture/data_model/pii.md)) |
 
 ## Outputs
 
@@ -30,7 +32,7 @@ Allows users to upload or define labels for blockchain addresses. Produces a dat
 
 ## PII Handling
 
-PII column: `address_labels.label` (user-provided). Mark it as PII in dataset metadata; see [pii.md](../data_model/pii.md) for visibility and audit rules.
+PII column: `address_labels.label` (user-provided). Mark it as PII in dataset metadata; see [pii.md](../../architecture/data_model/pii.md) for visibility and audit rules.
 
 ## Example DAG Config
 
@@ -47,4 +49,4 @@ PII column: `address_labels.label` (user-provided). Mark it as PII in dataset me
 
 ## Related
 
-- [PII Handling](../data_model/pii.md) - visibility rules, audit logging
+- [PII Handling](../../architecture/data_model/pii.md) - visibility rules, audit logging

@@ -28,7 +28,7 @@ After reading Core concepts above:
 8. **Data versioning**: [data_versioning.md](data_versioning.md) (dataset pointers, append/replace semantics, invalidations)
 9. **Data model**: [data_model/](data_model/) (DDL-level schemas)
 10. **Containers**: [containers/](containers/) (service responsibilities and deployment units)
-11. **Operators**: [operators/README.md](operators/README.md) (built-in job implementations and recipes)
+11. **Operators**: [Operator specs](../specs/operators/README.md) (built-in operator surfaces and status)
 
 
 ## Doc ownership

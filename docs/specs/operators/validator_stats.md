@@ -2,6 +2,8 @@
 
 Track validator performance and emit per-epoch stats.
 
+Status: Planned
+
 ## Overview
 
 | Property | Value |
@@ -87,4 +89,4 @@ Ingest validator data per epoch. Track missed slots, attestation inclusion dista
 - **Output**: `validator_performance`
 - **Alert**: fire on missed slots or reward anomalies
 
-Configure this as a source DAG job using `operator: validator_stats` with `source.kind: cron`. See [validator_stats](#example-dag-config) for an example job entry, and [dag_configuration.md](../../specs/dag_configuration.md) for the full job YAML schema.
+Configure this as a source DAG job using `operator: validator_stats` with `source.kind: cron`. See [validator_stats](#example-dag-config) for an example job entry, and [dag_configuration.md](../dag_configuration.md) for the full job YAML schema.

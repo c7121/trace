@@ -17,9 +17,9 @@ Because block ranges participate in identity (`config_hash`, dataset versioning,
 - Update docs that currently contradict that canonical statement:
   - `docs/architecture/contracts.md` (partitioned event shape and `partition_key` description)
   - `docs/architecture/data_model/data_versioning.md` (partition key commentary)
-  - `docs/architecture/operators/range_aggregator.md`
-  - `docs/architecture/operators/range_splitter.md`
-  - `docs/architecture/operators/parquet_compact.md`
+  - `docs/specs/operators/range_aggregator.md`
+  - `docs/specs/operators/range_splitter.md`
+  - `docs/specs/operators/parquet_compact.md`
 - Update the relevant spec if it is the source of the disagreement:
   - `docs/specs/chain_sync_entrypoint.md`
 - Keep examples using `"1000000-1010000"` but define the semantics explicitly to avoid off-by-one ambiguity.
@@ -27,9 +27,9 @@ Because block ranges participate in identity (`config_hash`, dataset versioning,
 ## Files to touch
 - `docs/architecture/contracts.md`
 - `docs/architecture/data_model/data_versioning.md`
-- `docs/architecture/operators/range_aggregator.md`
-- `docs/architecture/operators/range_splitter.md`
-- `docs/architecture/operators/parquet_compact.md`
+- `docs/specs/operators/range_aggregator.md`
+- `docs/specs/operators/range_splitter.md`
+- `docs/specs/operators/parquet_compact.md`
 - `docs/specs/chain_sync_entrypoint.md`
 
 ## Acceptance criteria

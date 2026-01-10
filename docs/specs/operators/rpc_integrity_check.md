@@ -2,6 +2,8 @@
 
 Cross-check RPC providers and emit divergence events.
 
+Status: Planned
+
 ## Overview
 
 | Property | Value |
@@ -91,4 +93,4 @@ Run parallel queries against multiple RPC endpoints. Compare block hashes, trans
 - **Output**: `rpc_divergence_events`
 - **Alert**: fire when providers disagree on block hash
 
-Configure this as a reactive DAG job using `operator: rpc_integrity_check`. See [rpc_integrity_check](#example-dag-config) for an example job entry, and [dag_configuration.md](../../specs/dag_configuration.md) for the full job YAML schema.
+Configure this as a reactive DAG job using `operator: rpc_integrity_check`. See [rpc_integrity_check](#example-dag-config) for an example job entry, and [dag_configuration.md](../dag_configuration.md) for the full job YAML schema.

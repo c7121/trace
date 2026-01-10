@@ -14,13 +14,13 @@ The current recipe sections add a lot of headings and narrative content inside o
   - RPC integrity checking
   - Validator monitoring
 - Replace each in-operator recipe section with a short link to the new example doc.
-- Update `docs/architecture/operators/README.md` to link to the new example docs instead of deep links into operator files.
+- Update `docs/specs/operators/README.md` to link to the new example docs.
 
 ## Files to touch
-- `docs/architecture/operators/liveliness_monitor.md`
-- `docs/architecture/operators/rpc_integrity_check.md`
-- `docs/architecture/operators/validator_stats.md`
-- `docs/architecture/operators/README.md`
+- `docs/specs/operators/liveliness_monitor.md`
+- `docs/specs/operators/rpc_integrity_check.md`
+- `docs/specs/operators/validator_stats.md`
+- `docs/specs/operators/README.md`
 - Add new example docs under `docs/examples/`
 
 ## Acceptance criteria

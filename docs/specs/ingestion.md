@@ -93,8 +93,8 @@ Trace does not have a special historical-ingestion primitive. Bootstrap sync is 
 
 ## Related
 - Operator docs:
-  - [block_follower.md](../architecture/operators/block_follower.md)
-  - [cryo_ingest.md](../architecture/operators/cryo_ingest.md)
-  - [parquet_compact.md](../architecture/operators/parquet_compact.md)
-  - [integrity_check.md](../architecture/operators/integrity_check.md)
+  - [block_follower.md](operators/block_follower.md)
+  - [cryo_ingest.md](operators/cryo_ingest.md)
+  - [parquet_compact.md](operators/parquet_compact.md)
+  - [integrity_check.md](operators/integrity_check.md)
 - Versioning: [data_versioning.md](../architecture/data_versioning.md)

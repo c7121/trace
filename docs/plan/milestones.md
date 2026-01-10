@@ -95,7 +95,7 @@ Move the buffer sink consumer (decode/validate/write + DLQ) out of `harness/` in
 ### Context links
 - `docs/adr/0004-alert-event-sinks.md`
 - `docs/architecture/operations.md`
-- `docs/architecture/operators/alert_evaluate.md`
+- `docs/specs/operators/alert_evaluate.md`
 
 ### Deliverables
 - Add `crates/trace-sink` with the sink loop and message handler wired via `trace-core` `Queue`/`ObjectStore`.
@@ -117,7 +117,7 @@ Define a single `RuntimeInvoker` interface for "invoke untrusted UDF" with Lite 
 
 ### Context links
 - `docs/specs/udf.md`
-- `docs/architecture/operators/udf.md`
+- `docs/specs/operators/udf.md`
 - `docs/architecture/contracts.md`
 
 ### Deliverables
@@ -184,7 +184,7 @@ Status: **complete** (tag: `ms/12`).
 Run Cryo locally to produce Parquet datasets and register dataset versions in Postgres state - no AWS required.
 
 ### Context links
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 - `docs/specs/ingestion.md`
 - `docs/architecture/data_model/orchestration.md` (dataset_versions)
 
@@ -217,7 +217,7 @@ End-to-end local chain sync planning: schedule bounded Cryo ingestion ranges, en
 - `docs/specs/chain_sync_entrypoint.md`
 - `docs/specs/ingestion.md`
 - `docs/architecture/task_lifecycle.md`
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 - `docs/architecture/data_versioning.md` (cursors + invalidations)
 
 ### Deliverables
@@ -252,7 +252,7 @@ Prove the data path from “synced Parquet datasets” → “Query Service” �
 ### Context links
 - `docs/specs/alerting.md`
 - `docs/specs/query_service_task_query.md`
-- `docs/architecture/operators/alert_evaluate.md`
+- `docs/specs/operators/alert_evaluate.md`
 - `docs/adr/0004-alert-event-sinks.md`
 - `docs/architecture/invariants.md`
 
@@ -284,7 +284,7 @@ Lock a v1-safe, declarative `chain_sync` entrypoint that can sync multiple Cryo 
 - `docs/specs/chain_sync_entrypoint.md`
 - `docs/specs/ingestion.md`
 - `docs/specs/dag_configuration.md`
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 - `docs/architecture/task_lifecycle.md`
 - `docs/architecture/contracts.md`
 - `docs/specs/query_service_task_query.md`
@@ -314,7 +314,7 @@ Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run �
 ### Context links
 - `docs/specs/chain_sync_entrypoint.md`
 - `docs/specs/ingestion.md`
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 - `docs/architecture/task_lifecycle.md`
 - `docs/architecture/contracts.md`
 - `docs/specs/query_service_task_query.md`

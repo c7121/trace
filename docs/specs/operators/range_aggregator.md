@@ -2,6 +2,8 @@
 
 Aggregate an ordered stream of events into deterministic range manifests (EIP Aggregator).
 
+Status: Planned
+
 ## Overview
 
 | Property | Value |
@@ -50,7 +52,7 @@ Each emitted manifest includes both:
 - `partition_key`: `"start-end"` (inclusive), and
 - explicit range fields: `start`, `end` (inclusive)
 
-See [task_scoped_endpoints.md](../contracts/task_scoped_endpoints.md) for the canonical `/v1/task/events` partitioned event shape.
+See [task_scoped_endpoints.md](../../architecture/contracts/task_scoped_endpoints.md) for the canonical `/v1/task/events` partitioned event shape.
 
 ## Durable state
 

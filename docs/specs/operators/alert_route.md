@@ -2,6 +2,8 @@
 
 Create alert delivery work items for the platform Delivery Service.
 
+Status: Planned
+
 ## Overview
 
 | Property | Value |

@@ -2,6 +2,8 @@
 
 Split a range manifest into per-unit events (inverse of `range_aggregator`).
 
+Status: Planned
+
 ## Overview
 
 | Property | Value |

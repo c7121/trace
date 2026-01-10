@@ -2,6 +2,8 @@
 
 Generic UDF execution harness.
 
+Status: Planned
+
 This operator runs an untrusted user bundle and provides access only to task-scoped APIs authenticated by the per-attempt **task capability token**:
 - Query Service reads (`/v1/task/query`)
 - Dispatcher fenced calls (`/v1/task/heartbeat`, `/v1/task/complete`, `/v1/task/events`, `/v1/task/buffer-publish`)

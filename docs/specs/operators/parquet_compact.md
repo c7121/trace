@@ -2,6 +2,8 @@
 
 Compact **finalized** hot data from Postgres into cold Parquet partitions in S3.
 
+Status: Planned
+
 ## Overview
 
 | Property | Value |
@@ -33,7 +35,7 @@ Compact **finalized** hot data from Postgres into cold Parquet partitions in S3.
 
 - **Finality is job-defined:** the Dispatcher does not interpret finality/retention. This operator enforces finality using `finality_depth_blocks`.
 - **Idempotent per range:** safe to re-run the same `partition_key`; uses `update_strategy: replace`.
-- **Commit protocol:** writes Parquet to a task staging prefix and finalizes a manifest/marker; the Dispatcher commits and then emits `{dataset_uuid, dataset_version, partition_key}`. See [data_versioning.md](../data_versioning.md#replace-output-commit-protocol-s3--parquet).
+- **Commit protocol:** writes Parquet to a task staging prefix and finalizes a manifest/marker; the Dispatcher commits and then emits `{dataset_uuid, dataset_version, partition_key}`. See [data_versioning.md](../../architecture/data_versioning.md#replace-output-commit-protocol-s3--parquet).
 - **Hot retention:** if `delete_after_compact=true`, delete is performed only after successful output commit, and should be bounded to the same block range.
 
 ## Hot Postgres considerations

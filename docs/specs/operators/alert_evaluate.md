@@ -2,6 +2,8 @@
 
 Evaluate alert conditions against Trace data and emit `alert_events`.
 
+Status: Planned
+
 This operator executes **untrusted user-supplied code** (a UDF bundle) and is intentionally constrained:
 - reads only via Query Service (capability token)
 - emits events only via task-scoped APIs (`/v1/task/buffer-publish` using the same capability token + lease fencing)

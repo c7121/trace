@@ -13,7 +13,7 @@ If you are implementing or reviewing code, read this first.
 - YAML is source of truth - definitions live in git; state lives in Postgres state
 - Single Dispatcher service - orchestration is centralized and restartable; durability comes from Postgres state
 
-See: `operators/README.md`, `../specs/dag_configuration.md`, `containers/dispatcher.md`, `data_versioning.md`.
+See: `../specs/operators/README.md`, `../specs/dag_configuration.md`, `containers/dispatcher.md`, `data_versioning.md`.
 
 ## Correctness under failure
 

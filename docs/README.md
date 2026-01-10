@@ -23,7 +23,7 @@ If you are operating or deploying:
 - Examples: [examples/](examples/)
 
 If you are working on operators:
-- Operator catalog: [architecture/operators/README.md](architecture/operators/README.md)
+- Operator specs: [specs/operators/README.md](specs/operators/README.md)
 
 If you are using Trace Lite:
 - Harness: [harness/README.md](../harness/README.md)

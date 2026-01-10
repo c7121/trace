@@ -9,7 +9,7 @@ The current operator doc is inconsistent with the code and specs:
 - It describes a manual job config shape that does not match how `chain_sync` plans `cryo_ingest` tasks today.
 
 ## Plan
-- Update `docs/architecture/operators/cryo_ingest.md` to:
+- Update `docs/specs/operators/cryo_ingest.md` to:
   - Declare the canonical range semantics as implemented today and align all examples.
   - Describe the current task payload fields used in Lite:
     - `dataset_uuid`, `chain_id`, `range_start`, `range_end`, `config_hash`
@@ -20,7 +20,7 @@ The current operator doc is inconsistent with the code and specs:
     - `docs/examples/chain_sync.monad_mainnet.yaml`
 
 ## Files to touch
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 
 ## Acceptance criteria
 - No remaining claims that range end is inclusive.
