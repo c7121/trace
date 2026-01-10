@@ -8,7 +8,6 @@ How to use:
 - I will implement only that task, keeping the diff focused.
 
 Task list (recommended order):
-- `cleanup_tasks/016-move-operator-recipes-to-examples.md`: Move operator "Recipe" sections into `docs/examples/` to reduce operator doc section sprawl.
 
 Completed:
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
@@ -29,3 +28,4 @@ Completed:
 - `014-normalize-block-range-semantics`: normalized block range semantics across contracts, operator specs, and planning docs (start-inclusive, end-exclusive).
 - `018-modularize-interface-contracts`: split `docs/architecture/contracts.md` into smaller focused contract docs under `docs/architecture/contracts/` and made `docs/architecture/contracts.md` an index.
 - `019-rehome-operator-docs-as-specs`: moved operator docs under `docs/specs/operators/`, added status lines, and updated links.
+- `016-move-operator-recipes-to-examples`: moved operator recipe narratives into `docs/examples/` and replaced in-operator sections with links.
