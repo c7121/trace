@@ -32,7 +32,7 @@ Constraints:
 ## Public surface changes
 Public surface includes API endpoints, schemas, config semantics, and persistence formats.
 
-- Endpoints/RPC: Alert CRUD + delivery status endpoints (see [user_api_contracts.md](../architecture/user_api_contracts.md)); task buffer publish for `alert_events` (see [contracts.md](../architecture/contracts.md)).
+- Endpoints/RPC: Alert CRUD + delivery status endpoints (see [user_api_contracts.md](../architecture/user_api_contracts.md)); task buffer publish for `alert_events` (see [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)).
 - Events/schemas: `alert_events` buffered dataset batch format (see [ADR 0006](../adr/0006-buffered-postgres-datasets.md)).
 - CLI: None.
 - Config semantics: DAG jobs `alert_evaluate` and `alert_route` (see [dag_configuration.md](dag_configuration.md) and operator docs).

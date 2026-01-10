@@ -45,8 +45,8 @@ Constraints:
 ```mermaid
 flowchart LR
   DISP[Dispatcher] -->|invoke + capability token| RUN[Lambda UDF runner]
-  RUN -->|task query (capability token)| QS[Query Service]
-  RUN -->|task-scoped APIs (capability token + lease fencing)| DISP
+  RUN -->|task query: capability token| QS[Query Service]
+  RUN -->|task-scoped APIs: capability token + lease fencing| DISP
 ```
 
 ## Proposed design
@@ -62,6 +62,9 @@ flowchart LR
     - scoped credential minting (`/v1/task/credentials`),
     - fenced heartbeats/completions/events (`/v1/task/*`).
   - The runner Lambda execution role is near-zero (logs + networking only). It should not have broad S3/SQS/Secrets permissions.
+- Invocation is abstracted via `trace_core::runtime::RuntimeInvoker` so the same payload and callback semantics apply across profiles.
+  - Lite profiles use local invokers (`LocalProcessInvoker` and `FakeRunner`) without changing Dispatcher contracts.
+  - AWS profiles use `trace_core::aws::AwsLambdaInvoker` behind the `aws` feature.
 
 > The **worker token** is not a task-scoped credential. It is reserved for trusted ECS worker wrappers calling `/internal/*` endpoints.
 > For `runtime: lambda` there is no wrapper boundary; Lambda must use the capability token only and must not call `/internal/*`.

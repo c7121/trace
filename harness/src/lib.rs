@@ -11,6 +11,7 @@ pub mod dispatcher_client;
 pub mod enqueue;
 pub mod invoker;
 pub mod jwt;
+pub mod local_process_invoker;
 pub mod migrate;
 pub mod pgqueue;
 pub mod runner;

@@ -1,6 +1,8 @@
 # Query Service Data Model
 
-Canonical DDL for Query Service tables.
+Schema notes for Query Service tables.
+
+Canonical DDL lives in `harness/migrations/data/` (applied in order). SQL blocks in this document may describe future tables and should be treated as illustrative unless they explicitly reference a migration file.
 
 > These tables live in **Postgres data**. `org_id`/`user_id`/`task_id` are **soft references** to entities in **Postgres state** (no cross-DB foreign keys).
 
@@ -81,5 +83,8 @@ CREATE INDEX idx_query_results_task ON query_results(task_id);
 
 ## Related
 
-- [query_service.md](../containers/query_service.md) - query endpoint behavior and capabilities
+- [query_service.md](../containers/query_service.md) - container boundaries and dependencies
+- [query_service_task_query.md](../../specs/query_service_task_query.md) - task query endpoint semantics
+- [query_service_user_query.md](../../specs/query_service_user_query.md) - user query endpoint semantics
+- [query_service_query_results.md](../../specs/query_service_query_results.md) - query results and exports contract
 - [pii.md](pii.md) - visibility and audit rules

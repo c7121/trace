@@ -2,12 +2,14 @@
 
 AWS architecture and Terraform structure.
 
+For the canonical C4 system and container views, see [../architecture/c4.md](../architecture/c4.md).
+
 ## AWS Architecture
 
 ```mermaid
 flowchart TB
     %% API Gateway is an AWS-managed edge service.
-    %% In v1, API Gateway uses a private integration (VPC Link) to an internal ALB.
+    %% In v1, API Gateway uses a private integration via VPC Link to an internal ALB.
     subgraph Edge["AWS Edge / Managed"]
         APIGW[API Gateway]
     end
@@ -50,7 +52,7 @@ flowchart TB
     ALB --> QUERY_SVC
 
     EVENTBRIDGE --> SOURCE_LAMBDA
-    APIGW -->|webhooks (optional)| SOURCE_LAMBDA
+    APIGW -->|webhooks: optional| SOURCE_LAMBDA
     SOURCE_LAMBDA --> DISPATCHER_SVC
 
     DISPATCHER_SVC -->|invoke runtime=lambda| UDF_LAMBDA
@@ -103,7 +105,7 @@ flowchart TB
 
 ## Key Resources
 
-- **Ingress**: API Gateway validates user JWTs and routes to an **internal** ALB via VPC Link. Backend services must validate the user JWT and derive identity/role from it. Task-scoped endpoints (`/v1/task/*`) are internal-only and are not routed through the public Gateway. See `docs/architecture/containers/gateway.md` and `docs/standards/security_model.md`.
+- **Ingress**: API Gateway validates user JWTs and routes to an **internal** ALB via VPC Link. Backend services must validate the user JWT and derive identity/role from it. Task-scoped endpoints (`/v1/task/*`) are internal-only and are not routed through the public Gateway. See `docs/architecture/containers/gateway.md` and `docs/architecture/security.md`.
 - **Lambda**: any Lambda that must call internal services (Dispatcher, Query Service, sinks) MUST be **VPC-attached** in private subnets with **no NAT**. Required AWS APIs are reached via VPC endpoints.
 - **VPC**: Private/public subnets, VPC endpoints for S3/SQS (and other AWS APIs as needed)
 - **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)

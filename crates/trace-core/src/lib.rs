@@ -25,6 +25,7 @@ pub mod manifest;
 pub mod query;
 pub mod runtime;
 pub mod udf;
+pub mod udf_bundle;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

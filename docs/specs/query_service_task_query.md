@@ -14,7 +14,9 @@ High
 This adds a new endpoint that executes untrusted SQL (security/trust-boundary change).
 
 ## Context
-[query_service.md](../architecture/containers/query_service.md) defines DuckDB sandboxing requirements and a task-scoped `/v1/task/query` endpoint.
+
+Query Service context and boundaries: `docs/architecture/containers/query_service.md`.
+
 The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](query_sql_gating.md)).
 
 ## Goals
@@ -24,7 +26,7 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
 - Emit a dataset-level query audit record (no raw SQL).
 
 ## Non-goals
-- User query endpoint (`/v1/query`), dataset registry, pagination/caching/export.
+- User query endpoint (`/v1/query`), dataset registry, pagination/caching/export (future shape: `docs/specs/query_service_query_results.md`).
 - General Postgres federation in DuckDB.
 - Any dataset discovery/resolution beyond the dataset grants carried in the task capability token.
 
@@ -55,6 +57,10 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
       - lock configuration (`SET lock_configuration=true`),
       - disable extension auto-install (no `INSTALL` from untrusted SQL; `autoinstall_known_extensions=false`),
       - run in an OS/container sandbox with egress restricted to only the object-store endpoint(s) (no general internet egress).
+      - constrain DuckDB spill-to-disk:
+        - set DuckDB `temp_directory` to an isolated per-request directory with `0700` permissions,
+        - prefer tmpfs (`/dev/shm`) when available; otherwise use a dedicated `/tmp` subdirectory,
+        - ensure `/tmp` is tmpfs or container ephemeral disk (not a persistent shared volume).
   - Audit: insert dataset-level audit row into Postgres data DB.
 
 ### Data flow and trust boundaries
@@ -65,6 +71,9 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
   - DuckDB: disable host filesystem access and lock configuration; writes prevented by `validate_sql` (DDL/DML rejected). If the dataset itself is remote (HTTP/S3), DuckDB must be allowed to perform those authorized reads.
 - Sensitive data handling:
   - MUST NOT log raw SQL (only structured denial/execution outcomes).
+- Failure modes (dataset attach):
+  - Permanent: malformed manifest, exceeds size limits, structural violations.
+  - Retryable: object store temporarily unavailable (network errors, server 5xx, missing objects).
 
 ## Contract requirements
 - MUST require `X-Trace-Task-Capability` and reject missing/invalid tokens (401).

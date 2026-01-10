@@ -1,6 +1,8 @@
 # Alerting Data Model
 
-Canonical DDL for alerting tables.
+Schema notes for alerting tables.
+
+Canonical DDL lives in `harness/migrations/data/` (applied in order). SQL blocks in this document may describe future tables and should be treated as illustrative unless they explicitly reference a migration file.
 
 > These tables live in **Postgres data**. Columns like `org_id`/`user_id` and producer ids refer to entities in **Postgres state** and are **soft references** (no cross-DB foreign keys).
 

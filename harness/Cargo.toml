@@ -12,14 +12,17 @@ clap = { version = "4", features = ["derive", "env"] }
 chrono = { version = "0.4", features = ["serde"] }
 duckdb = { version = "1", features = ["bundled"] }
 jsonwebtoken = "9"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "macros", "migrate"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
 trace-core = { path = "../crates/trace-core" }
 trace-dispatcher = { path = "../crates/trace-dispatcher" }
 trace-sink = { path = "../crates/trace-sink" }

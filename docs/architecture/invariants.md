@@ -5,6 +5,16 @@ Other docs may explain rationale, but MUST NOT contradict these invariants.
 
 If you are implementing or reviewing code, read this first.
 
+## Design principles (v1)
+
+- Everything is a job - streaming services, batch transforms, and checks are modeled as jobs
+- Everything produces assets - outputs are recorded as identifiable assets (tables, objects, URIs)
+- Workers are dumb - workers execute tasks and report results; orchestration lives in the Dispatcher and Postgres state
+- YAML is source of truth - definitions live in git; state lives in Postgres state
+- Single Dispatcher service - orchestration is centralized and restartable; durability comes from Postgres state
+
+See: `../specs/operators/README.md`, `../specs/dag_configuration.md`, `containers/dispatcher.md`, `data_versioning.md`.
+
 ## Correctness under failure
 
 - **Execution is at-least-once** end-to-end. Duplicate delivery is always possible.
@@ -48,7 +58,7 @@ See: `db_boundaries.md`, `data_model/`, ADRs `0008` and `0009`.
   - Query Service task API (`/v1/task/query`) which is itself fail-closed and sandboxed.
 - `/internal/*` endpoints are **internal-only** and must not be reachable from untrusted runtimes.
 
-See: `standards/security_model.md`, `contracts.md`.
+See: `security.md`, `contracts.md`.
 
 ## Query safety
 

@@ -1,6 +1,8 @@
 # Data Versioning Data Model
 
-Canonical DDL for tables that track incremental materialization and invalidation.
+Schema notes for tables that track incremental materialization and invalidation.
+
+Canonical DDL lives in `harness/migrations/` (applied in order). SQL blocks in this document should be treated as illustrative unless they explicitly reference a migration file.
 
 Note: `dataset_versions` (dataset generations) is defined in [orchestration.md](orchestration.md).
 
@@ -10,7 +12,7 @@ Note: `dataset_versions` (dataset generations) is defined in [orchestration.md](
 CREATE TABLE partition_versions (
     dataset_uuid UUID NOT NULL REFERENCES datasets(id),
     dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
-    partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000" (block ranges are inclusive)
+    partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000" (block ranges are `[start, end)`; end-exclusive)
     materialized_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     config_hash TEXT,                 -- job config at time of materialization
     schema_hash TEXT,                 -- data shape (columns, types)

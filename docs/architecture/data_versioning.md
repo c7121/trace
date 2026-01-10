@@ -163,7 +163,7 @@ sequenceDiagram
     DS->>PG: Query with row_filter
     DS->>DS: Process + write output
     DS->>DISP: Task complete
-    DISP->>INV: Mark invalidation processed (after accepting fenced completion)
+    DISP->>INV: Mark invalidation processed after accepting fenced completion
 ```
 
 

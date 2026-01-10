@@ -62,6 +62,76 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 
 ---
 
+## Milestone 8: Dispatcher extraction
+
+Status: **complete** (tag: `ms/8`).
+
+### Goal
+Move the dispatcher HTTP router and background loops out of `harness/` into a reusable internal crate, without changing endpoint or DB semantics.
+
+### Context links
+- `docs/architecture/containers/dispatcher.md`
+- `docs/architecture/contracts.md`
+- `docs/architecture/task_lifecycle.md`
+
+### Deliverables
+- Add `crates/trace-dispatcher` containing the dispatcher router, handlers, outbox drainer, and lease reaper.
+- Keep `harness/src/dispatcher.rs` as a thin wrapper that wires config + lite adapters and exposes the existing `DispatcherServer` API.
+- Harness controls enable/disable of outbox and lease reaper loops.
+- Reuse existing `trace-core` traits/adapters; add no new abstractions.
+
+### STOP gate
+- `cd harness && cargo test -- --nocapture`
+
+---
+
+## Milestone 9: Sink extraction
+
+Status: **complete** (tag: `ms/9`).
+
+### Goal
+Move the buffer sink consumer (decode/validate/write + DLQ) out of `harness/` into a reusable internal crate, without changing DLQ or idempotency behavior.
+
+### Context links
+- `docs/adr/0004-alert-event-sinks.md`
+- `docs/architecture/operations.md`
+- `docs/specs/operators/alert_evaluate.md`
+
+### Deliverables
+- Add `crates/trace-sink` with the sink loop and message handler wired via `trace-core` `Queue`/`ObjectStore`.
+- Keep `harness/src/sink.rs` as a thin wrapper that constructs lite adapters and calls into `trace-sink`.
+- Bad batches remain fail closed: no partial DB writes and poison messages land in DLQ after retries.
+- Reuse existing `trace-core` traits/adapters; add no new abstractions.
+
+### STOP gate
+- `cd harness && cargo test -- --nocapture`
+
+---
+
+## Milestone 10: RuntimeInvoker interface
+
+Status: **complete** (tag: `ms/10`).
+
+### Goal
+Define a single `RuntimeInvoker` interface for "invoke untrusted UDF" with Lite and AWS implementations, without changing UDF behavior.
+
+### Context links
+- `docs/specs/udf.md`
+- `docs/specs/operators/udf.md`
+- `docs/architecture/contracts.md`
+
+### Deliverables
+- Add `trace_core::runtime::RuntimeInvoker` using `UdfInvocationPayload` as the request type.
+- Implement Lite invocation by routing existing harness `FakeRunner` through the trait (no behavior changes).
+- Add `trace_core::aws::AwsLambdaInvoker` behind the `aws` feature (compile-only at ms/10).
+- Reuse existing contracts; add no new public APIs.
+
+### STOP gate
+- `cd harness && cargo test -- --nocapture`
+- `cd crates/trace-core && cargo check --features aws`
+
+---
+
 ## Milestone 11: Parquet dataset versions + safe Query Service attach
 
 Status: **complete** (tag: `ms/11`).
@@ -114,7 +184,7 @@ Status: **complete** (tag: `ms/12`).
 Run Cryo locally to produce Parquet datasets and register dataset versions in Postgres state - no AWS required.
 
 ### Context links
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 - `docs/specs/ingestion.md`
 - `docs/architecture/data_model/orchestration.md` (dataset_versions)
 
@@ -138,23 +208,25 @@ Run Cryo locally to produce Parquet datasets and register dataset versions in Po
 
 Status: **complete** (tag: `ms/13`).
 
+Note: The ms/13 planner CLI (`trace-dispatcher plan-chain-sync`) is deprecated and removed; current deployments use `trace-dispatcher apply --file <spec.yaml>` and `trace-dispatcher status` (see ms/16).
+
 ### Goal
 End-to-end local chain sync planning: schedule bounded Cryo ingestion ranges, enqueue tasks, and advance progress safely under restarts.
 
 ### Context links
-- `docs/specs/lite_chain_sync_planner.md`
+- `docs/specs/chain_sync_entrypoint.md`
 - `docs/specs/ingestion.md`
 - `docs/architecture/task_lifecycle.md`
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 - `docs/architecture/data_versioning.md` (cursors + invalidations)
 
 ### Deliverables
-- Planner entrypoint (in `trace-dispatcher`):
+- Planner entrypoint (historical, ms/13):
   - CLI: `trace-dispatcher plan-chain-sync --chain-id ... --from-block ... --to-block ... --chunk-size ... --max-inflight ...`
   - v1 simplicity: **no** RPC head lookup; the caller supplies an explicit `to_block` bound.
 - State tables (Postgres state DB):
   - `state.chain_sync_cursor` stores the exclusive high-water mark `next_block`.
-  - `state.chain_sync_scheduled_ranges` tracks each planned inclusive range and its status (`scheduled` → `completed`).
+  - `state.chain_sync_scheduled_ranges` tracks each planned end-exclusive range (`[range_start, range_end)`) and its status (`scheduled` → `completed`).
 - Idempotency + correctness under failure:
   - The planner is safe to re-run: it uses row locking on the cursor row and `ON CONFLICT DO NOTHING` on `(chain_id, range_start, range_end)` to avoid duplicates.
   - It never schedules more than `max_inflight` ranges ahead of completion.
@@ -180,7 +252,7 @@ Prove the data path from “synced Parquet datasets” → “Query Service” �
 ### Context links
 - `docs/specs/alerting.md`
 - `docs/specs/query_service_task_query.md`
-- `docs/architecture/operators/alert_evaluate.md`
+- `docs/specs/operators/alert_evaluate.md`
 - `docs/adr/0004-alert-event-sinks.md`
 - `docs/architecture/invariants.md`
 
@@ -212,7 +284,7 @@ Lock a v1-safe, declarative `chain_sync` entrypoint that can sync multiple Cryo 
 - `docs/specs/chain_sync_entrypoint.md`
 - `docs/specs/ingestion.md`
 - `docs/specs/dag_configuration.md`
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 - `docs/architecture/task_lifecycle.md`
 - `docs/architecture/contracts.md`
 - `docs/specs/query_service_task_query.md`
@@ -242,12 +314,12 @@ Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run �
 ### Context links
 - `docs/specs/chain_sync_entrypoint.md`
 - `docs/specs/ingestion.md`
-- `docs/architecture/operators/cryo_ingest.md`
+- `docs/specs/operators/cryo_ingest.md`
 - `docs/architecture/task_lifecycle.md`
 - `docs/architecture/contracts.md`
 - `docs/specs/query_service_task_query.md`
 - `docs/specs/query_sql_gating.md`
-- `docs/deploy/lite_local_cryo_sync.md`
+- `docs/examples/lite_local_cryo_sync.md`
 - `docs/examples/chain_sync.monad_mainnet.yaml`
 
 ### Deliverables (high level)
@@ -287,11 +359,11 @@ Make “run it locally and sync a chain” a one-command experience.
 
 Docs
 - `docs/plan/trace_lite.md` (what `trace-lite` does / does not do)
-- `docs/deploy/lite_local_cryo_sync.md` (end-to-end runbook + smoke-test checklist)
+- `docs/examples/lite_local_cryo_sync.md` (end-to-end runbook + smoke-test checklist)
 
 ### STOP gate
 - Documented smoke test checklist with expected artifacts (datasets in MinIO + registry rows + query success)
-  - See: `docs/deploy/lite_local_cryo_sync.md`
+  - See: `docs/examples/lite_local_cryo_sync.md`
 
 ---
 
@@ -302,6 +374,11 @@ Goal: replace harness-only runner logic with a real bundle model that is safe un
 Notes:
 - Signed manifests, hash/size checks, and fail-closed fetch/execution rules.
 - Node/Python first; Rust follows common packaging/tooling.
+
+### Context links
+- `docs/specs/udf_bundle_manifest.md`
+- `docs/specs/udf.md`
+- `docs/adr/0003-udf-bundles.md`
 
 ---
 
@@ -345,7 +422,7 @@ This gate applies to **Query Service** only.
 - `docs/specs/query_service_task_query.md` (task query threat model)
 - `docs/architecture/containers/query_service.md` (DuckDB hardening + attach strategy)
 - `docs/adr/0002-networking.md` (no egress by default + egress services)
-- `docs/standards/security_hardening.md` (egress allowlists)
+- `docs/architecture/security.md` (egress allowlists)
 
 ### Deliverables
 - **Lite/local** (ms/15): document the local posture explicitly:

@@ -981,8 +981,8 @@ async fn user_audit_emitted_after_success() -> anyhow::Result<()> {
     let (cfg, pool, app) = setup().await?;
 
     let dataset_id = ALERTS_FIXTURE_DATASET_ID;
-    let user_sub = "user:test";
-    let token = issue_user_token(&cfg, user_sub, &[dataset_id])?;
+    let user_sub = format!("user:test:{}", Uuid::new_v4());
+    let token = issue_user_token(&cfg, &user_sub, &[dataset_id])?;
 
     let req = UserQueryRequest {
         dataset_id,
@@ -996,10 +996,14 @@ async fn user_audit_emitted_after_success() -> anyhow::Result<()> {
         r#"
         SELECT org_id, user_sub, dataset_id, result_row_count, columns_accessed
         FROM data.user_query_audit
+        WHERE user_sub = $1
+          AND dataset_id = $2
         ORDER BY query_time DESC
         LIMIT 1
         "#,
     )
+    .bind(&user_sub)
+    .bind(dataset_id)
     .fetch_one(&pool)
     .await?;
 
