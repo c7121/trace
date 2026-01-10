@@ -52,7 +52,7 @@ At minimum you usually want:
 
 See the full end-to-end runbook:
 
-- `docs/deploy/lite_local_cryo_sync.md`
+- `docs/examples/lite_local_cryo_sync.md`
 
 ## Notes
 

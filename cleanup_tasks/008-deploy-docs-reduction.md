@@ -8,7 +8,7 @@ Deployment content is spread across:
 - `docs/deploy/infrastructure.md`
 - `docs/deploy/deployment_profiles.md`
 - `docs/deploy/monitoring.md`
-- `docs/deploy/lite_local_cryo_sync.md`
+- `docs/examples/lite_local_cryo_sync.md`
 
 These likely mix "AWS production deployment", "Trace Lite harness", and "local data sync" concerns.
 

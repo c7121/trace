@@ -1,6 +1,6 @@
 # Lite local Cryo sync
 
-This runbook is for **proving Trace Lite end-to-end** on a laptop:
+This example is for **proving Trace Lite end-to-end** on a laptop:
 
 - You apply a `chain_sync` YAML once.
 - The dispatcher schedules ranges (genesis → tip-ish).

@@ -319,7 +319,7 @@ Implement the `chain_sync` entrypoint described in ms/15 so Dispatcher can run �
 - `docs/architecture/contracts.md`
 - `docs/specs/query_service_task_query.md`
 - `docs/specs/query_sql_gating.md`
-- `docs/deploy/lite_local_cryo_sync.md`
+- `docs/examples/lite_local_cryo_sync.md`
 - `docs/examples/chain_sync.monad_mainnet.yaml`
 
 ### Deliverables (high level)
@@ -359,11 +359,11 @@ Make “run it locally and sync a chain” a one-command experience.
 
 Docs
 - `docs/plan/trace_lite.md` (what `trace-lite` does / does not do)
-- `docs/deploy/lite_local_cryo_sync.md` (end-to-end runbook + smoke-test checklist)
+- `docs/examples/lite_local_cryo_sync.md` (end-to-end runbook + smoke-test checklist)
 
 ### STOP gate
 - Documented smoke test checklist with expected artifacts (datasets in MinIO + registry rows + query success)
-  - See: `docs/deploy/lite_local_cryo_sync.md`
+  - See: `docs/examples/lite_local_cryo_sync.md`
 
 ---
 
