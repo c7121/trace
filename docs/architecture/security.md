@@ -121,6 +121,61 @@ Minimum audit requirements:
 - Token/key rotation paths must exist (JWKS `kid`, worker token rotation).
 - Compromise response should include: revoke/rotate keys, invalidate outstanding capability tokens, and disable affected bundle IDs.
 
+## Hardening checklist
+
+This section is implementation guidance. It does not override the invariants above.
+
+### Secrets handling
+
+Baseline:
+- Untrusted runtimes (UDF bundles, including `runtime: lambda`) MUST NOT receive platform secrets.
+- Trusted operators SHOULD receive secrets via injection at launch (ECS task definition `secrets` or Lambda env vars), not by calling Secrets Manager at runtime.
+- Do not log secrets or tokens. Treat user JWTs and task capability tokens as secrets.
+
+Recommended naming convention:
+- `/{env}/trace/{component}/{secret_name}`
+
+Rotation paths to implement up front:
+- Worker token rotation (old and new overlap window; wrappers reload without redeploy).
+- Task JWKS key rotation via `kid` (verifiers cache, accept both keys for a window).
+- Postgres credential rotation.
+
+### Encryption
+
+Baseline:
+- TLS for all token-bearing calls.
+- Encrypt RDS volumes and snapshots.
+- S3 server-side encryption enabled.
+
+Recommended:
+- Prefer SSE-KMS for buckets that may contain PII datasets, scratch/query exports, or alert payloads.
+- Enforce HTTPS-only bucket policies for all Trace buckets.
+
+### Supply chain and artifact integrity
+
+Baseline:
+- UDF bundles MUST be content-addressed: record SHA-256 at upload time and verify it before execution.
+- Platform images SHOULD be pinned by digest in deployment manifests.
+
+### Logging and audit
+
+Baseline:
+- Attribute user requests to `(iss, sub)` and resolved `(user_id, org_id)`.
+- Attribute task mutations to `(task_id, attempt)`.
+- Never log raw bearer tokens.
+
+Recommended:
+- Separate audit logs from debug logs (different retention and access).
+- Pick explicit retention; 30-90 days is a common starting point for audit logs.
+
+### Network
+
+Recommended:
+- Prefer explicit egress allowlists (VPC endpoints and security group egress rules) rather than relying on "no NAT" alone.
+
 ## Related
 
-- `docs/standards/security_hardening.md` - implementation checklist (non-normative)
+- [contracts.md](contracts.md) - token claims and endpoint classes
+- [user_api_contracts.md](user_api_contracts.md) - user route allowlist and authz invariants
+- [Gateway](containers/gateway.md) - ingress behavior
+- [Query Service](containers/query_service.md) - query enforcement points

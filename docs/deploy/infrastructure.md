@@ -103,7 +103,7 @@ flowchart TB
 
 ## Key Resources
 
-- **Ingress**: API Gateway validates user JWTs and routes to an **internal** ALB via VPC Link. Backend services must validate the user JWT and derive identity/role from it. Task-scoped endpoints (`/v1/task/*`) are internal-only and are not routed through the public Gateway. See `docs/architecture/containers/gateway.md` and `docs/standards/security_model.md`.
+- **Ingress**: API Gateway validates user JWTs and routes to an **internal** ALB via VPC Link. Backend services must validate the user JWT and derive identity/role from it. Task-scoped endpoints (`/v1/task/*`) are internal-only and are not routed through the public Gateway. See `docs/architecture/containers/gateway.md` and `docs/architecture/security.md`.
 - **Lambda**: any Lambda that must call internal services (Dispatcher, Query Service, sinks) MUST be **VPC-attached** in private subnets with **no NAT**. Required AWS APIs are reached via VPC endpoints.
 - **VPC**: Private/public subnets, VPC endpoints for S3/SQS (and other AWS APIs as needed)
 - **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)

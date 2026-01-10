@@ -58,7 +58,7 @@ See: `db_boundaries.md`, `data_model/`, ADRs `0008` and `0009`.
   - Query Service task API (`/v1/task/query`) which is itself fail-closed and sandboxed.
 - `/internal/*` endpoints are **internal-only** and must not be reachable from untrusted runtimes.
 
-See: `standards/security_model.md`, `contracts.md`.
+See: `security.md`, `contracts.md`.
 
 ## Query safety
 

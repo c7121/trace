@@ -350,7 +350,7 @@ This gate applies to **Query Service** only.
 - `docs/specs/query_service_task_query.md` (task query threat model)
 - `docs/architecture/containers/query_service.md` (DuckDB hardening + attach strategy)
 - `docs/adr/0002-networking.md` (no egress by default + egress services)
-- `docs/standards/security_hardening.md` (egress allowlists)
+- `docs/architecture/security.md` (egress allowlists)
 
 ### Deliverables
 - **Lite/local** (ms/15): document the local posture explicitly:

@@ -3,7 +3,7 @@
 This page defines the **minimum viable monitoring** for Trace v1.
 
 It is intentionally small. Do not spread numeric thresholds across multiple files; use:
-- `docs/standards/operations.md` for default timings/limits and alert thresholds
+- `docs/architecture/operations.md` for default timings/limits and alert thresholds
 
 ## What to alert on
 
@@ -32,9 +32,9 @@ It is intentionally small. Do not spread numeric thresholds across multiple file
 
 - Structured JSON logs to CloudWatch.
 - Never log bearer tokens (user JWTs or task capability tokens).
-- Use a separate audit stream if you need longer retention than debug logs (see `docs/standards/operations.md`).
+- Use a separate audit stream if you need longer retention than debug logs (see `docs/architecture/operations.md`).
 
 ## Related
 
 - [infrastructure.md](infrastructure.md) - CloudWatch, ECS, and AWS layout
-- [operations.md](../standards/operations.md) - defaults and runbooks
+- [operations.md](../architecture/operations.md) - defaults and runbooks

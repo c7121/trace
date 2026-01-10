@@ -9,7 +9,6 @@ How to use:
 
 Task list (recommended order):
 - `cleanup_tasks/002-standardize-docs-entrypoint.md`: Standardize the docs entrypoint name and links.
-- `cleanup_tasks/003-remove-standards-folder.md`: Rehome and reduce cross-cutting "standards" docs, then remove `docs/standards/`.
 - `cleanup_tasks/004-consolidate-query-service-docs.md`: Reduce duplication across Query Service docs by assigning owners and trimming repeats.
 - `cleanup_tasks/005-consolidate-dispatcher-docs.md`: Reduce duplication across Dispatcher docs by assigning owners and trimming repeats.
 - `cleanup_tasks/006-merge-dag-configuration-docs.md`: Remove overlap between DAG deployment/config docs and make one canonical owner.
@@ -19,3 +18,4 @@ Task list (recommended order):
 
 Completed:
 - `001-slim-docs-portal`: `docs/readme.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
+- `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.

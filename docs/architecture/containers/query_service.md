@@ -146,7 +146,7 @@ The sections below are not implemented yet. They document a possible future shap
 | `sql` | string | required | SQL query (SELECT only) |
 | `mode` | string | `interactive` | `interactive` or `batch` |
 | `format` | string | `json` | Response format: `json`, `csv` (inline when small), `parquet` (exported) |
-| `timeout_seconds` | int | (see operations) | Max execution time (clamped; see `docs/standards/operations.md`) |
+| `timeout_seconds` | int | (see operations) | Max execution time (clamped; see `docs/architecture/operations.md`) |
 
 ### Responses
 
@@ -352,7 +352,7 @@ See `docs/architecture/data_model/pii.md`.
 
 - Concurrency cap: **Lite** runs queries serially (single DuckDB connection behind a mutex). Before enabling `/v1/query`, implement a small pool (e.g., 3-5 concurrent queries) and backpressure; beyond the cap, queue briefly and then force `mode: batch`.
 - Memory cap with spill: DuckDB spill-to-disk enabled; log spill events.
-- Timeouts: follow `docs/standards/operations.md` (60s for `/v1/query`, 300s for `/v1/task/query`); long-running jobs go to batch.
+- Timeouts: follow `docs/architecture/operations.md` (60s for `/v1/query`, 300s for `/v1/task/query`); long-running jobs go to batch.
 - Metrics: emit queue depth, queue age p95, spill count, OOM/circuit trips, forced-batch count.
 
 Logs include: query hash (not full SQL for PII), org_id, user_id, duration, row_count, error (if any).

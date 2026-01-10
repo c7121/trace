@@ -69,7 +69,7 @@ Ingestion operators MUST:
 - For Parquet outputs (replace-style datasets), the ingestion task MUST report dataset publications on task completion so the Dispatcher can register `dataset_versions` idempotently (Lite: `datasets_published` on `POST /v1/task/complete`).
 
 ## Security considerations
-- Ingestion code may need provider credentials (RPC keys). Credentials are injected via platform secret handling; untrusted code must not gain broad AWS perms (see [security_model.md](../standards/security_model.md)).
+- Ingestion code may need provider credentials (RPC keys). Credentials are injected via platform secret handling; untrusted code must not gain broad AWS perms (see [security.md](../architecture/security.md)).
 
 ## Alternatives considered
 - Hardcode ingestion into the platform.

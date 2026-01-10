@@ -9,6 +9,8 @@ For a product overview and user stories, see the repo root [README.md](../README
 If you are implementing Trace:
 - Architecture index: [architecture/README.md](architecture/README.md)
 - System invariants: [architecture/invariants.md](architecture/invariants.md)
+- Security model: [architecture/security.md](architecture/security.md)
+- Operations: [architecture/operations.md](architecture/operations.md)
 - C4 diagrams: [architecture/c4.md](architecture/c4.md)
 - Contracts: [architecture/contracts.md](architecture/contracts.md)
 
@@ -28,6 +30,3 @@ If you are using Trace Lite:
 
 Project sequencing:
 - Planning: [plan/README.md](plan/README.md)
-
-Doc authoring:
-- Hygiene checklist: [standards/docs_hygiene.md](standards/docs_hygiene.md)

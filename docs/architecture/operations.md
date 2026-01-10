@@ -20,9 +20,7 @@ It is intentionally **self-contained** so operators and engineers can reason abo
 - Control-plane state is durable across restarts.
 
 ### Security
-- Untrusted UDFs have no direct Postgres access and no direct internet egress.
-- Secrets are injected at launch (not fetched by untrusted code).
-- Outbound communication is centralized in egress services (Delivery Service, RPC Egress Gateway).
+- See [security.md](security.md) for trust boundaries, auth model, and egress and secrets invariants.
 
 ### Observability
 - Every unit of work must be attributable to an org/job/task.
@@ -46,7 +44,7 @@ These controls exist to protect platform stability and costs. They are not secur
 
 ## Retry safety and idempotency
 
-Trace assumes **at-least-once** delivery. The system is correct if the invariants in [invariants.md](../architecture/invariants.md) hold.
+Trace assumes **at-least-once** delivery. The system is correct if the invariants in [invariants.md](invariants.md) hold.
 
 Key operational implications:
 - **Task execution**: Postgres state is source of truth; queues are wake-ups only; attempt fencing is strict.

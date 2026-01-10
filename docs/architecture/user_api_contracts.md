@@ -19,7 +19,7 @@ This document does **not** restate payload schemas in full; feature specs under 
   - roles/permissions (if enabled)
 - All reads and writes MUST be scoped to `org_id`. Cross-org access is always forbidden.
 
-Claim mapping for the user JWT is defined in: [security_model.md](../standards/security_model.md).
+Claim mapping for the user JWT is defined in: [security.md](security.md).
 
 ## Route allowlist
 
