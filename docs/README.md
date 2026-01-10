@@ -15,7 +15,7 @@ If you are implementing Trace:
 - Contracts: [architecture/contracts.md](architecture/contracts.md)
 
 If you are designing or changing behavior:
-- Specs: [specs/](specs/)
+- Specs: [specs/README.md](specs/README.md)
 - ADRs: [adr/](adr/)
 
 If you are operating or deploying:
