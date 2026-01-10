@@ -12,7 +12,6 @@ Task list (recommended order):
 - `cleanup_tasks/011-align-cryo-cli-docs.md`: Make Cryo CLI notes match the current worker invocation.
 - `cleanup_tasks/012-docs-navigation-workflow.md`: Clarify docs taxonomy and a design, implement, validate workflow.
 - `cleanup_tasks/013-specs-index-jtbd.md`: Add a small specs index and frame specs as JTBD and behavior surfaces.
-- `cleanup_tasks/014-normalize-block-range-semantics.md`: Normalize inclusive vs end-exclusive range language across architecture docs.
 - `cleanup_tasks/015-demote-canonical-ddl-and-dedrift-data-model-docs.md`: Remove drift and contradictions in `docs/architecture/data_model/` and clarify migrations as source of truth.
 - `cleanup_tasks/016-move-operator-recipes-to-examples.md`: Move operator "Recipe" sections into `docs/examples/` to reduce operator doc section sprawl.
 - `cleanup_tasks/017-fix-mermaid-label-parentheses.md`: Fix Mermaid label text that contains parentheses across docs.
@@ -27,5 +26,6 @@ Completed:
 - `006-merge-dag-configuration-docs`: made `docs/specs/dag_configuration.md` config-only and `docs/architecture/dag_deployment.md` deploy-only; removed overlap and linkified ownership.
 - `007-consolidate-milestone-micro-specs`: folded milestone micro-spec content into `docs/plan/milestones.md`; removed obsolete micro specs from `docs/specs/`.
 - `008-deploy-docs-reduction`: added `docs/deploy/README.md` entrypoint; moved Trace Lite local sync doc to `docs/examples/`; trimmed `docs/deploy/deployment_profiles.md` to be link-first.
+- `014-normalize-block-range-semantics`: normalized block range semantics across contracts, operator specs, and planning docs (start-inclusive, end-exclusive).
 - `018-modularize-interface-contracts`: split `docs/architecture/contracts.md` into smaller focused contract docs under `docs/architecture/contracts/` and made `docs/architecture/contracts.md` an index.
 - `019-rehome-operator-docs-as-specs`: moved operator docs under `docs/specs/operators/`, added status lines, and updated links.
