@@ -16,11 +16,11 @@ If you are implementing Trace:
 
 If you are designing or changing behavior:
 - Specs: [specs/README.md](specs/README.md)
-- ADRs: [adr/](adr/)
+- ADRs: [adr/README.md](adr/README.md)
 
 If you are operating or deploying:
 - Deploy: [deploy/](deploy/)
-- Examples: [examples/](examples/)
+- Examples: [examples/README.md](examples/README.md)
 
 If you are working on operators:
 - Operator specs: [specs/operators/README.md](specs/operators/README.md)
@@ -32,7 +32,7 @@ If you are using Trace Lite:
 
 - Design: start with the relevant spec in [specs/](specs/), then confirm [architecture/invariants.md](architecture/invariants.md), [architecture/contracts.md](architecture/contracts.md), and [architecture/security.md](architecture/security.md).
 - Implement: use the relevant container doc in [architecture/containers/](architecture/containers/) and operator spec in [specs/operators/README.md](specs/operators/README.md). Update [architecture/data_model/](architecture/data_model/) if schemas change.
-- Validate: use [examples/](examples/) for end-to-end runs and keep the harness green (see [harness/README.md](../harness/README.md)).
+- Validate: use [examples/README.md](examples/README.md) for end-to-end runs and keep the harness green (see [harness/README.md](../harness/README.md)).
 
 Project sequencing:
 - Planning: [plan/README.md](plan/README.md)

@@ -31,7 +31,7 @@ Specs define Trace behavior surfaces (JTBD): what the system does, what inputs a
 - System invariants: [../architecture/invariants.md](../architecture/invariants.md)
 - Interface contracts: [../architecture/contracts.md](../architecture/contracts.md)
 - Security model: [../architecture/security.md](../architecture/security.md)
-- ADRs: [../adr/](../adr/)
+- ADRs: [../adr/README.md](../adr/README.md)
 
 ## Templates
 

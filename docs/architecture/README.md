@@ -40,4 +40,4 @@ After reading Core concepts above:
 | User-facing routes and authz | [user_api_contracts.md](user_api_contracts.md) |
 | Trust boundaries and identity | [security.md](security.md) |
 | Product and feature intent | [specs/](../specs/) |
-| Decision rationale | [adr/](../adr/) |
+| Decision rationale | [adr/README.md](../adr/README.md) |
