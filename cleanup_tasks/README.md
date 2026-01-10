@@ -9,7 +9,6 @@ How to use:
 
 Task list (recommended order):
 - `cleanup_tasks/016-move-operator-recipes-to-examples.md`: Move operator "Recipe" sections into `docs/examples/` to reduce operator doc section sprawl.
-- `cleanup_tasks/020-clarify-data-versioning-doc-ownership.md`: Clarify behavior vs schema ownership for data versioning docs.
 
 Completed:
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
@@ -26,6 +25,7 @@ Completed:
 - `013-specs-index-jtbd`: added `docs/specs/README.md` as an index and linked it from `docs/README.md`.
 - `015-demote-canonical-ddl-and-dedrift-data-model-docs`: clarified `harness/migrations/` as the schema source of truth and made ERDs relationship-focused to reduce drift.
 - `017-fix-mermaid-label-parentheses`: verified Mermaid label text contains no parentheses; remaining parentheses are only Mermaid shape syntax.
+- `020-clarify-data-versioning-doc-ownership`: clarified behavior vs schema ownership and reduced duplication between the behavior contract and the schema mapping.
 - `014-normalize-block-range-semantics`: normalized block range semantics across contracts, operator specs, and planning docs (start-inclusive, end-exclusive).
 - `018-modularize-interface-contracts`: split `docs/architecture/contracts.md` into smaller focused contract docs under `docs/architecture/contracts/` and made `docs/architecture/contracts.md` an index.
 - `019-rehome-operator-docs-as-specs`: moved operator docs under `docs/specs/operators/`, added status lines, and updated links.
