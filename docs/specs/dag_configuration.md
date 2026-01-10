@@ -1,4 +1,4 @@
-# DAG configuration and deployment
+# DAG configuration
 
 Status: Draft
 Owner: Platform
@@ -15,7 +15,7 @@ Trace DAGs are defined as a single YAML document that declares jobs (operators +
 - **Operator**: a built-in implementation (trusted) that runs in a platform runtime.
 - **UDF job**: a job whose logic is user-supplied code (untrusted).
 - **Activation**:
-  - `reactive`: runs when upstream outputs update,
+  - `reactive`: runs when upstream outputs update (per-update: 1 upstream event produces 1 task per dependent reactive job, no dispatcher-side coalescing),
   - `source`: long-running follower/producer,
   - `manual`: runs only when explicitly triggered (future).
 - **Runtime**: where code executes (`lambda` for UDFs in v1; `ecs_platform` for trusted operators).
@@ -142,6 +142,7 @@ Deploy/validation MUST reject configs that set these fields. This prevents “co
 Notes:
 - `runtime: lambda` is allowed for **untrusted** user code, but the runtime is a **platform-managed runner** (see [udf.md](udf.md)).
 - `ecs_udf` is **reserved for v2** pending a zero-trust design that prevents untrusted code from inheriting privileged AWS credentials.
+- Bootstrap actions run once when a `dag_version` becomes active and are not re-run on ordinary restarts.
 
 ### Input filters (`where`)
 Reactive jobs may narrow upstream inputs with a `where` clause. The filter is applied by the platform (not user code) and must be safe/validatable.
@@ -203,13 +204,11 @@ See:
 
 ### Defaults and overrides
 - Values in `defaults` apply to all jobs unless overridden at job level.
-- Backpressure fields are hints; Dispatcher is the source of truth for throttling and pausing (see [contracts.md](../architecture/contracts.md)).
+- Backpressure is owned by the Dispatcher. In v1, per-job backpressure fields are reserved and deploy validation rejects configs that set them (see "Reserved fields" above).
 
 ### Deployment semantics
-- Deploying the same YAML again is idempotent: the system de-dupes by `yaml_hash`.
-- A deployed DAG version is immutable.
-- Activating a version updates the org+dag active pointer (see `dag_current_versions` in [orchestration.md](../architecture/data_model/orchestration.md)).
-- Rollback is implemented by switching the active pointer to a prior version.
+Deployment, rematerialization, cutover, and rollback invariants live in [dag_deployment.md](../architecture/dag_deployment.md).
+This spec defines the DAG YAML surface only.
 
 ## Contract requirements
 - The platform MUST validate DAG YAML before accepting it and return actionable errors.
