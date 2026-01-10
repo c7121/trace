@@ -18,7 +18,7 @@ This is a new public endpoint that executes untrusted SQL and introduces a new a
 - ADR 0002 (Networking, no egress by default)
 
 ## Context
-Today Query Service implements only task-scoped queries (`POST /v1/task/query`) gated by a task capability token.
+Query Service already implements task-scoped queries (`POST /v1/task/query`) gated by a task capability token.
 
 We need a user query surface to enable interactive inspection after a local sync without relying on task-only capability tokens.
 
@@ -32,7 +32,7 @@ For Lite, user authn is dev-only and uses an HS256 JWT. AWS/OIDC integration is 
 
 ## Non-goals
 - Dataset registry lookup by dataset name.
-- Pagination, exports, caching, or persisted query results.
+- Pagination, exports, caching, or persisted query results (future shape: `docs/specs/query_service_query_results.md`).
 - Any non-SELECT SQL or multi-statement queries.
 - OIDC/JWKS verification (Lite uses HS256 only).
 

@@ -93,7 +93,11 @@ These defaults exist to prevent “it worked in dev” drift. They are starting 
 | Buffer batch artifact max size | 16 MiB | Keep batch artifacts small; shard by partition if needed |
 | Query max runtime (user) | 60s | For `/v1/query`; encourage export for larger work |
 | Query max runtime (task) | 300s | For `/v1/task/query`; tasks must chunk work if longer |
-| Query inline result cap | 10 MiB | Above this, export to object storage and return a URI |
+| Query inline result cap (`inline_byte_limit`) | 10 MiB | Above this, export to object storage and return a URI |
+| Query inline row cap (`inline_row_limit`) | 10,000 rows | Align with `/v1/query` `limit` clamp; larger results should export |
+| Query presigned result URL expiry | 1h | User query exports only |
+| Query concurrency cap (Lite) | 1 | Lite runs queries serially (single DuckDB connection behind a mutex) |
+| Query concurrency cap (shared) | 3-5 | When enabling `/v1/query` for multiple users, add a small pool and backpressure; over cap, fall back to batch mode (`docs/specs/query_service_query_results.md`) |
 | Scratch/query export retention | 7d | Keep short; make it explicit |
 | Staging output retention | 7d | Uncommitted attempt outputs may be GC’d; never delete committed outputs |
 | Delivery max attempts | 12 | After this, mark delivery terminal-failed and alert |

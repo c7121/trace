@@ -8,7 +8,6 @@ How to use:
 - I will implement only that task, keeping the diff focused.
 
 Task list (recommended order):
-- `cleanup_tasks/004-consolidate-query-service-docs.md`: Reduce duplication across Query Service docs by assigning owners and trimming repeats.
 - `cleanup_tasks/005-consolidate-dispatcher-docs.md`: Reduce duplication across Dispatcher docs by assigning owners and trimming repeats.
 - `cleanup_tasks/006-merge-dag-configuration-docs.md`: Remove overlap between DAG deployment/config docs and make one canonical owner.
 - `cleanup_tasks/007-consolidate-milestone-micro-specs.md`: Remove tiny milestone specs by folding into the milestone ledger.
@@ -19,3 +18,4 @@ Completed:
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
 - `002-standardize-docs-entrypoint`: renamed the docs entrypoint to `docs/README.md` and updated references.
 - `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.
+- `004-consolidate-query-service-docs`: trimmed `docs/architecture/containers/query_service.md` to be link-first; moved non-C4 details into specs and ops/monitoring docs.

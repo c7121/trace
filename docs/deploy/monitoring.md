@@ -23,6 +23,8 @@ It is intentionally small. Do not spread numeric thresholds across multiple file
 - Sink consumer failure rate
 - Buffered dataset DLQ growth and replay backlog
 - Query Service error rate / timeouts / export failures
+  - Suggested metrics: `query_duration_ms`, `query_count`, `query_errors`, `query_result_rows`, `query_result_bytes`
+  - Additional signals: queue depth and queue age p95, spill count, OOM or circuit trips, forced-batch count
 
 ### External delivery health
 - Delivery terminal failures (exceeded max attempts)
@@ -33,6 +35,7 @@ It is intentionally small. Do not spread numeric thresholds across multiple file
 - Structured JSON logs to CloudWatch.
 - Never log bearer tokens (user JWTs or task capability tokens).
 - Use a separate audit stream if you need longer retention than debug logs (see `docs/architecture/operations.md`).
+- Query Service logs should include query hash (not raw SQL), org_id, user_id or task_id, duration, row_count, and an error code when present.
 
 ## Related
 
