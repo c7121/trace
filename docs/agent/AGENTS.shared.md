@@ -108,11 +108,11 @@ Unless explicitly out of scope, the agent MUST:
 - When citing a reference, the agent MUST state briefly what it informed (e.g., “used for X decision/claim”).
 
 ## Stack modules (apply if detected)
-Rust (Cargo.toml) — strict
+Rust (Cargo.toml) - strict
 - Before claiming completion, propose running: cargo fmt; cargo clippy -- -D warnings; cargo test
 - Avoid unwrap/expect in library/business logic unless explicitly justified (tests and prototypes may use them).
 
-TypeScript (package.json) — pnpm default
+TypeScript (package.json) - pnpm default
 - Prefer pnpm scripts; confirm exact scripts before running (do not assume).
 - Keep TS strict; avoid `any`; validate untrusted input at boundaries.
 
