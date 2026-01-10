@@ -15,7 +15,7 @@ Status: Planned
 
 ## Description
 
-Consumes an ordered stream of upstream events (e.g., `block_number` updates) and emits **range manifests** as partitioned events with `partition_key` like `"1000000-1010000"` (inclusive).
+Consumes an ordered stream of upstream events (e.g., `block_number` updates) and emits range manifests as partitioned events with `partition_key` like `"1000000-1010000"` representing the half-open interval `[1000000, 1010000)`.
 
 This makes “bulk/compaction” behavior explicit in the DAG (instead of implicit Dispatcher coalescing).
 
@@ -49,8 +49,8 @@ This is a normal operator node in v1 (not a “virtual” planner node). The inv
 
 Each emitted manifest includes both:
 
-- `partition_key`: `"start-end"` (inclusive), and
-- explicit range fields: `start`, `end` (inclusive)
+- `partition_key`: `"start-end"` where `end` is end-exclusive, and
+- explicit range fields: `start` (inclusive), `end` (end-exclusive)
 
 See [task_scoped_endpoints.md](../../architecture/contracts/task_scoped_endpoints.md) for the canonical `/v1/task/events` partitioned event shape.
 

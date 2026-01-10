@@ -159,9 +159,9 @@ Partitioned shape:
 }
 ```
 
-For block-range partitions, `partition_key` is `{start}-{end}` (inclusive).
+For block-range partitions, `start` is inclusive and `end` is end-exclusive. The partition represents the half-open interval `[start, end)`, and `partition_key` is `{start}-{end}`.
 
-For Parquet datasets (especially Cryo-derived datasets), keep the `{start}_{end}` range in the Parquet object key or filename (for example `blocks_{start}_{end}.parquet`) for interoperability and debugging. The dataset root or prefix is still resolved via the registry and may be UUID-based (for example `.../dataset/{dataset_uuid}/version/{dataset_version}/...`).
+For Parquet datasets (especially Cryo-derived datasets), keep the `{start}_{end}` range in the Parquet object key or filename (for example `blocks_{start}_{end}.parquet`) for interoperability and debugging. The range uses the same `[start, end)` semantics as the event fields. The dataset root or prefix is still resolved via the registry and may be UUID-based (for example `.../dataset/{dataset_uuid}/version/{dataset_version}/...`).
 
 Batch shape:
 

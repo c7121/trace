@@ -30,7 +30,7 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 |-------|------|-------------|
 | `chain_id` | config | Target chain (e.g., 10143 for Monad) |
 | `start_block` | config | First block to fetch |
-| `end_block` | config | Last block to fetch |
+| `end_block` | config | End-exclusive block bound (`[start_block, end_block)`) |
 | `datasets` | config | Cryo dataset types (blocks, txs, logs, traces) |
 | `rpc_pool` | config | RPC provider pool to use |
 
@@ -49,7 +49,8 @@ Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC
 ## Behavior
 
 - Idempotent: re-running the same `{chain_id, range, config_hash}` produces the same deterministic `dataset_version` and `storage_prefix`
-- Writes deterministic Parquet object keys that keep the range visible for debugging (end is inclusive).
+- Writes deterministic Parquet object keys that keep the range visible for debugging (end is end-exclusive).
+- When invoking Cryo, use `--blocks start:end` where `end` is end-exclusive (Cryo range convention).
 
 ### Lite/harness note
 In the harness, `cryo_ingest` defaults to a deterministic stub that writes a small Parquet dataset without requiring the real Cryo binary or chain RPC access. Real Cryo integration is opt-in and introduced incrementally.

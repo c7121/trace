@@ -226,7 +226,7 @@ End-to-end local chain sync planning: schedule bounded Cryo ingestion ranges, en
   - v1 simplicity: **no** RPC head lookup; the caller supplies an explicit `to_block` bound.
 - State tables (Postgres state DB):
   - `state.chain_sync_cursor` stores the exclusive high-water mark `next_block`.
-  - `state.chain_sync_scheduled_ranges` tracks each planned inclusive range and its status (`scheduled` → `completed`).
+  - `state.chain_sync_scheduled_ranges` tracks each planned end-exclusive range (`[range_start, range_end)`) and its status (`scheduled` → `completed`).
 - Idempotency + correctness under failure:
   - The planner is safe to re-run: it uses row locking on the cursor row and `ON CONFLICT DO NOTHING` on `(chain_id, range_start, range_end)` to avoid duplicates.
   - It never schedules more than `max_inflight` ranges ahead of completion.

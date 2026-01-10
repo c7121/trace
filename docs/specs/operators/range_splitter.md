@@ -26,7 +26,7 @@ Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010
 |-------|------|-------------|
 | `partition_key` | event | Range to split (e.g., `"1000000-1010000"`) |
 | `start` | event | Inclusive range start (preferred over parsing `partition_key`) |
-| `end` | event | Inclusive range end (preferred over parsing `partition_key`) |
+| `end` | event | End-exclusive range end (preferred over parsing `partition_key`) |
 | `chunk_size` | config | Optional subdivision size (e.g., `1000` blocks per emitted event) |
 
 ## Outputs
