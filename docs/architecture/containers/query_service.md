@@ -15,16 +15,16 @@ Stateless service that executes validated, read-only SQL against authorized hot 
 This doc is intentionally link-first. API semantics and data model details live elsewhere:
 
 - API semantics:
-  - User query endpoint: `docs/specs/query_service_user_query.md`
-  - Task query endpoint: `docs/specs/query_service_task_query.md`
-- Query results and exports: `docs/specs/query_service_query_results.md`
-- SQL gate: `docs/specs/query_sql_gating.md`
-- Capability token rules: `docs/architecture/contracts.md`
-- Operations defaults: `docs/architecture/operations.md`
-- Security invariants: `docs/architecture/security.md`
-- Data model: `docs/architecture/data_model/query_service.md`
-- PII audit rules: `docs/architecture/data_model/pii.md`
-- Query results decision: `docs/adr/0005-query-results.md`
+  - User query endpoint: [query_service_user_query.md](../../specs/query_service_user_query.md)
+  - Task query endpoint: [query_service_task_query.md](../../specs/query_service_task_query.md)
+- Query results and exports: [query_service_query_results.md](../../specs/query_service_query_results.md)
+- SQL gate: [query_sql_gating.md](../../specs/query_sql_gating.md)
+- Capability token rules: [contracts.md](../contracts.md)
+- Operations defaults: [operations.md](../operations.md)
+- Security invariants: [security.md](../security.md)
+- Data model: [data_model/query_service.md](../data_model/query_service.md)
+- PII audit rules: [data_model/pii.md](../data_model/pii.md)
+- Query results decision: [ADR 0005](../../adr/0005-query-results.md)
 
 ## Architecture
 
@@ -59,13 +59,13 @@ flowchart LR
 
 ## Interfaces
 
-- `POST /v1/query` - user-scoped interactive query: `docs/specs/query_service_user_query.md`
-- `POST /v1/task/query` - task-scoped query: `docs/specs/query_service_task_query.md`
+- `POST /v1/query` - user-scoped interactive query: [query_service_user_query.md](../../specs/query_service_user_query.md)
+- `POST /v1/task/query` - task-scoped query: [query_service_task_query.md](../../specs/query_service_task_query.md)
 
 ## Query capabilities
 
-Query Service supports a constrained SQL surface and is designed to fail closed. The canonical allow and deny rules live in `docs/specs/query_sql_gating.md`.
+Query Service supports a constrained SQL surface and is designed to fail closed. The canonical allow and deny rules live in [query_sql_gating.md](../../specs/query_sql_gating.md).
 
 ## Query results
 
-Query executions that produce persisted results use the platform-managed `query_results` table. See `docs/adr/0005-query-results.md` and `docs/architecture/data_model/query_service.md`.
+Query executions that produce persisted results use the platform-managed `query_results` table. See [ADR 0005](../../adr/0005-query-results.md) and [Query Service data model](../data_model/query_service.md).
