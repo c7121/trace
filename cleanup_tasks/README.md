@@ -8,6 +8,28 @@ How to use:
 - I will implement only that task, keeping the diff focused.
 
 Task list (recommended order):
+## Critical assessment tasks (recommended order)
+
+- `cleanup_tasks/021-assess-docs-portal-and-entrypoints.md`: Critically assess high-level docs navigation and entrypoints.
+- `cleanup_tasks/022-assess-architecture-index-and-core-concepts.md`: Assess `docs/architecture/README.md` for ownership, reading order, and discoverability.
+- `cleanup_tasks/023-assess-architecture-correctness-and-lifecycle.md`: Assess invariants, task lifecycle, and event flow docs for correctness and duplication.
+- `cleanup_tasks/024-assess-architecture-security-and-contracts.md`: Assess security model and contract docs for boundary clarity and drift risk.
+- `cleanup_tasks/025-assess-architecture-data-versioning-and-data-model.md`: Assess data versioning behavior and schema docs for structure and duplication.
+- `cleanup_tasks/026-assess-architecture-c4-and-containers.md`: Assess C4 and container docs for cohesion and link-first navigation.
+- `cleanup_tasks/027-assess-architecture-operations-and-deployment.md`: Assess ops vs deploy docs boundary and eliminate overlap.
+- `cleanup_tasks/028-assess-specs-index-and-governance.md`: Assess specs index and templates for structure and workflow fit.
+- `cleanup_tasks/029-assess-spec-platform-surface-dag-config.md`: Assess DAG configuration spec clarity and ownership boundaries.
+- `cleanup_tasks/030-assess-specs-chain-sync-and-ingestion.md`: Assess chain sync and ingestion specs for cohesion and redundancy.
+- `cleanup_tasks/031-assess-specs-query-surface.md`: Assess query specs for surface clarity and duplication.
+- `cleanup_tasks/032-assess-specs-udf-surface.md`: Assess UDF specs for boundaries, safety hooks, and duplication.
+- `cleanup_tasks/033-assess-specs-alerting-surface.md`: Assess alerting spec for ownership and overlap with operators and data model.
+- `cleanup_tasks/034-assess-specs-metadata-and-error-contracts.md`: Assess metadata and error contract specs for completeness and duplication.
+- `cleanup_tasks/035-assess-operator-specs-catalog.md`: Assess operator spec catalog vs examples for structure and drift risk.
+- `cleanup_tasks/036-assess-adrs-structure-and-durability.md`: Assess ADRs for continued relevance and duplication with specs/architecture.
+- `cleanup_tasks/037-assess-examples-folder-cohesion.md`: Assess examples folder for cohesion and discoverability.
+- `cleanup_tasks/038-assess-planning-docs-cohesion.md`: Assess planning docs for usefulness, scope, and ownership.
+- `cleanup_tasks/039-assess-harness-docs-entrypoint.md`: Assess harness docs as an entrypoint for Trace Lite and verification.
+- `cleanup_tasks/040-audit-orphaned-or-duplicate-docs.md`: Audit unlinked or duplicated docs and propose disposition.
 
 Completed:
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
