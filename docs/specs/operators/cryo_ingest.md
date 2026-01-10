@@ -11,97 +11,55 @@ Status: Implemented (Lite/harness stub)
 | **Runtime** | `ecs_platform` |
 | **Activation** | `reactive` |
 | **Execution Strategy** | PerPartition |
-| **Idle Timeout** | `0` (batch) |
 | **Image** | `cryo_ingest:latest` |
 
-## Description
+## Contract
 
-### Parallelism and RPC throughput
+This operator typically runs as a `chain_sync`-planned task that executes Cryo for one dataset and publishes exactly one dataset version.
 
-- Use `scaling.max_concurrency` to cap in-flight partitions for this job.
-- Use `config.rpc_pool` to select an RPC pool managed by the RPC Egress Gateway. Pools may include multiple provider URLs/keys; keys must not appear in DAG YAML.
+- Range semantics: `[range_start, range_end)` (end-exclusive). Invoke Cryo as `--blocks {range_start}:{range_end}` (do not pre-decrement).
+- Single-output: one successful attempt publishes exactly one `DatasetPublication`.
 
+### Task payload
 
-Fetches historical blockchain data (blocks, transactions, logs, traces) from RPC providers and writes to S3 as Parquet files. Used for bootstrap sync and archival.
+These fields are the canonical `chain_sync`-planned payload contract.
 
-## Inputs
-
-| Input | Type | Description |
+| Field | Type | Description |
 |-------|------|-------------|
-| `chain_id` | config | Target chain (e.g., 10143 for Monad) |
-| `start_block` | config | First block to fetch |
-| `end_block` | config | End-exclusive block bound (`[start_block, end_block)`) |
-| `datasets` | config | Cryo dataset types (blocks, txs, logs, traces) |
-| `rpc_pool` | config | RPC provider pool to use |
+| `dataset_uuid` | event | Published dataset identity for this stream (resolved at apply-time) |
+| `dataset_key` | event | Stable stream key from config (debugging and validation) |
+| `chain_id` | event | Target chain ID |
+| `cryo_dataset_name` | event | Cryo dataset name (first CLI arg), for example `blocks` or `logs` |
+| `rpc_pool` | event | RPC pool name for the worker to resolve to a URL (secrets must not appear in YAML) |
+| `range_start` | event | Inclusive start block |
+| `range_end` | event | End-exclusive end block |
+| `config_hash` | event | Configuration hash used for deterministic `dataset_version` derivation |
 
-## Outputs
+### Output publication
 
-| Output | Location | Format |
-|--------|----------|--------|
-| Chain data | `s3://{bucket}/cryo/{chain_id}/{dataset}/{start_block}_{end_block}/{dataset_version}/...` | Parquet |
+The worker publishes one dataset version:
 
-## Execution
+- `DatasetPublication`: `{ dataset_uuid, dataset_version, storage_ref, config_hash, range_start, range_end }`
+- `storage_ref` (harness layout): `s3://{bucket}/cryo/{chain_id}/{dataset_uuid}/{range_start}_{range_end}/{dataset_version}/`
+  - All `.parquet` files produced by Cryo are uploaded under this prefix.
+  - A `_manifest.json` is written under the same prefix listing the uploaded Parquet object keys.
 
-- **Threshold**: When hot storage reaches N blocks
-- **Manual**: Bootstrap range requests (manual source emits events)
-- **Cron**: Scheduled archival runs (cron source emits events)
+## Implementation notes
 
-## Behavior
+- Harness defaults to a deterministic stub (`TRACE_CRYO_MODE=fake`) so tests do not require the real Cryo binary or chain RPC access.
+- Real Cryo mode (`TRACE_CRYO_MODE=real`) requires:
+  - `TRACE_CRYO_BIN` (optional, default `cryo`)
+  - `TRACE_CRYO_RPC_URL` or `TRACE_RPC_POOL_<NAME>_URL` (resolved from `rpc_pool`)
+- Local staging:
+  - writes to `/tmp/trace/cryo/<task_id>/<attempt>/` with private permissions
+  - deletes the staging directory after successful upload
+  - deletes stale staging dirs on startup based on `TRACE_CRYO_STAGING_TTL_HOURS` (default `24`)
+- Parquet safety caps (env, optional): `MAX_PARQUET_FILES_PER_RANGE`, `MAX_PARQUET_BYTES_PER_FILE`, `MAX_TOTAL_PARQUET_BYTES_PER_RANGE`
+- Future work: wrap Cryo as a Rust library and stream Parquet objects directly to the object store without local staging (track in `docs/plan/backlog.md`).
 
-- Idempotent: re-running the same `{chain_id, range, config_hash}` produces the same deterministic `dataset_version` and `storage_prefix`
-- Writes deterministic Parquet object keys that keep the range visible for debugging (end is end-exclusive).
-- When invoking Cryo, use `--blocks start:end` where `end` is end-exclusive (Cryo range convention).
+## Related
 
-### Lite/harness note
-In the harness, `cryo_ingest` defaults to a deterministic stub that writes a small Parquet dataset without requiring the real Cryo binary or chain RPC access. Real Cryo integration is opt-in and introduced incrementally.
-
-### Local staging (Lite)
-When running Cryo locally (or in Lite mode), the worker MUST:
-- write Cryo output only to a per-task staging directory (e.g. `/tmp/trace/cryo/<task_id>/<attempt>/`),
-- delete the staging directory after upload-to-object-store succeeds,
-- delete stale staging dirs older than N hours on worker startup (crash cleanup),
-- ensure Query Service does not have access to the staging dir (do not mount it into the QS container).
-
-## Scaling
-
-Concurrency is controlled via `scaling.max_concurrency`.
-
-RPC credentials are **not** modeled as per-task or per-slot secrets in DAG YAML. Instead:
-
-- The job selects `config.rpc_pool`.
-- The **RPC Egress Gateway** owns key pooling, rotation, and rate limiting for that pool.
-- Workers authenticate only to the RPC Egress Gateway, not directly to external RPC providers.
-
-This removes the need for `worker_pools` and avoids per-slot task definition sprawl.
-
-
-## Dependencies
-
-- An `rpc_pool` configured in the RPC Egress Gateway (provider endpoints + API keys live there, not in DAG YAML).
-- S3 write access to the cold bucket for replace-style outputs.
-
-## Example DAG Config
-
-```yaml
-- name: cryo_bootstrap
-  activation: reactive
-  runtime: ecs_platform
-  operator: cryo_ingest
-  execution_strategy: PerPartition
-  idle_timeout: 0
-  inputs:
-    - from: { job: range_request, output: 0 }
-  config:
-    chain_id: 10143
-    datasets: [blocks, transactions, logs]
-    rpc_pool: monad
-  scaling:
-    max_concurrency: 20   # dispatcher limits parallel jobs
-  outputs: 3
-  update_strategy: replace
-  timeout_seconds: 3600
-```
-
-## Future work
-
-- **Cryo as a Rust library:** Wrap Cryo as a library and plumb a custom writer/output abstraction so Parquet objects can be streamed directly to the configured object store (S3/MinIO) without local staging. Track this in `docs/plan/backlog.md`.
+- `chain_sync` planning and payload contract: [chain_sync_entrypoint.md](../chain_sync_entrypoint.md)
+- Example chain_sync config: [chain_sync.monad_mainnet.yaml](../../examples/chain_sync.monad_mainnet.yaml)
+- Task-scoped dataset event contract: [task_scoped_endpoints.md](../../architecture/contracts/task_scoped_endpoints.md)
+- Harness implementation: [harness/src/cryo_worker.rs](../../../harness/src/cryo_worker.rs)
