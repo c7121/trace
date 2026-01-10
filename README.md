@@ -31,7 +31,7 @@ Assumptions:
 
 ## Documentation
 
-- Docs portal: [docs/readme.md](docs/readme.md)
+- Docs portal: [docs/README.md](docs/README.md)
 - Implementers: [docs/architecture/README.md](docs/architecture/README.md)
 - Trace Lite harness: [harness/README.md](harness/README.md)
 
