@@ -14,4 +14,5 @@ Start here:
 - Data ERD: [erd_data.md](erd_data.md)
 - State schema: [state_schema.md](state_schema.md)
 - Data schema: [data_schema.md](data_schema.md)
+- Data versioning schema mapping: [data_versioning.md](data_versioning.md)
 - Orchestration semantics: [orchestration.md](orchestration.md)

@@ -2,6 +2,8 @@
 
 How the system tracks data changes, handles reorgs, and efficiently reprocesses only what's needed.
 
+Doc ownership: this document defines incremental processing behavior and invariants. For schema mapping, see [data_model/data_versioning.md](data_model/data_versioning.md).
+
 ## Overview
 
 - Tasks and upstream events are **at-least-once**. Correctness comes from leasing, strict attempt fencing, and idempotent dataset writes.

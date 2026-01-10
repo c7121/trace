@@ -1,63 +1,32 @@
-# Data Versioning Data Model
+# Data versioning schema mapping
 
-Schema notes for tables that track incremental materialization and invalidation.
+Schema mapping for the behavior contract in [data_versioning.md](../data_versioning.md).
 
-Canonical DDL lives in `harness/migrations/` (applied in order). SQL blocks in this document should be treated as illustrative unless they explicitly reference a migration file.
+Doc ownership: this document explains where the behavior is stored (tables and key columns). It does not define behavior.
 
-Note: `dataset_versions` (dataset generations) is defined in [orchestration.md](orchestration.md).
+Where to look:
+- Columns: [state_schema.md](state_schema.md)
+- Relationships: [erd_state.md](erd_state.md)
+- Dataset generations: [orchestration.md](orchestration.md)
 
-## partition_versions
+## Tables
 
-```sql
-CREATE TABLE partition_versions (
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
-    partition_key TEXT NOT NULL,      -- e.g., "1000000-1010000" (block ranges are `[start, end)`; end-exclusive)
-    materialized_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    config_hash TEXT,                 -- job config at time of materialization
-    schema_hash TEXT,                 -- data shape (columns, types)
-    location TEXT,                    -- s3://bucket/path or Postgres data table/view
-    row_count BIGINT,
-    bytes BIGINT,
-    PRIMARY KEY (dataset_uuid, dataset_version, partition_key)
-);
-```
-
-## dataset_cursors
-
-```sql
-CREATE TABLE dataset_cursors (
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
-    job_id UUID NOT NULL REFERENCES jobs(id),
-    cursor_column TEXT NOT NULL,      -- e.g., "block_number"
-    cursor_value TEXT NOT NULL,       -- e.g., "1005000" (stored as text for flexibility)
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (dataset_uuid, dataset_version, job_id)
-);
-```
-
-## data_invalidations
-
-```sql
-CREATE TABLE data_invalidations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    dataset_uuid UUID NOT NULL REFERENCES datasets(id),
-    dataset_version UUID NOT NULL REFERENCES dataset_versions(id),
-    scope TEXT NOT NULL,              -- 'partition' | 'row_range'
-    partition_key TEXT,               -- for scope='partition'
-    row_filter JSONB,                 -- for scope='row_range', e.g., {"block_number": {"gte": 995, "lte": 1005}}
-    reason TEXT NOT NULL,             -- 'reorg' | 'correction' | 'manual' | 'schema_change'
-    source_event JSONB,               -- details (e.g., reorg info: old_tip, new_tip, fork_block)
-    created_at TIMESTAMPTZ DEFAULT now(),
-    processed_by UUID[],              -- job_ids recorded by the Dispatcher as having processed this invalidation
-    processed_at TIMESTAMPTZ          -- set by Dispatcher when all dependent jobs have processed
-);
-
-CREATE INDEX idx_invalidations_dataset ON data_invalidations(dataset_uuid, dataset_version) WHERE processed_at IS NULL;
-```
+- `partition_versions`: per-partition materialization metadata within a `dataset_version`
+  - Primary key: `(dataset_uuid, dataset_version, partition_key)`
+  - Key columns: `materialized_at` (defaults to `now()`), `config_hash`, `schema_hash`, `location`, `row_count`, `bytes`
+  - `partition_key` encodes a block range using `[start, end)` semantics (end-exclusive)
+- `dataset_cursors`: per-consumer high-water mark within a `dataset_version`
+  - Primary key: `(dataset_uuid, dataset_version, job_id)`
+  - Key columns: `cursor_column`, `cursor_value` (stored as text), `updated_at` (defaults to `now()`)
+- `data_invalidations`: scoped reprocessing requests for a specific `{dataset_uuid, dataset_version}`
+  - Primary key: `id` (defaults to `gen_random_uuid()`)
+  - Key columns: `scope` (`partition` or `row_range`), `partition_key`, `row_filter` (JSONB), `reason`, `source_event`
+  - `reason` examples: `reorg`, `correction`, `manual`, `schema_change`
+  - Audit columns: `created_at` (defaults to `now()`), `processed_by`, `processed_at`
+  - Index: `(dataset_uuid, dataset_version)` for rows where `processed_at` is NULL
+  - Example `row_filter`: `{"block_number": {"gte": 995, "lte": 1005}}`
 
 ## Related
 
-- [data_versioning.md](../data_versioning.md) - incremental processing behavior
+- [data_versioning.md](../data_versioning.md) - incremental processing behavior and invariants
 - [ADR 0009](../../adr/0009-atomic-cutover-and-query-pinning.md) - cutover and query pinning

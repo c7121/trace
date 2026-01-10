@@ -25,7 +25,7 @@ After reading Core concepts above:
 5. **API and payload contracts**: [contracts.md](contracts.md) (task-scoped vs worker-only endpoints)
 6. **User API contracts**: [user_api_contracts.md](user_api_contracts.md) (Gateway-exposed `/v1/*` routes and authz invariants)
 7. **Operations**: [operations.md](operations.md) (operational targets, defaults, and examples)
-8. **Data versioning**: [data_versioning.md](data_versioning.md) (dataset pointers, append/replace semantics, invalidations)
+8. **Data versioning**: [data_versioning.md](data_versioning.md) (behavior and invariants; schema mapping in [data_model/data_versioning.md](data_model/data_versioning.md))
 9. **Data model**: [data_model/](data_model/) (DDL-level schemas)
 10. **Containers**: [containers/](containers/) (service responsibilities and deployment units)
 11. **Operators**: [Operator specs](../specs/operators/README.md) (built-in operator surfaces and status)
