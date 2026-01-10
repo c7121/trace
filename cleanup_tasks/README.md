@@ -17,6 +17,7 @@ Task list (recommended order):
 - `cleanup_tasks/016-move-operator-recipes-to-examples.md`: Move operator "Recipe" sections into `docs/examples/` to reduce operator doc section sprawl.
 - `cleanup_tasks/017-fix-mermaid-label-parentheses.md`: Fix Mermaid label text that contains parentheses across docs.
 - `cleanup_tasks/019-rehome-operator-docs-as-specs.md`: Move operator docs under `docs/specs/operators/` and label status clearly.
+- `cleanup_tasks/020-clarify-data-versioning-doc-ownership.md`: Clarify behavior vs schema ownership for data versioning docs.
 
 Completed:
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
