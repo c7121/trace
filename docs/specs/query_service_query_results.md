@@ -19,7 +19,7 @@ Today the Query Service endpoints return inline JSON results only:
 
 This document defines the future result handling contract without re-specifying authn/authz or SQL gating:
 - SQL gate: `docs/specs/query_sql_gating.md`
-- Token/claims: `docs/architecture/contracts.md`
+- Token/claims: `docs/architecture/contracts/task_capability_tokens.md`
 
 ## Goals
 - Keep small results inline for interactive use.

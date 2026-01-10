@@ -175,7 +175,8 @@ Recommended:
 
 ## Related
 
-- [contracts.md](contracts.md) - token claims and endpoint classes
+- Task capability token claims: [task_capability_tokens.md](contracts/task_capability_tokens.md)
+- Task-scoped endpoints: [task_scoped_endpoints.md](contracts/task_scoped_endpoints.md)
 - [user_api_contracts.md](user_api_contracts.md) - user route allowlist and authz invariants
 - [Gateway](containers/gateway.md) - ingress behavior
 - [Query Service](containers/query_service.md) - query enforcement points

@@ -19,7 +19,7 @@ This doc is intentionally link-first. API semantics and data model details live 
   - Task query endpoint: [query_service_task_query.md](../../specs/query_service_task_query.md)
 - Query results and exports: [query_service_query_results.md](../../specs/query_service_query_results.md)
 - SQL gate: [query_sql_gating.md](../../specs/query_sql_gating.md)
-- Capability token rules: [contracts.md](../contracts.md)
+- Capability token rules: [task_capability_tokens.md](../contracts/task_capability_tokens.md)
 - Operations defaults: [operations.md](../operations.md)
 - Security invariants: [security.md](../security.md)
 - Data model: [data_model/query_service.md](../data_model/query_service.md)

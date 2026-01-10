@@ -178,7 +178,7 @@ The `runtime` field determines how the Dispatcher executes a task:
 - `lambda`: Dispatcher invokes a Lambda directly (no SQS) with the **full task payload** (same shape as `/internal/task-fetch`); the Lambda runs without Postgres state credentials and reports completion via the same Dispatcher endpoints.
 - `dispatcher`: Dispatcher runs the operator in-process (no SQS, no Lambda).
 
-See [README.md](../../README.md) for diagrams and [contracts.md](../contracts.md) for the invocation payload shape.
+See [README.md](../../README.md) for diagrams and [lambda_invocation.md](../contracts/lambda_invocation.md) for the Dispatcher-to-Lambda invocation payload shape.
 
 ## Tasks
 

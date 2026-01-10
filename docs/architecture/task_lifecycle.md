@@ -52,7 +52,7 @@ A **lease** is a time-bounded right to execute the current attempt of a task.
 
 ### Claim
 
-When a worker receives a `task_id` from SQS it calls the Dispatcher **task claim** endpoint (see [contracts.md](contracts.md)).
+When a worker receives a `task_id` from SQS it calls the Dispatcher task claim endpoint (see [worker_only_endpoints.md](contracts/worker_only_endpoints.md)).
 
 Dispatcher performs an atomic transition:
 
@@ -65,13 +65,13 @@ If the task is already `Running` with a valid lease, or is `Completed/Canceled`,
 
 ### Heartbeat
 
-While running, the worker periodically heartbeats via the Dispatcher **heartbeat** endpoint (see [contracts.md](contracts.md)). The request is fenced by `{task_id, attempt, lease_token}` (and the task capability token where applicable).
+While running, the worker periodically heartbeats via the Dispatcher heartbeat endpoint (see [task_scoped_endpoints.md](contracts/task_scoped_endpoints.md)). The request is fenced by `{task_id, attempt, lease_token}` (and the task capability token where applicable).
 
 Dispatcher extends `lease_expires_at` if the lease token matches the current attempt.
 
 ### Completion
 
-On completion the worker reports via the Dispatcher **task complete** endpoint (see [contracts.md](contracts.md)). The request is fenced by `{task_id, attempt, lease_token}` (and the task capability token where applicable).
+On completion the worker reports via the Dispatcher task completion endpoint (see [task_scoped_endpoints.md](contracts/task_scoped_endpoints.md)). The request is fenced by `{task_id, attempt, lease_token}` (and the task capability token where applicable).
 
 Dispatcher accepts completion only if:
 

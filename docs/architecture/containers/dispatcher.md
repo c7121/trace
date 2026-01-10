@@ -29,8 +29,8 @@ Canonical owners for shared semantics:
 - Run reaper for dead tasks
 - Publish queue depth metrics to CloudWatch
 - Expose manual source API (emits events)
-- Issue per-attempt task capability tokens and expose an internal task JWKS for verifiers (see [contracts.md](../contracts.md))
-- Mint scoped object-store credentials from task capability tokens (see [contracts.md](../contracts.md))
+- Issue per-attempt task capability tokens and expose an internal task JWKS for verifiers (see [task_capability_tokens.md](../contracts/task_capability_tokens.md))
+- Mint scoped object-store credentials from task capability tokens (see [credential_minting.md](../contracts/credential_minting.md))
 
 ## Event Model
 
@@ -144,4 +144,3 @@ flowchart LR
 
 `runtime` is a string used by the Dispatcher to decide how to execute a job (in-process, Lambda, or ECS queue).
 The mapping from `runtime` to worker image, queue, and resource defaults is configured in the Dispatcher.
-

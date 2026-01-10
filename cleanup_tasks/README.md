@@ -16,7 +16,6 @@ Task list (recommended order):
 - `cleanup_tasks/015-demote-canonical-ddl-and-dedrift-data-model-docs.md`: Remove drift and contradictions in `docs/architecture/data_model/` and clarify migrations as source of truth.
 - `cleanup_tasks/016-move-operator-recipes-to-examples.md`: Move operator "Recipe" sections into `docs/examples/` to reduce operator doc section sprawl.
 - `cleanup_tasks/017-fix-mermaid-label-parentheses.md`: Fix Mermaid label text that contains parentheses across docs.
-- `cleanup_tasks/018-modularize-interface-contracts.md`: Split and index wire-level interface contracts to reduce drift and section sprawl.
 - `cleanup_tasks/019-rehome-operator-docs-as-specs.md`: Move operator docs under `docs/specs/operators/` and label status clearly.
 
 Completed:
@@ -28,3 +27,4 @@ Completed:
 - `006-merge-dag-configuration-docs`: made `docs/specs/dag_configuration.md` config-only and `docs/architecture/dag_deployment.md` deploy-only; removed overlap and linkified ownership.
 - `007-consolidate-milestone-micro-specs`: folded milestone micro-spec content into `docs/plan/milestones.md`; removed obsolete micro specs from `docs/specs/`.
 - `008-deploy-docs-reduction`: added `docs/deploy/README.md` entrypoint; moved Trace Lite local sync doc to `docs/examples/`; trimmed `docs/deploy/deployment_profiles.md` to be link-first.
+- `018-modularize-interface-contracts`: split `docs/architecture/contracts.md` into smaller focused contract docs under `docs/architecture/contracts/` and made `docs/architecture/contracts.md` an index.
