@@ -1,0 +1,20 @@
+# Docs cleanup tasks
+
+This folder contains selectable, bite-sized documentation cleanup tasks. Each task is a single Markdown file.
+
+How to use:
+- Pick one task file.
+- Tell me which task to apply.
+- I will implement only that task, keeping the diff focused.
+
+Task list (recommended order):
+- `cleanup_tasks/001-slim-docs-portal.md`: Make `docs/readme.md` a short portal and remove duplicated narrative.
+- `cleanup_tasks/002-standardize-docs-entrypoint.md`: Standardize the docs entrypoint name and links.
+- `cleanup_tasks/003-remove-standards-folder.md`: Rehome and reduce cross-cutting "standards" docs, then remove `docs/standards/`.
+- `cleanup_tasks/004-consolidate-query-service-docs.md`: Reduce duplication across Query Service docs by assigning owners and trimming repeats.
+- `cleanup_tasks/005-consolidate-dispatcher-docs.md`: Reduce duplication across Dispatcher docs by assigning owners and trimming repeats.
+- `cleanup_tasks/006-merge-dag-configuration-docs.md`: Remove overlap between DAG deployment/config docs and make one canonical owner.
+- `cleanup_tasks/007-consolidate-milestone-micro-specs.md`: Remove tiny milestone specs by folding into the milestone ledger.
+- `cleanup_tasks/008-deploy-docs-reduction.md`: Reduce and reorg deploy docs into a single "how to deploy" path.
+- `cleanup_tasks/009-doc-hygiene-sweep.md`: Mechanical hygiene pass (no em dashes, Mermaid label punctuation checks, link validation).
+

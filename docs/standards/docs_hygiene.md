@@ -21,7 +21,7 @@ Use these canonical names consistently:
 
 Some Mermaid renderers are strict. Keep diagrams robust:
 
-- Avoid parentheses in **labels**. Prefer hyphens instead.
+- Avoid parentheses in **labels**.
 - Avoid bracket characters `[` and `]` inside labels.
 - Keep edge labels short and ASCII.
 - If a diagram fails to render, simplify labels/punctuation before changing the structure.
