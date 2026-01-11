@@ -29,10 +29,11 @@ Task list (recommended order):
 - `cleanup_tasks/057-tighten-adrs-links-and-focus.md`: Make ADRs link-first and decision-focused (add related links and index summaries).
 - `cleanup_tasks/058-tighten-examples-diagnostics-and-runbooks.md`: Make diagnostics docs correct and link-first, and reduce duplication with runnable harness diagnostics.
 - `cleanup_tasks/059-tighten-trace-lite-example-guide.md`: Make the Trace Lite end-to-end guide more link-first and less repetitive without losing key details.
+- `cleanup_tasks/060-tighten-planning-docs-entrypoints.md`: Make planning docs link-first and clarify what belongs in plan docs vs specs and architecture.
+- `cleanup_tasks/061-shrink-milestones-ledger.md`: Reduce `docs/plan/milestones.md` section count by moving completed milestone notes into an archive without losing history.
 
 ## Critical assessment tasks (recommended order)
 
-- `cleanup_tasks/038-assess-planning-docs-cohesion.md`: Assess planning docs for usefulness, scope, and ownership.
 - `cleanup_tasks/039-assess-harness-docs-entrypoint.md`: Assess harness docs as an entrypoint for Trace Lite and verification.
 - `cleanup_tasks/040-audit-orphaned-or-duplicate-docs.md`: Audit unlinked or duplicated docs and propose disposition.
 
@@ -54,6 +55,7 @@ Completed:
 - `035-assess-operator-specs-catalog`: review complete; follow-up task `056-tighten-operator-specs-catalog` created.
 - `036-assess-adrs-structure-and-durability`: review complete; follow-up task `057-tighten-adrs-links-and-focus` created.
 - `037-assess-examples-folder-cohesion`: review complete; follow-up tasks `058-tighten-examples-diagnostics-and-runbooks` and `059-tighten-trace-lite-example-guide` created.
+- `038-assess-planning-docs-cohesion`: review complete; follow-up tasks `060-tighten-planning-docs-entrypoints` and `061-shrink-milestones-ledger` created.
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
 - `002-standardize-docs-entrypoint`: renamed the docs entrypoint to `docs/README.md` and updated references.
 - `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.
