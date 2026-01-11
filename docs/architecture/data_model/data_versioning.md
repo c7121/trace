@@ -24,7 +24,7 @@ Where to look:
   - `reason` examples: `reorg`, `correction`, `manual`, `schema_change`
   - Audit columns: `created_at` (defaults to `now()`), `processed_by`, `processed_at`
   - Index: `(dataset_uuid, dataset_version)` for rows where `processed_at` is NULL
-  - Example `row_filter`: `{"block_number": {"gte": 995, "lte": 1005}}`
+  - Example `row_filter`: `{"block_number": {"gte": 995, "lt": 1006}}`
 
 ## Related
 

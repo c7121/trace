@@ -47,6 +47,24 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
+    QUERY_AUDIT {
+        bigint id PK
+        uuid org_id FK
+        uuid task_id FK
+        uuid dataset_id FK
+        timestamptz query_time
+        jsonb columns_accessed
+        bigint result_row_count
+    }
+    USER_QUERY_AUDIT {
+        bigint id PK
+        uuid org_id FK
+        text user_sub
+        uuid dataset_id FK
+        timestamptz query_time
+        jsonb columns_accessed
+        bigint result_row_count
+    }
     ALERT_DEFINITIONS {
         uuid id PK
         uuid org_id FK
@@ -97,7 +115,9 @@ erDiagram
     }
     PII_ACCESS_LOG {
         uuid id PK
+        uuid org_id FK
         uuid user_id FK
+        uuid task_id FK
         text dataset
         text column_name
         uuid record_id
@@ -105,4 +125,3 @@ erDiagram
         timestamptz accessed_at
     }
 ```
-

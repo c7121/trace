@@ -58,6 +58,7 @@ erDiagram
         text runtime
         text operator
         jsonb source
+        jsonb bootstrap
         text execution_strategy
         text idle_timeout
         jsonb config
@@ -92,6 +93,8 @@ erDiagram
         text storage_location
         text config_hash
         text schema_hash
+        bigint range_start
+        bigint range_end
     }
     DAG_VERSION_DATASETS {
         uuid dag_version_id PK
@@ -101,18 +104,32 @@ erDiagram
     TASKS {
         uuid id PK
         uuid job_id FK
+        text dedupe_key
         text status
+        int attempt
         text[] partitions
         jsonb input_versions
         text worker_id
+        uuid lease_token
+        timestamptz lease_expires_at
+        timestamptz last_heartbeat
         timestamptz started_at
         timestamptz completed_at
-        timestamptz last_heartbeat
-        int attempts
         timestamptz next_retry_at
         text error_message
         jsonb outputs
         timestamptz created_at
+    }
+    OUTBOX {
+        bigint id PK
+        text kind
+        jsonb payload
+        text status
+        timestamptz available_at
+        int attempts
+        text last_error
+        timestamptz created_at
+        timestamptz processed_at
     }
     TASK_INPUTS {
         uuid task_id PK
@@ -159,5 +176,11 @@ erDiagram
         uuid[] processed_by
         timestamptz processed_at
     }
+    OPERATOR_STATE {
+        uuid org_id PK
+        uuid job_id PK
+        text state_key PK
+        jsonb state
+        timestamptz updated_at
+    }
 ```
-
