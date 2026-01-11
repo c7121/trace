@@ -20,10 +20,10 @@ Task list (recommended order):
 - `cleanup_tasks/048-tighten-specs-index-and-templates.md`: Make the specs entrypoint and templates encode governance rules and doc constraints.
 - `cleanup_tasks/049-tighten-dag-configuration-spec.md`: Make the DAG YAML contract schema-first, self-consistent, and aligned with core concept terminology.
 - `cleanup_tasks/050-tighten-chain-sync-and-ingestion-specs.md`: Clarify ownership boundaries across chain sync, ingestion patterns, and the Cryo adapter spike (link-first, no duplication).
+- `cleanup_tasks/051-tighten-query-service-specs.md`: Make Query Service query specs consistent and link-first, including Lite token semantics vs AWS OIDC.
 
 ## Critical assessment tasks (recommended order)
 
-- `cleanup_tasks/031-assess-specs-query-surface.md`: Assess query specs for surface clarity and duplication.
 - `cleanup_tasks/032-assess-specs-udf-surface.md`: Assess UDF specs for boundaries, safety hooks, and duplication.
 - `cleanup_tasks/033-assess-specs-alerting-surface.md`: Assess alerting spec for ownership and overlap with operators and data model.
 - `cleanup_tasks/034-assess-specs-metadata-and-error-contracts.md`: Assess metadata and error contract specs for completeness and duplication.
@@ -45,6 +45,7 @@ Completed:
 - `028-assess-specs-index-and-governance`: review complete; follow-up task `048-tighten-specs-index-and-templates` created.
 - `029-assess-spec-platform-surface-dag-config`: review complete; follow-up task `049-tighten-dag-configuration-spec` created.
 - `030-assess-specs-chain-sync-and-ingestion`: review complete; follow-up task `050-tighten-chain-sync-and-ingestion-specs` created.
+- `031-assess-specs-query-surface`: review complete; follow-up task `051-tighten-query-service-specs` created.
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
 - `002-standardize-docs-entrypoint`: renamed the docs entrypoint to `docs/README.md` and updated references.
 - `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.
