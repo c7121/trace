@@ -31,13 +31,15 @@ Task list (recommended order):
 - `cleanup_tasks/059-tighten-trace-lite-example-guide.md`: Make the Trace Lite end-to-end guide more link-first and less repetitive without losing key details.
 - `cleanup_tasks/060-tighten-planning-docs-entrypoints.md`: Make planning docs link-first and clarify what belongs in plan docs vs specs and architecture.
 - `cleanup_tasks/061-shrink-milestones-ledger.md`: Reduce `docs/plan/milestones.md` section count by moving completed milestone notes into an archive without losing history.
+- `cleanup_tasks/062-tighten-harness-docs-entrypoint.md`: Make harness docs link-first, harness-scoped, and consistent with current plan and contract locations.
+- `cleanup_tasks/063-fix-trace-lite-entrypoint-links.md`: Route repo entrypoints to the canonical Trace Lite runbook, keeping harness docs as a secondary reference.
 
 ## Critical assessment tasks (recommended order)
 
-- `cleanup_tasks/039-assess-harness-docs-entrypoint.md`: Assess harness docs as an entrypoint for Trace Lite and verification.
 - `cleanup_tasks/040-audit-orphaned-or-duplicate-docs.md`: Audit unlinked or duplicated docs and propose disposition.
 
 Completed:
+- `039-assess-harness-docs-entrypoint`: review complete; follow-up tasks `062-tighten-harness-docs-entrypoint` and `063-fix-trace-lite-entrypoint-links` created.
 - `021-assess-docs-portal-and-entrypoints`: review complete; follow-up task `041-tighten-docs-navigation-entrypoints` created.
 - `022-assess-architecture-index-and-core-concepts`: review complete; follow-up task `042-tighten-architecture-index-core-concepts` created.
 - `023-assess-architecture-correctness-and-lifecycle`: review complete; follow-up task `043-tighten-correctness-docs` created.
