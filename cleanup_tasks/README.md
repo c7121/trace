@@ -11,6 +11,7 @@ Task list (recommended order):
 ## Implementation tasks (recommended order)
 
 - `cleanup_tasks/041-tighten-docs-navigation-entrypoints.md`: Replace directory links with canonical entrypoints, add a containers index, and resolve the orphan `docs/architecture/operators/README.md`.
+- `cleanup_tasks/042-tighten-architecture-index-core-concepts.md`: Improve `docs/architecture/README.md` core concepts and reading order to reduce lookup friction.
 
 ## Critical assessment tasks (recommended order)
 
@@ -36,6 +37,7 @@ Task list (recommended order):
 
 Completed:
 - `021-assess-docs-portal-and-entrypoints`: review complete; follow-up task `041-tighten-docs-navigation-entrypoints` created.
+- `022-assess-architecture-index-and-core-concepts`: review complete; follow-up task `042-tighten-architecture-index-core-concepts` created.
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
 - `002-standardize-docs-entrypoint`: renamed the docs entrypoint to `docs/README.md` and updated references.
 - `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.
