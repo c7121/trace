@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/062-tighten-harness-docs-entrypoint.md`: Make harness docs link-first, harness-scoped, and consistent with current plan and contract locations.
 - `cleanup_tasks/063-fix-trace-lite-entrypoint-links.md`: Route repo entrypoints to the canonical Trace Lite runbook, keeping harness docs as a secondary reference.
 - `cleanup_tasks/064-tighten-agent-docs-entrypoint.md`: Make `docs/agent/` docs discoverable from `AGENTS.md` without expanding the main docs portal.
 - `cleanup_tasks/065-reconcile-agent-doc-sync-with-doc-style-rules.md`: Resolve the mismatch between synced `docs/agent/*` content and repo doc style rules.
@@ -20,6 +19,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `062-tighten-harness-docs-entrypoint`: implemented; made harness docs explicitly harness-scoped, link-first to canonical docs, and removed `harness/AGENT_TASKS.md`.
 - `061-shrink-milestones-ledger`: implemented; moved completed milestone notes into an archive to keep the ledger short and link-first.
 - `060-tighten-planning-docs-entrypoints`: implemented; made plan docs link-first and clarified plan docs boundaries vs specs and architecture.
 - `059-tighten-trace-lite-example-guide`: implemented; shortened the Trace Lite local Cryo sync guide and made it link-first for Cryo staging and Query Service safety details.
