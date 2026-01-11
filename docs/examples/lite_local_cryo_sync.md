@@ -1,42 +1,33 @@
-# Lite local Cryo sync
+# Trace Lite local Cryo sync
 
-This example is for **proving Trace Lite end-to-end** on a laptop:
+This runbook proves Trace Lite end-to-end on a laptop:
 
-- You apply a `chain_sync` YAML once.
-- The dispatcher schedules ranges (genesis → tip-ish).
-- Cryo runs per range and publishes Parquet + a `_manifest.json`.
-- Query Service scans the Parquet **in-place** (remote scan) and only fetches `_manifest.json`.
+- Apply a `chain_sync` YAML once.
+- Dispatcher plans and schedules block ranges (genesis to tip-ish).
+- `cryo_ingest` runs per range and publishes Parquet + a `_manifest.json`.
+- Query Service attaches and scans Parquet remotely under a fail-closed SQL gate.
 
-If you’re doing this for the first time, use the `trace-lite` runner. The older manual steps are kept as a troubleshooting fallback.
+If you are doing this for the first time, use the `trace-lite` runner. Manual mode is kept as a troubleshooting fallback.
 
-## Security note about Parquet on disk
+See also:
+- [trace_lite.md](../plan/trace_lite.md) - `trace-lite` command reference
+- [chain_sync_entrypoint.md](../specs/chain_sync_entrypoint.md) - chain_sync YAML semantics and payload contract
 
-- **Query Service does not download Parquet objects**; it only fetches `_manifest.json`, then DuckDB scans remote Parquet via `httpfs`.
-- **The Cryo worker does write Parquet locally**, but only into a **temporary staging directory** and then uploads to the object store.
-  - On success, the staging dir is deleted.
-  - On crashes, temp dirs may remain, but the worker deletes stale staging dirs older than `TRACE_CRYO_STAGING_TTL_HOURS` (default 24h).
-  - Staging dirs are created with restrictive permissions (0700 on Unix).
-  - The worker enforces artifact caps (fail-fast, permanent error if exceeded):
-    - `MAX_PARQUET_FILES_PER_RANGE` (default 256)
-    - `MAX_PARQUET_BYTES_PER_FILE` (default 536870912)
-    - `MAX_TOTAL_PARQUET_BYTES_PER_RANGE` (default 2147483648)
+## Security and storage notes
 
-If you need stronger guarantees, run the worker in a container with an ephemeral filesystem, or point `TMPDIR` at a dedicated encrypted/ephemeral mount.
+- Query Service does not write Parquet to local disk. It resolves dataset manifests in trusted code, then DuckDB scans Parquet remotely.
+  - Owners: [query_service.md](../architecture/containers/query_service.md) and [query_sql_gating.md](../specs/query_sql_gating.md)
+  - Network posture: [ADR 0002](../adr/0002-networking.md)
+- `cryo_ingest` stages Parquet locally before upload. Staging location, cleanup behavior, and artifact caps are owned by the operator spec:
+  - [cryo_ingest.md](../specs/operators/cryo_ingest.md)
+- If you need stronger local-staging guarantees, run the worker in a container with an ephemeral filesystem, or point `TMPDIR` at a dedicated encrypted/ephemeral mount.
 
 ## Prerequisites
 
-- Docker
+- Docker + docker compose
 - Rust toolchain
-- A Cryo binary available locally (recommended), or built from the Cryo repo
-- RPC URLs for the networks you want to sync
-
-Environment variables you’ll commonly set:
-
-- `TRACE_CRYO_BIN=/path/to/cryo` (or ensure `cryo` is on `PATH`)
-- `TRACE_CRYO_MODE=fake|real` (default is fake; use `real` for actual sync)
-- RPC pool URLs (choose names that match your YAML `rpc_pool` fields):
-  - `TRACE_RPC_POOL_STANDARD_URL=...`
-  - `TRACE_RPC_POOL_TRACES_URL=...` (if you want traces on a separate endpoint)
+- Cryo binary (for real mode), or use `TRACE_CRYO_MODE=fake`
+- RPC pool URLs for the pools referenced by your YAML (`TRACE_RPC_POOL_<POOL>_URL`)
 
 ## Recommended: use `trace-lite`
 
@@ -69,6 +60,8 @@ cargo run -p trace-lite -- apply --file docs/examples/chain_sync.monad_mainnet.y
 
 You can apply additional jobs later (different YAML files). Apply is idempotent.
 
+For the YAML surface and semantics, see [chain_sync_entrypoint.md](../specs/chain_sync_entrypoint.md).
+
 ### 3) Watch progress
 
 The `job_id` comes from your YAML (or from the output of `trace-lite apply`).
@@ -79,7 +72,12 @@ cargo run -p trace-lite -- status --job 4e20d260-8623-4e1c-a64a-9c4f4c8265d3
 
 You should see per-stream cursor / scheduled range counts progressing. If a stream is blocked, the status output should include a reason.
 
-### 4) Stop
+### 4) Verify data
+
+Run one of the runnable diagnostics in `harness/diagnostics/*`:
+- [data_verification.md](data_verification.md)
+
+### 5) Stop
 
 - Ctrl-C in the `trace-lite up` terminal to stop the Rust processes.
 - Optionally:
@@ -92,7 +90,9 @@ cargo run -p trace-lite -- down
 
 ## Troubleshooting: manual mode
 
-If you want to run each piece directly (useful when debugging):
+If you want to run each piece directly (useful when debugging), start from:
+- [harness/README.md](../../harness/README.md)
+- Harness "green" command: [AGENTS.md](../../AGENTS.md)
 
 ```bash
 # Start Postgres + MinIO
@@ -125,3 +125,4 @@ When in doubt, run the test suite (it encodes the invariants we care about):
 - Missing `TRACE_RPC_POOL_<POOL>_URL`: follow-head planning cannot advance. The dispatcher logs a warning event `trace.dispatcher.chain_head_observer.missing_rpc_url`.
 - Cryo exit code 2: treated as fatal (bad dataset name or invalid args), so the task fails without retrying.
 - Artifact caps hit: the task fails as fatal. Reduce `chunk_size` in YAML or split ranges to keep per-range outputs smaller.
+  - Owner: [cryo_ingest.md](../specs/operators/cryo_ingest.md)

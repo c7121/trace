@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/059-tighten-trace-lite-example-guide.md`: Make the Trace Lite end-to-end guide more link-first and less repetitive without losing key details.
 - `cleanup_tasks/060-tighten-planning-docs-entrypoints.md`: Make planning docs link-first and clarify what belongs in plan docs vs specs and architecture.
 - `cleanup_tasks/061-shrink-milestones-ledger.md`: Reduce `docs/plan/milestones.md` section count by moving completed milestone notes into an archive without losing history.
 - `cleanup_tasks/062-tighten-harness-docs-entrypoint.md`: Make harness docs link-first, harness-scoped, and consistent with current plan and contract locations.
@@ -23,6 +22,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `059-tighten-trace-lite-example-guide`: implemented; shortened the Trace Lite local Cryo sync guide and made it link-first for Cryo staging and Query Service safety details.
 - `058-tighten-examples-diagnostics-and-runbooks`: implemented; made `docs/examples/data_verification.md` an index and removed incorrect bucket/path assumptions in favor of linking to runnable harness diagnostics.
 - `057-tighten-adrs-links-and-focus`: implemented; added 1-line summaries to the ADR index and added `Related` sections to ADRs for better navigation.
 - `056-tighten-operator-specs-catalog`: implemented; standardized operator doc `Status:` lines and headings, deduped recipe lists, and made `docs/specs/operators/README.md` the stable entrypoint.
