@@ -11,11 +11,13 @@ Task list (recommended order):
 ## Implementation tasks (recommended order)
 
 - `cleanup_tasks/064-tighten-agent-docs-entrypoint.md`: Make `docs/agent/` docs discoverable from `AGENTS.md` without expanding the main docs portal.
-- `cleanup_tasks/065-reconcile-agent-doc-sync-with-doc-style-rules.md`: Resolve the mismatch between synced `docs/agent/*` content and repo doc style rules.
 
 ## Critical assessment tasks (recommended order)
 
 All critical assessment tasks are complete.
+
+Canceled:
+- `065-reconcile-agent-doc-sync-with-doc-style-rules`: moved to the agent standards repo (not executed here).
 
 Completed:
 - `063-fix-trace-lite-entrypoint-links`: implemented; routed repo entrypoints to the Trace Lite runbook and treated harness docs as a secondary reference.
