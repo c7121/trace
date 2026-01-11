@@ -33,3 +33,7 @@ Bad / costs:
   - Why not: couples the public API to `anyhow` and makes future changes harder.
 - Define a fully-enumerated error enum.
   - Why not: high maintenance cost for little value in an internal crate; the wrapper achieves the desired surface control.
+
+## Related
+
+- Implementation: [crates/trace-core/src/lib.rs](../../crates/trace-core/src/lib.rs)

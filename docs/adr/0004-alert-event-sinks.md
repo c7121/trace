@@ -39,3 +39,10 @@
 - `alert_deliveries` is the canonical source for “actions taken” (PagerDuty/Slack/Email/Webhook).
 - Per-alert delivery status is computed via query (join), not stored as mutable columns on `alert_events`.
 - “Evaluation logs” are treated as operator logs/metrics in v1 (not a separate dataset/table unless added explicitly later).
+
+## Related
+
+- Normative surface: [alerting.md](../specs/alerting.md) and [dag_configuration.md](../specs/dag_configuration.md)
+- Buffered sink pattern: [ADR 0006](0006-buffered-postgres-datasets.md) and [buffered_datasets.md](../architecture/contracts/buffered_datasets.md)
+- Operators: [alert_evaluate.md](../specs/operators/alert_evaluate.md), [alert_route.md](../specs/operators/alert_route.md)
+- Delivery boundary: [delivery_service.md](../architecture/containers/delivery_service.md)

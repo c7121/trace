@@ -47,3 +47,9 @@ inputs:
   - Postgres: parameterized `WHERE` clauses,
   - DuckDB: typed predicate filters.
 - When filters need reuse/audit/backpressure as a first-class signal, introduce a real intermediate dataset instead of an edge filter.
+
+## Related
+
+- Normative surface: [dag_configuration.md](../specs/dag_configuration.md)
+- Example usage: [alert_route.md](../specs/operators/alert_route.md)
+- Task payload shape: [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)

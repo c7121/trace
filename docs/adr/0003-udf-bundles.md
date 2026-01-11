@@ -66,3 +66,11 @@ AWS ECS note:
 - **Signing:** bundle signing/verification is deferred.
 - **Dependencies:** dependencies MUST be vendored in the bundle (no `npm install` / `pip install` at runtime; no outbound network required).
 - **Architectures:** v1 supports `linux/amd64` only.
+
+## Related
+
+- Normative surface: [udf.md](../specs/udf.md) and [udf_bundle_manifest.md](../specs/udf_bundle_manifest.md)
+- UDF operator surface: [operators/udf.md](../specs/operators/udf.md)
+- Lambda invocation contract: [lambda_invocation.md](../architecture/contracts/lambda_invocation.md)
+- Task capability tokens: [task_capability_tokens.md](../architecture/contracts/task_capability_tokens.md)
+- Milestone tracking: [milestones.md](../plan/milestones.md)

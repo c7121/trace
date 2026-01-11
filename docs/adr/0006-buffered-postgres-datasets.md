@@ -80,3 +80,9 @@ Buffered datasets must be correct under **at-least-once** publish and task retri
 - The sink enforces idempotency with `UNIQUE(...)` constraints and `ON CONFLICT DO NOTHING/UPDATE`.
 - Duplicates across task attempts are expected. Batch artifacts may be written per-attempt to avoid S3 key collisions; correctness comes from sink-side row dedupe.
 - **Tenant attribution is not trusted from payload.** The sink must assign `org_id` (and other attribution fields) from the trusted publish record / queue message produced by the Dispatcher and must not trust `org_id` values embedded inside batch rows.
+
+## Related
+
+- Normative surface: [buffered_datasets.md](../architecture/contracts/buffered_datasets.md)
+- Buffer publish endpoint: [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)
+- Alerting usage: [ADR 0004](0004-alert-event-sinks.md) and [alerting.md](../specs/alerting.md)
