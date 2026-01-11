@@ -50,32 +50,17 @@ Datasets or rows containing PII support visibility levels:
 >
 > Exactly one principal is set per row: either `user_id` (for user API reads/writes) or `task_id` (for task-scoped reads/writes).
 
-```sql
-CREATE TABLE pii_access_log (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+Where to look:
+- Columns: [data_schema.md](data_schema.md)
 
-    org_id UUID NOT NULL, -- soft ref: Postgres state orgs(id)
-    user_id UUID,         -- soft ref: Postgres state users(id)
-    task_id UUID,         -- soft ref: Postgres state tasks(id)
-
-    dataset TEXT NOT NULL,
-    column_name TEXT,
-    record_id UUID,
-    action TEXT NOT NULL,  -- read, write, delete
-    accessed_at TIMESTAMPTZ DEFAULT now(),
-
-    CHECK ((user_id IS NULL) <> (task_id IS NULL))
-);
-
-CREATE INDEX idx_pii_access_log_org ON pii_access_log(org_id);
-CREATE INDEX idx_pii_access_log_user ON pii_access_log(user_id);
-CREATE INDEX idx_pii_access_log_task ON pii_access_log(task_id);
-CREATE INDEX idx_pii_access_log_time ON pii_access_log(accessed_at);
-CREATE INDEX idx_pii_access_log_dataset ON pii_access_log(dataset);
-```
+Invariants:
+- Exactly one principal is set per row: `user_id` XOR `task_id`.
+- `org_id` is always set for audit attribution and retention.
+- `column_name` may be `NULL` when column-level attribution is not possible (for example Query Service SQL).
+- Expected indexes: `org_id`, `user_id`, `task_id`, `accessed_at`, `dataset`
 
 ## Related
 
-- [Security](../../standards/security_model.md) - data access control model
+- [Security](../security.md) - data access control model
 - [Orchestration Data Model](orchestration.md) - users and org roles
 - [address_labels operator](../operators/address_labels.md) - example dataset with PII

@@ -202,9 +202,7 @@ async fn task_claim(
     State(state): State<Arc<AppState>>,
     Json(req): Json<TaskClaimRequest>,
 ) -> ApiResult<Json<TaskClaimResponse>> {
-    let now = Utc::now();
     let lease_secs = state.cfg.lease_duration_secs.min(i64::MAX as u64) as i64;
-    let lease_expires_at = now + chrono::Duration::seconds(lease_secs);
     let lease_token = Uuid::new_v4();
 
     let mut tx = state.pool.begin().await.map_err(ApiError::internal)?;
@@ -223,7 +221,7 @@ async fn task_claim(
 
     let row = sqlx::query(
         r#"
-        SELECT attempt, status, lease_expires_at, payload
+        SELECT attempt, status, lease_expires_at, payload, now() AS db_now
         FROM state.tasks
         WHERE task_id = $1
         FOR UPDATE
@@ -238,6 +236,8 @@ async fn task_claim(
     let current_lease_expires_at: Option<DateTime<Utc>> = row
         .try_get("lease_expires_at")
         .map_err(ApiError::internal)?;
+    let db_now: DateTime<Utc> = row.try_get("db_now").map_err(ApiError::internal)?;
+    let lease_expires_at = db_now + chrono::Duration::seconds(lease_secs);
 
     let (attempt, work_payload) = match status.as_str() {
         "queued" => {
@@ -264,7 +264,7 @@ async fn task_claim(
             (attempt, payload)
         }
         "running" => {
-            let lease_active = current_lease_expires_at.is_some_and(|t| t > now);
+            let lease_active = current_lease_expires_at.is_some_and(|t| t > db_now);
             if lease_active {
                 return Err(ApiError::conflict("task already leased"));
             }
@@ -350,14 +350,12 @@ async fn task_heartbeat(
         req.fence.attempt,
     )?;
 
-    let now = Utc::now();
     let lease_secs = state.cfg.lease_duration_secs.min(i64::MAX as u64) as i64;
-    let lease_expires_at = now + chrono::Duration::seconds(lease_secs);
 
     let row = sqlx::query(
         r#"
         UPDATE state.tasks
-        SET lease_expires_at = $4,
+        SET lease_expires_at = now() + ($4::text || ' seconds')::interval,
             updated_at = now()
         WHERE task_id = $1
           AND attempt = $2
@@ -370,7 +368,7 @@ async fn task_heartbeat(
     .bind(req.fence.task_id)
     .bind(req.fence.attempt)
     .bind(req.fence.lease_token)
-    .bind(lease_expires_at)
+    .bind(lease_secs)
     .fetch_optional(&state.pool)
     .await
     .map_err(ApiError::internal)?;

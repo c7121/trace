@@ -52,10 +52,12 @@ At minimum you usually want:
 
 See the full end-to-end runbook:
 
-- `docs/deploy/lite_local_cryo_sync.md`
+- [lite_local_cryo_sync.md](../examples/lite_local_cryo_sync.md)
 
 ## Notes
 
 - Query Service scans Parquet **in place** (remote scan) and fetches only `_manifest.json`.
-- For any real deployment, you must enforce a **host/container egress allowlist** so a compromised
-  Query Service cannot reach arbitrary network destinations.
+- Query Service safety and SQL gate: [query_service.md](../architecture/containers/query_service.md) and [query_sql_gating.md](../specs/query_sql_gating.md)
+- For any real deployment, enforce a **host/container egress allowlist** so a compromised Query Service cannot reach arbitrary network destinations.
+  - Owner: [ADR 0002](../adr/0002-networking.md)
+- Harness verification (contract-freeze invariants): [harness/README.md](../../harness/README.md)

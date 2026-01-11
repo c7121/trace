@@ -8,15 +8,19 @@ Central orchestration coordinator. Primary control-plane service.
 >
 > They are deployed as **two separate instances/clusters** (e.g., two RDS databases), even if they share the same engine/version.
 
-## Architecture Overview
+## Doc ownership
 
-System-level container relationships are documented in [c4.md](../c4.md).
+This doc covers Dispatcher responsibilities and internal components.
 
-This document focuses on Dispatcher responsibilities and internal components.
+Canonical owners for shared semantics:
+- System-level container relationships: [c4.md](../c4.md)
+- Task lifecycle (leasing, retries, outbox, rehydration): [task_lifecycle.md](../task_lifecycle.md)
+- Task-scoped and worker-only contracts (tokens and endpoint payloads): [contracts.md](../contracts.md)
+- Security invariants: [security.md](../security.md)
+- DAG config surface (including reserved fields): [dag_configuration.md](../../specs/dag_configuration.md)
 
 ## Responsibilities
 
-**Responsibilities:**
 - Route all upstream events to dependent jobs
 - Create tasks and enqueue to operator queues (outbox → SQS)
 - Handle `runtime: dispatcher` jobs in-process (platform-only)
@@ -25,6 +29,8 @@ This document focuses on Dispatcher responsibilities and internal components.
 - Run reaper for dead tasks
 - Publish queue depth metrics to CloudWatch
 - Expose manual source API (emits events)
+- Issue per-attempt task capability tokens and expose an internal task JWKS for verifiers (see [task_capability_tokens.md](../contracts/task_capability_tokens.md))
+- Mint scoped object-store credentials from task capability tokens (see [credential_minting.md](../contracts/credential_minting.md))
 
 ## Event Model
 
@@ -64,105 +70,8 @@ Propagates upstream through DAG edges. When a queue trips its threshold (depth o
 
 - **v1:** Backpressure is global and operational (protect the system), not per-job configurable.
 - Per-job backpressure knobs are **reserved** and MUST be rejected in v1: `max_queue_depth`, `max_queue_age`, `backpressure_mode`.
-  See `docs/specs/dag_configuration.md` (“Reserved fields”).
+  See [dag_configuration.md](../../specs/dag_configuration.md) ("Reserved fields").
 - Priority/tiers (e.g., shedding bulk bootstrap work first) is a future optimization and is not required for v1 correctness.
-
-## Task capability token issuance
-
-Dispatcher issues a per-attempt **task capability token** (JWT) for untrusted execution. This token is used for:
-
-- Task-scoped lifecycle endpoints (`/v1/task/heartbeat`, `/v1/task/complete`, `/v1/task/events`, `/v1/task/buffer-publish`)
-- Task-scoped Query Service access (`/v1/task/query`)
-- Credential minting (`/v1/task/credentials`)
-
-**Recommended v1 signing:**
-- JWT algorithm: ES256
-- AWS profile: sign with an AWS KMS asymmetric key (`ECC_NIST_P256`)
-- Lite profile: sign with a local PEM keypair
-
-Dispatcher exposes an internal-only JWKS document so other services can verify tokens:
-
-```
-GET /internal/jwks/task
-```
-
-Verifiers (Query Service, sinks) should cache this JWKS and refresh on `kid` miss. Key rotation keeps old keys until all outstanding tokens have expired.
-
-## Credential minting
-
-To keep UDF tasks near-zero-permission, the Dispatcher includes a **credential minting** component.
-It exchanges a **task capability token** for short-lived AWS credentials scoped to the task’s allowed S3 prefixes.
-
-This is the v1 replacement for a separate “Credential Broker” service.
-
-### API
-
-```
-POST /v1/task/credentials
-X-Trace-Task-Capability: <capability_token>
-```
-
-> This endpoint is **internal-only**: it is reachable only from within the VPC (workers/Lambdas) and must not be routed through the public Gateway.
-
-- The capability token is issued per `(task_id, attempt)` and defines allowed input/output/scratch prefixes.
-- Dispatcher calls `sts:AssumeRole` with a session policy derived from the token.
-- Returned credentials are short-lived and allow only S3 access within the encoded prefixes.
-
-
-### Scope derivation and canonicalization (required)
-
-Credential minting is a privilege boundary. The Dispatcher MUST derive the STS session policy from the
-capability token using **deny-by-default** rules.
-
-Rules (v1):
-- The token MUST encode allowed prefixes as canonical `s3://bucket/prefix/` strings.
-- Prefixes MUST be normalized before policy generation:
-  - scheme must be `s3`,
-  - bucket must be non-empty,
-  - prefix must be non-empty and must not contain `..`,
-  - wildcards (`*`, `?`) are forbidden,
-  - prefix must be treated as a directory prefix (effectively `prefix/*`), never as a “starts-with anything” pattern.
-- The resulting session policy MUST grant only the minimum required S3 actions within those prefixes.
-  - Prefer object-level access (`GetObject`/`PutObject`) over bucket-level actions.
-  - If `ListBucket` is required, constrain it with an `s3:prefix` condition to the allowed prefixes only.
-
-Defense-in-depth (recommended):
-- Enforce the same prefix constraints at the bucket policy layer so that even a buggy session policy cannot
-  read/write outside allowed prefixes.
-
-Example (illustrative) session policy shape:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["s3:GetObject"],
-      "Resource": ["arn:aws:s3:::<bucket>/<read_prefix>*"]
-    },
-    {
-      "Effect": "Allow",
-      "Action": ["s3:PutObject"],
-      "Resource": ["arn:aws:s3:::<bucket>/<write_prefix>*"]
-    },
-    {
-      "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::<bucket>"],
-      "Condition": {"StringLike": {"s3:prefix": ["<read_prefix>*", "<write_prefix>*"]}}
-    }
-  ]
-}
-```
-
-Verification (required):
-- Unit tests for prefix normalization/canonicalization.
-- Negative tests: `..`, empty prefixes, wildcard widening, wrong bucket.
-- (AWS profile) Integration test that minted credentials cannot read/write outside scope.
-
-
-**Networking:** Dispatcher must be able to reach AWS STS (prefer an STS VPC endpoint).
 
 ## Out of Scope
 
@@ -171,16 +80,11 @@ Verification (required):
 - Pull from queues
 - Evaluate cron schedules (that's EventBridge + Lambda)
 
-## Failure Mode
+## Failure mode
 
-Dispatcher is stateless - durable state lives in Postgres state. On failure/restart:
+Dispatcher is stateless. Durable state lives in Postgres state.
 
-- ECS restarts the service.
-- In-flight workers may continue executing their current attempt.
-- If a worker cannot heartbeat/report completion during the outage, it retries until the Dispatcher is reachable again.
-- Queued tasks are not lost: enqueue intents are persisted via the Postgres state outbox and published after restart.
-
-Because execution is **at-least-once**, a long outage may cause some duplicate work (e.g., leases expire and tasks are retried). Output commits and routing are designed to be idempotent.
+Leasing, retries, outbox draining, and rehydration semantics are specified in [task_lifecycle.md](../task_lifecycle.md).
 
 
 ## Component View
@@ -241,4 +145,10 @@ flowchart LR
 `runtime` is a string used by the Dispatcher to decide how to execute a job (in-process, Lambda, or ECS queue).
 The mapping from `runtime` to worker image, queue, and resource defaults is configured in the Dispatcher.
 
+## Related
 
+- C4 overview: [../c4.md](../c4.md)
+- Invariants: [../invariants.md](../invariants.md)
+- Security model: [../security.md](../security.md)
+- Operations: [../operations.md](../operations.md)
+- Task lifecycle: [../task_lifecycle.md](../task_lifecycle.md)

@@ -17,16 +17,17 @@ This document does **not** restate payload schemas in full; feature specs under 
   - `org_id` (tenant boundary)
   - `user_id` (actor id)
   - roles/permissions (if enabled)
+- **v1 tenancy:** Trace v1 deploys as a single-org instance. Requests do not select an org. The backend resolves the deployment `org_id` from configuration (or the single row in `orgs`) and enforces membership. `org_id` must not be taken from forwarded headers or untrusted token claims.
 - All reads and writes MUST be scoped to `org_id`. Cross-org access is always forbidden.
 
-Claim mapping for the user JWT is defined in: [security_model.md](../standards/security_model.md).
+Claim mapping for the user JWT is defined in: [security.md - User JWT claim contract (v1)](security.md#user-jwt-claim-contract-v1).
 
 ## Route allowlist
 
 ### Query
 
 - `POST /v1/query` - user-facing interactive query execution (Query Service).
-  - Spec: `docs/specs/query_service_user_query.md`
+  - Spec: [query_service_user_query.md](../specs/query_service_user_query.md)
   - Notes: minimal v1 surface, inline JSON results only (no exports yet).
 
 ### Datasets (discovery)

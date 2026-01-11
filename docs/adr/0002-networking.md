@@ -29,3 +29,11 @@
 - Monitor and audit outbound traffic; alert on unexpected egress attempts.
 
 **Implementation note:** Enforcement is primarily via network topology: job containers have no default route/NAT, and only egress services can reach the public internet.
+
+## Related
+
+- Security model and egress rules: [security.md](../architecture/security.md)
+- Delivery outbound boundary: [delivery_service.md](../architecture/containers/delivery_service.md)
+- RPC egress boundary: [rpc_egress_gateway.md](../architecture/containers/rpc_egress_gateway.md)
+- Gateway patterns: [gateway.md](../architecture/containers/gateway.md)
+- Ops posture: [operations.md](../architecture/operations.md)

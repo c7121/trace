@@ -67,3 +67,10 @@ This ADR focuses on the *cutover/rollback model*, not full schema definitions.
 - **Ready for cutover** is an explicit control-plane state: the deploy/rematerialization workflow marks a staged `dag_version` as ready only after it has completed and validated the required work for that deploy. The Dispatcher does not infer readiness from partial progress.
 - **Postgres datasets** are live in v1; historical physical tables per `dataset_version` are not supported.
 
+## Related
+
+- Normative surface: [dag_deployment.md](../architecture/dag_deployment.md) and [data_versioning.md](../architecture/data_versioning.md)
+- Dataset registry and publishing: [ADR 0008](0008-dataset-registry-and-publishing.md)
+- Query pinning: [query_service_user_query.md](../specs/query_service_user_query.md) and [query_service_task_query.md](../specs/query_service_task_query.md)
+- Container context: [query_service.md](../architecture/containers/query_service.md)
+- Orchestration schema mapping: [orchestration.md](../architecture/data_model/orchestration.md)

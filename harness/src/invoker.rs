@@ -1,6 +1,7 @@
 use crate::{
     config::HarnessConfig,
     dispatcher_client::{DispatcherClient, TaskClaimResponse},
+    local_process_invoker::LocalProcessInvoker,
     pgqueue::PgQueue,
     runner::FakeRunner,
     s3::ObjectStore,
@@ -32,12 +33,21 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
     let object_store: Arc<dyn ObjectStoreTrait> =
         Arc::new(ObjectStore::new(&cfg.s3_endpoint).context("init object store")?);
 
-    let runner = FakeRunner::new(
-        cfg.dispatcher_url.clone(),
-        cfg.query_service_url.clone(),
-        cfg.s3_bucket.clone(),
-        object_store.clone(),
-    );
+    let runner: Arc<dyn RuntimeInvoker> =
+        match std::env::var("TRACE_UDF_MODE").as_deref().unwrap_or("fake") {
+            "local" => Arc::new(LocalProcessInvoker::new(
+                cfg.dispatcher_url.clone(),
+                cfg.query_service_url.clone(),
+                cfg.s3_endpoint.clone(),
+                cfg.s3_bucket.clone(),
+            )),
+            _ => Arc::new(FakeRunner::new(
+                cfg.dispatcher_url.clone(),
+                cfg.query_service_url.clone(),
+                cfg.s3_bucket.clone(),
+                object_store.clone(),
+            )),
+        };
 
     let dispatcher = DispatcherClient::new(cfg.dispatcher_url.clone());
 
@@ -66,7 +76,7 @@ pub async fn run(cfg: &HarnessConfig) -> anyhow::Result<()> {
                 }
 
                 for msg in messages {
-                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &dispatcher, &runner, msg, requeue_delay).await {
+                    if let Err(err) = handle_message(cfg, queue.as_ref(), object_store.as_ref(), &dispatcher, runner.as_ref(), msg, requeue_delay).await {
                         tracing::warn!(
                             event = "harness.invoker.message.error",
                             error = %err,

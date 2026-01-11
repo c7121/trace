@@ -2,6 +2,8 @@
 
 How the system tracks data changes, handles reorgs, and efficiently reprocesses only what's needed.
 
+Doc ownership: this document defines incremental processing behavior and invariants. For schema mapping, see [data_model/data_versioning.md](data_model/data_versioning.md).
+
 ## Overview
 
 - Tasks and upstream events are **at-least-once**. Correctness comes from leasing, strict attempt fencing, and idempotent dataset writes.
@@ -147,6 +149,8 @@ Guidance:
 
 ### Flow
 
+Range semantics: block ranges are start-inclusive and end-exclusive (see [task_scoped_endpoints.md](contracts/task_scoped_endpoints.md)).
+
 ```mermaid
 sequenceDiagram
     participant BF as block_follower
@@ -156,14 +160,14 @@ sequenceDiagram
     participant DS as Downstream Jobs
 
     BF->>BF: Detect reorg
-    BF->>PG: Rewrite blocks 995-1005
-    BF->>DISP: Emit invalidation row_range 995-1005
-    DISP->>INV: INSERT invalidation row_range 995-1005
+    BF->>PG: Rewrite blocks 995-1006
+    BF->>DISP: Emit invalidation row_range 995-1006
+    DISP->>INV: INSERT invalidation row_range 995-1006
     DISP->>DS: Create tasks with row_filter
     DS->>PG: Query with row_filter
     DS->>DS: Process + write output
     DS->>DISP: Task complete
-    DISP->>INV: Mark invalidation processed (after accepting fenced completion)
+    DISP->>INV: Mark invalidation processed after accepting fenced completion
 ```
 
 
@@ -171,7 +175,7 @@ sequenceDiagram
 
 | Job | Mode | On Reorg |
 |-----|------|----------|
-| `alert_evaluate` | cursor + append | Re-evaluate blocks 995-1005; new alerts inserted (dedupe by block_hash) |
+| `alert_evaluate` | cursor + append | Re-evaluate blocks 995-1006; new alerts inserted (dedupe by block_hash) |
 | `enrich_transfers` | cursor + replace | Re-enrich affected rows; output updated |
 | `parquet_compact` | partition | No impact (only compacts finalized blocks past reorg window) |
 

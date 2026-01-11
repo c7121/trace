@@ -37,3 +37,10 @@
 - No off-the-shelf UI (can build or use Postgres state-backed dashboards).
 - Full ownership of failure modes and edge cases.
 
+## Related
+
+- System tour: [c4.md](../architecture/c4.md)
+- Containers: [dispatcher.md](../architecture/containers/dispatcher.md), [workers.md](../architecture/containers/workers.md)
+- Normative surface: [dag_configuration.md](../specs/dag_configuration.md)
+- Task lifecycle: [task_lifecycle.md](../architecture/task_lifecycle.md)
+- State vs data boundary: [db_boundaries.md](../architecture/db_boundaries.md)

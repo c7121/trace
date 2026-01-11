@@ -1,8 +1,12 @@
 # Trace contract-freeze harness (Rust)
 
 This directory contains the **contract-freeze integration harness** for Trace.
-It is intentionally minimal: prove leasing, fencing, outbox, and pointer-buffer semantics under at-least-once delivery
-**before** building full feature implementations.
+It is intentionally minimal: prove leasing, fencing, outbox, and pointer-buffer semantics under at-least-once delivery before building full feature implementations.
+
+What this is not:
+- The canonical end-to-end Trace Lite runbook: see [docs/examples/lite_local_cryo_sync.md](../docs/examples/lite_local_cryo_sync.md)
+- Trace Lite runner semantics: see [docs/plan/trace_lite.md](../docs/plan/trace_lite.md)
+- A source of truth for interface contracts: see [docs/architecture/contracts.md](../docs/architecture/contracts.md)
 
 The harness runs in **Trace Lite** mode:
 
@@ -10,23 +14,34 @@ The harness runs in **Trace Lite** mode:
 - Postgres **data** (sink tables)
 - MinIO (S3-compatible object store) for batch artifacts
 
+## Green harness command
+
+Run from `harness/`.
+
+```bash
+docker compose down -v
+docker compose up -d
+cargo run -- migrate
+cargo test -- --nocapture
+```
+
 ## Quick start
 
 Requirements:
 - Rust stable
 - Docker + docker compose
 
+Run from `harness/`.
+
 Bring up dependencies:
 
 ```bash
-cd harness
 docker compose up -d
 ```
 
 Run migrations:
 
 ```bash
-cd harness
 cargo run -- migrate
 ```
 
@@ -47,7 +62,7 @@ cargo run -- enqueue
 Run integration tests (after the above is working):
 
 ```bash
-cargo test
+cargo test -- --nocapture
 ```
 
 ## Scope (v1 harness)
@@ -56,7 +71,7 @@ The harness only needs to exercise these flows:
 
 - **Claim** a task lease (`/internal/task-claim`)
 - **Heartbeat** a lease (`/v1/task/heartbeat`)
-- **Publish** a buffer pointer (`/v1/task/buffer-publish`) — pointer pattern only
+- **Publish** a buffer pointer (`/v1/task/buffer-publish`) - pointer pattern only
 - **Complete** a task (`/v1/task/complete`)
 - **Drain** outbox → queue (at-least-once)
 - **Consume** buffer queue → validate → idempotent insert (DLQ on poison)

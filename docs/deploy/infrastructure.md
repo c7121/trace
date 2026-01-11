@@ -1,13 +1,15 @@
 # Infrastructure
 
-AWS architecture and Terraform structure.
+AWS deployment topology and constraints.
+
+For the canonical C4 system and container views, see [../architecture/c4.md](../architecture/c4.md).
 
 ## AWS Architecture
 
 ```mermaid
 flowchart TB
     %% API Gateway is an AWS-managed edge service.
-    %% In v1, API Gateway uses a private integration (VPC Link) to an internal ALB.
+    %% In v1, API Gateway uses a private integration via VPC Link to an internal ALB.
     subgraph Edge["AWS Edge / Managed"]
         APIGW[API Gateway]
     end
@@ -50,7 +52,7 @@ flowchart TB
     ALB --> QUERY_SVC
 
     EVENTBRIDGE --> SOURCE_LAMBDA
-    APIGW -->|webhooks (optional)| SOURCE_LAMBDA
+    APIGW -->|webhooks: optional| SOURCE_LAMBDA
     SOURCE_LAMBDA --> DISPATCHER_SVC
 
     DISPATCHER_SVC -->|invoke runtime=lambda| UDF_LAMBDA
@@ -83,44 +85,29 @@ flowchart TB
 
 > Note: Untrusted ECS UDF execution (`ecs_udf`) is deferred to v2. In v1, untrusted UDFs execute via the platform-managed Lambda runner.
 
+## Infrastructure as code
 
-## Terraform Structure
-
-```
-/terraform
-  /modules
-    /vpc           # VPC, subnets, NAT, VPC endpoints
-    /rds           # Postgres, security groups
-    /ecs           # Cluster, services, task definitions, autoscaling
-    /sqs           # SQS queues, DLQ
-    /s3            # Data bucket, lifecycle rules
-    /lambda        # Lambda functions (sources + operators), API Gateway
-    /eventbridge   # Cron schedules
-  /environments
-    /dev
-    /prod
-```
+This repo does not include Terraform or any other infrastructure-as-code tree. If you manage AWS infrastructure as code, keep it in a separate repo and treat this document as the required resource inventory and constraints.
 
 ## Key Resources
 
-- **Ingress**: API Gateway validates user JWTs and routes to an **internal** ALB via VPC Link. Backend services must validate the user JWT and derive identity/role from it. Task-scoped endpoints (`/v1/task/*`) are internal-only and are not routed through the public Gateway. See `docs/architecture/containers/gateway.md` and `docs/standards/security_model.md`.
-- **Lambda**: any Lambda that must call internal services (Dispatcher, Query Service, sinks) MUST be **VPC-attached** in private subnets with **no NAT**. Required AWS APIs are reached via VPC endpoints.
-- **VPC**: Private/public subnets, VPC endpoints for S3/SQS (and other AWS APIs as needed)
-- **ECS**: Fargate services, SQS-based autoscaling (v1 runs workers on `linux/amd64`)
-- **RDS**: Two clusters/instances:
-  - **Postgres state** for orchestration metadata
-  - **Postgres data** for hot tables and platform-managed datasets
-  Both are Postgres 15, encrypted, multi-AZ in prod, deployed into **private subnets**.
-  
-  For chain datasets, Postgres data should be optimized for frequent **block-range rewrites** (reorgs) and bounded deletes (post-compaction retention):
-  - Baseline: bounded **row-range deletes** are supported. Large deletes can create bloat; tune autovacuum accordingly.
-  - Optional optimization: **partition by `chain_id` + `block_number` range**. If partition boundaries align with compaction ranges, retention cleanup can later be implemented as partition drops.
-  - Retention and compaction are **DAG-defined behaviors** (operators decide finality/TTL); the Dispatcher does not enforce a retention policy.
-  - In prod, consider a read replica for Query Service to protect ingestion latency.
-- **SQS**: Standard queues (one per runtime) + DLQ. Base visibility is minutes; worker wrappers extend visibility for long tasks. Ordering is enforced by DAG dependencies, not SQS.
-- **S3**: Data bucket for dataset storage + scratch bucket for query exports and task scratch
-- **Query Service**: DuckDB federation layer (read-only Postgres user) + result export to S3
-- **Dispatcher credential minting**: Issues short-lived, prefix-scoped STS credentials for untrusted UDF tasks
+- **Ingress**: API Gateway routes user `/v1/*` requests to an internal ALB via VPC Link. Semantics: [Gateway](../architecture/containers/gateway.md), [Security model](../architecture/security.md).
+- **Lambda**: any Lambda that calls internal services (Dispatcher, Query Service, sinks) is VPC-attached in private subnets with no NAT. Required AWS APIs are reached via VPC endpoints.
+- **VPC**: private subnets, VPC endpoints (S3/SQS/STS/KMS/Logs), and egress controls. See [ADR 0002](../adr/0002-networking.md).
+- **ECS**: Fargate services and workers. v1 runs workers on `linux/amd64`. Container responsibilities: [Containers](../architecture/containers/README.md).
+- **RDS**: two Postgres databases (v1 target: Postgres 15), encrypted, in private subnets (multi-AZ in prod):
+  - Postgres state (orchestration): [db_boundaries.md](../architecture/db_boundaries.md), [orchestration.md](../architecture/data_model/orchestration.md)
+  - Postgres data (hot tables): [db_boundaries.md](../architecture/db_boundaries.md), [Data model](../architecture/data_model/README.md)
+  - Postgres data tuning notes for chain datasets:
+    - Expect bounded block-range rewrites (reorg repair) and bounded deletes (post-compaction retention).
+    - Baseline: row-range deletes are supported. Large deletes can create bloat; tune autovacuum accordingly.
+    - Optional: partition by `chain_id` and `block_number` range. If partition boundaries align with compaction ranges, retention cleanup can be implemented as partition drops.
+    - Retention and compaction are DAG-defined operator behaviors. The platform does not enforce a retention policy at the database layer.
+    - In prod, consider a read replica for Query Service to protect ingestion latency.
+- **SQS**: standard queues plus DLQs. Correctness is not based on queue ordering. See [task_lifecycle.md](../architecture/task_lifecycle.md).
+- **S3**: data bucket for datasets and scratch bucket for query exports and task scratch. Default retention guidance: [operations.md](../architecture/operations.md).
+- **Query Service**: DuckDB federation layer (read-only Postgres user) plus result export to S3. See [Query Service](../architecture/containers/query_service.md).
+- **Dispatcher credential minting**: short-lived, prefix-scoped STS credentials for untrusted tasks. See [credential_minting.md](../architecture/contracts/credential_minting.md).
 
 
 ## Scheduled and webhook triggers
@@ -132,11 +119,14 @@ flowchart TB
 
 ## Deployment Order
 
-1. Terraform apply (infra)
+1. Apply infrastructure (Terraform or equivalent)
 2. Database migrations
-3. Sync DAG YAML → Postgres
+3. Sync DAG YAML → Postgres state (see [dag_deployment.md](../architecture/dag_deployment.md))
 4. Deploy ECS services
 
 ## Rollback
 
-Terraform state rollback, ECS deployment rollback, git revert DAGs.
+There are two rollback layers:
+
+- **Infra rollback**: revert infrastructure and service deploys (Terraform and ECS).
+- **Orchestration rollback**: atomic cutover rollback of `dag_version` and `dataset_version` pointers. See [dag_deployment.md](../architecture/dag_deployment.md) and [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md).

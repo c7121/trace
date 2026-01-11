@@ -1,12 +1,12 @@
 # Query Service: Task Query API
 
 Status: Implemented
-Owner: agent
-Last updated: 2026-01-05
+Owner: Platform
+Last updated: 2026-01-11
 
 ## Summary
-Implement a minimal Query Service binary that exposes only `POST /v1/task/query` for task-scoped SQL.
-It is intentionally a thin wrapper around `trace_core::query::validate_sql`, DuckDB sandbox defaults, and tests.
+Define `POST /v1/task/query` for task-scoped, validated, read-only SQL against an authorized dataset.
+This endpoint is a thin wrapper around `trace_core::query::validate_sql`, trusted dataset attach, and audit logging.
 
 ## Risk
 High
@@ -14,17 +14,20 @@ High
 This adds a new endpoint that executes untrusted SQL (security/trust-boundary change).
 
 ## Context
-[query_service.md](../architecture/containers/query_service.md) defines DuckDB sandboxing requirements and a task-scoped `/v1/task/query` endpoint.
+
+Query Service context and boundaries: [Query Service container](../architecture/containers/query_service.md).
+
 The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](query_sql_gating.md)).
 
 ## Goals
-- Provide a runnable Query Service with one task-scoped endpoint.
+- Provide `POST /v1/task/query` for task-scoped reads.
 - Enforce capability-token authn/authz (token must match `{task_id, attempt}`).
 - Enforce `validate_sql` and run queries against Parquet datasets attached via a pinned storage reference carried in the task capability token.
 - Emit a dataset-level query audit record (no raw SQL).
 
 ## Non-goals
-- User query endpoint (`/v1/query`), dataset registry, pagination/caching/export.
+- User query endpoint (`/v1/query`) is owned by [query_service_user_query.md](query_service_user_query.md).
+- Dataset registry, pagination/caching/export (future shape: [query_service_query_results.md](query_service_query_results.md)).
 - General Postgres federation in DuckDB.
 - Any dataset discovery/resolution beyond the dataset grants carried in the task capability token.
 
@@ -42,19 +45,14 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
 ### Responsibilities and boundaries
 - `trace-core`: provides `query::validate_sql` and capability token claim types.
 - Query Service:
-  - Auth: verify `X-Trace-Task-Capability` (HS256 dev secret in Lite).
+  - Auth: verify `X-Trace-Task-Capability` (see [task_capability_tokens.md](../architecture/contracts/task_capability_tokens.md)).
   - Gate: call `validate_sql(sql)` on every request.
   - Execute:
     - Trusted attach: attach a pinned dataset version using a storage reference carried in the task capability token as a DuckDB relation (`dataset`).
       - Implementation note: attach as a TEMP VIEW over `read_parquet(...)` (do not materialize into a table) so Parquet predicate/projection pushdown is preserved.
       - Query Service MUST NOT fetch Parquet bytes itself (`ObjectStore.get_bytes`) or copy Parquet objects to local temp as the primary attach path. Parquet is scanned in-place by DuckDB.
     - Untrusted SQL: execute gated SQL against attached relations only.
-
-      DuckDB runtime hardening MUST be applied in addition to SQL gating:
-      - disable host filesystem access (e.g. `SET disabled_filesystems='LocalFileSystem'`),
-      - lock configuration (`SET lock_configuration=true`),
-      - disable extension auto-install (no `INSTALL` from untrusted SQL; `autoinstall_known_extensions=false`),
-      - run in an OS/container sandbox with egress restricted to only the object-store endpoint(s) (no general internet egress).
+      - DuckDB runtime hardening is required as defense-in-depth; see [query_sql_gating.md](query_sql_gating.md).
   - Audit: insert dataset-level audit row into Postgres data DB.
 
 ### Data flow and trust boundaries
@@ -65,6 +63,9 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
   - DuckDB: disable host filesystem access and lock configuration; writes prevented by `validate_sql` (DDL/DML rejected). If the dataset itself is remote (HTTP/S3), DuckDB must be allowed to perform those authorized reads.
 - Sensitive data handling:
   - MUST NOT log raw SQL (only structured denial/execution outcomes).
+- Failure modes (dataset attach):
+  - Permanent: malformed manifest, exceeds size limits, structural violations.
+  - Retryable: object store temporarily unavailable (network errors, server 5xx, missing objects).
 
 ## Contract requirements
 - MUST require `X-Trace-Task-Capability` and reject missing/invalid tokens (401).
@@ -72,12 +73,12 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
 - MUST reject a request whose `dataset_id` is not granted in the capability token (403).
 - MUST reject if the dataset storage reference is missing or outside the token’s S3 read prefixes (fail-closed).
 - MUST return 400 when `validate_sql` rejects.
-- MUST clamp `limit` to `[1, 10_000]` (default 1000) and return `truncated` when clipped.
+- MUST clamp `limit` to `[1, inline_row_limit]` and return `truncated` when clipped (defaults: [operations.md](../architecture/operations.md)).
 - MUST write an audit row on successful execution without storing raw SQL.
 
 ## Security considerations
 - Primary control: `validate_sql` denylist + single-statement requirement.
-- Defense-in-depth: DuckDB runtime hardening (disable `LocalFileSystem`, lock configuration, no extension auto-install). If remote datasets are supported, pair with OS-level egress controls so DuckDB can only reach the configured object-store endpoint(s).
+- Defense-in-depth: DuckDB runtime hardening and egress restrictions; see [query_sql_gating.md](query_sql_gating.md) and [ADR 0002](../adr/0002-networking.md).
 - Residual risk: denylist incompleteness; mitigated by runtime sandboxing and tests.
 
 ## High risk addendum
@@ -90,8 +91,8 @@ The SQL gate is `trace_core::query::validate_sql` (spec: [query_sql_gating.md](q
 - Rollback: disable/scale-to-zero Query Service; no data-plane corruption expected.
 
 ## Reduction pass
-- Single endpoint only; no user mode, no exports, no federation.
-- No new dependencies in `trace-core`; Query Service keeps DuckDB/axum deps out of core.
+- No exports, pagination, caching, or federation (future shape: [query_service_query_results.md](query_service_query_results.md)).
+- No new dependencies in `trace-core`; Query Service keeps DuckDB and HTTP deps out of core.
 
 ## Acceptance criteria
 - Integration tests prove:

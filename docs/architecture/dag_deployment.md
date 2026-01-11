@@ -2,12 +2,22 @@
 
 How `dag.yaml` is parsed and synced into orchestration state (jobs/tasks) and how source infrastructure is provisioned.
 
+## Doc ownership
+
+This doc defines deploy, rematerialization, cutover, and rollback invariants. It intentionally does not restate DAG YAML field semantics.
+
+- Core concepts (DAG, job, task): [Architecture index - Core concepts](README.md#core-concepts)
+- DAG YAML schema and per-field semantics: [dag_configuration.md](../specs/dag_configuration.md)
+- Atomic cutover and rollback model: [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md)
+- Orchestration schema: [orchestration.md](data_model/orchestration.md)
+
 ## Overview
 
 - DAG YAML is the source of truth; Postgres state stores the runtime state.
-- Deployment is idempotent: the same `dag.yaml` produces the same deploy record (`dag_version`) and job definitions.
+- Deployment is idempotent: the same `dag.yaml` produces the same `dag_version` (keyed by `org_id + dag_name + yaml_hash`) and job definitions.
+- A `dag_version` is immutable once created.
+- Activating a version updates the org+dag active pointer (`dag_current_versions`, see [orchestration.md](data_model/orchestration.md)).
 - Deploy/rematerialize is **non-destructive** and uses **atomic cutover/rollback** (see [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md)).
-- Reactive triggers are per-update: **1 upstream event → 1 task** for each dependent reactive job (no dispatcher-side coalescing/bulk).
 
 ## Flow
 
@@ -40,10 +50,6 @@ If the deploy changes any **materialization-affecting** job fields (v1: at minim
 - Computes the transitive closure of downstream dependents.
 
 That downstream subgraph is the rematerialization scope (“from the edit onward”). Unchanged upstream jobs (especially source jobs) remain running.
-
-### Source bootstrap (optional)
-
-Source jobs may declare one-time bootstrap actions in YAML (v1: `bootstrap.reset_outputs`). Bootstrap actions run **once** when a `dag_version` becomes active and are not re-run on ordinary restarts.
 
 ### Buffering during rematerialization
 

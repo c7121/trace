@@ -4,7 +4,7 @@ Platform service that provides a controlled outbound path for blockchain RPC cal
 
 Workers do not have direct internet egress. Any RPC access happens through this gateway (or via in-VPC nodes).
 
-See ADR 0002 (networking).
+See [ADR 0002](../../adr/0002-networking.md).
 
 ## Responsibilities
 
@@ -41,3 +41,12 @@ flowchart LR
     classDef component fill:#d6ffe7,stroke:#1f9a6f,color:#000;
     classDef ext fill:#eee,stroke:#666,color:#000;
 ```
+
+## Related
+
+- C4 overview: [../c4.md](../c4.md)
+- Invariants: [../invariants.md](../invariants.md)
+- Security model: [../security.md](../security.md)
+- Operations: [../operations.md](../operations.md)
+- Workers container: [workers.md](workers.md)
+- Networking decision: [ADR 0002](../../adr/0002-networking.md)

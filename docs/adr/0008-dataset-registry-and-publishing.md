@@ -50,3 +50,9 @@
 - Publish entries name datasets and attach access policy/metadata, but **do not** declare full storage schema/backends inline. Storage schema is determined by the producing job/output and recorded by the platform.
 - Snapshot publishing is deferred (future work). v1 publishes **live** dataset pointers; retention of committed versions follows ADR 0009 (manual GC).
 
+## Related
+
+- Normative surface: [dag_configuration.md](../specs/dag_configuration.md) and [user_api_contracts.md](../architecture/user_api_contracts.md)
+- Orchestration schema mapping: [orchestration.md](../architecture/data_model/orchestration.md)
+- Query Service dataset discovery: [query_service_user_query.md](../specs/query_service_user_query.md)
+- Versioning and pinning: [ADR 0009](0009-atomic-cutover-and-query-pinning.md)

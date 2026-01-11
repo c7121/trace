@@ -23,3 +23,10 @@
 - Query Service records large/async results (and optionally all interactive queries) in `query_results`.
 - Batch query tasks update the corresponding `query_results` row on completion.
 
+## Related
+
+- Normative surface: [query_service_query_results.md](../specs/query_service_query_results.md)
+- Query Service surface: [query_service_user_query.md](../specs/query_service_user_query.md)
+- Query operator surface: [operators/duckdb_query.md](../specs/operators/duckdb_query.md)
+- Data model mapping: [query_service.md](../architecture/data_model/query_service.md)
+- Container context: [query_service.md](../architecture/containers/query_service.md)

@@ -160,3 +160,13 @@ Lambda UDF note:
 
 Notes:
 - v1 targets `linux/amd64` for ECS workers; additional architectures can be added as needed.
+
+## Related
+
+- C4 overview: [../c4.md](../c4.md)
+- Invariants: [../invariants.md](../invariants.md)
+- Security model: [../security.md](../security.md)
+- Operations: [../operations.md](../operations.md)
+- Task lifecycle: [../task_lifecycle.md](../task_lifecycle.md)
+- Task-scoped endpoint contracts: [../contracts/task_scoped_endpoints.md](../contracts/task_scoped_endpoints.md)
+- Dispatcher-to-Lambda payload: [../contracts/lambda_invocation.md](../contracts/lambda_invocation.md)

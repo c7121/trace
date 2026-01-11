@@ -1,13 +1,26 @@
-# Chain Sync DAG Entrypoint (genesis → tip, multi Cryo datasets)
+# Chain Sync entrypoint (genesis → tip, multi Cryo datasets)
 
 Status: Draft
 Owner: Platform
-Last updated: 2026-01-08
+Last updated: 2026-01-11
 
 Keep this document short. Delete sections that do not apply.
 
 ## Summary
-Define a declarative `chain_sync` DAG entrypoint that syncs one or more Cryo datasets (e.g., `blocks`, `logs`, `geth_calls`) from genesis to tip. The Dispatcher owns all planning/scheduling (no shell loops) using durable Postgres state, leased tasks, and idempotent dataset publication so outputs remain safely queryable via Query Service remote Parquet scans.
+Define a declarative `chain_sync` entrypoint that syncs one or more Cryo datasets (e.g., `blocks`, `logs`, `geth_calls`) from genesis to tip. The Dispatcher owns all planning/scheduling (no shell loops) using durable Postgres state, leased tasks, and idempotent dataset publication so outputs remain safely queryable via Query Service remote Parquet scans.
+
+## Doc ownership
+
+This spec defines:
+- The admin-only `chain_sync` job surface and apply semantics.
+- Planner invariants and required durable state (per-stream cursors and scheduled range ledger).
+- The required task payload contract for `cryo_ingest` tasks planned by `chain_sync`.
+
+This spec depends on (and does not restate):
+- Task lifecycle, leasing, and fencing: [task_lifecycle.md](../architecture/task_lifecycle.md) and [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)
+- Range semantics and invalidations: [data_versioning.md](../architecture/data_versioning.md)
+- Query Service fail-closed behavior: [query_sql_gating.md](query_sql_gating.md), [query_service_task_query.md](query_service_task_query.md), and [Query Service container](../architecture/containers/query_service.md)
+- `cryo_ingest` worker behavior: [operators/cryo_ingest.md](operators/cryo_ingest.md)
 
 ## Risk
 High
@@ -20,24 +33,26 @@ If Risk is High:
 - Ask before proceeding from spec to implementation.
 
 ## Related ADRs
-- ADR-0002 (Networking / egress allowlist)
-- ADR-0008 (Dataset registry and publishing)
-- ADR-0009 (Atomic cutover and query pinning)
+- [ADR 0002](../adr/0002-networking.md) - networking and egress allowlist
+- [ADR 0008](../adr/0008-dataset-registry-and-publishing.md) - dataset registry and publishing
+- [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md) - atomic cutover and query pinning
 
 ## Context
 Today, Lite bootstrap sync is proven via:
 - `cryo_ingest` producing Parquet + a Trace-owned manifest under a deterministic version-addressed prefix (ms/12),
 - `dataset_versions` registered in Postgres state idempotently on task completion, and
-- a planner CLI (`plan-chain-sync`, ms/13) that schedules bounded ranges but requires an external caller to re-run it and only plans a single dataset stream per invocation.
+- ms/13's Lite bootstrap planner (`plan-chain-sync`) which scheduled bounded ranges but required an external caller to re-run it and planned only a single dataset stream per invocation.
+  - This approach is superseded by the system-managed `chain_sync` job runner and `trace-dispatcher apply --file <spec.yaml>` (ms/16).
 
 Problem statement:
 Users want to specify “sync this chain” once and have the system run to completion (or continuously follow head) across multiple Cryo datasets, without external planning loops. The outputs must remain queryable via Query Service while preserving the existing sandbox and security invariants (capability tokens, dataset grants, remote Parquet scan, fail-closed behavior).
 
 Constraints that matter:
-- Task execution is at-least-once; duplicates and restarts are expected (see `docs/architecture/task_lifecycle.md`).
-- Dispatcher owns scheduling; workers must not decide retries/scheduling.
-- Query Service executes untrusted SQL and MUST stay fail-closed behind `trace_core::query::validate_sql` + runtime hardening (see `docs/specs/query_sql_gating.md` and `docs/specs/query_service_task_query.md`).
-- Chain datasets have no required relational schema in v1; Parquet is canonical (see `docs/specs/ingestion.md`).
+- Task execution is at-least-once; duplicates and restarts are expected (see [task_lifecycle.md](../architecture/task_lifecycle.md)).
+- Planning is system-managed: workers must not decide retries or scheduling (see [invariants.md](../architecture/invariants.md)).
+- Range semantics are start-inclusive and end-exclusive (see [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)).
+- Query Service must remain fail closed for untrusted SQL (see [query_sql_gating.md](query_sql_gating.md) and [query_service_task_query.md](query_service_task_query.md)).
+- Chain datasets have no required relational schema in v1; Parquet is canonical (see [ingestion.md](ingestion.md)).
 
 ## Goals
 - Provide a declarative, reviewable configuration for “sync chain from genesis → tip” that can include multiple Cryo datasets in one job.
@@ -73,9 +88,9 @@ persistence formats/migrations, and entrypoint exports.
     - `range_end` (int, end-exclusive in payload terms)
     - `config_hash` (string)
 - CLI:
-  - Admin-only: `trace-dispatcher apply|pause|resume|status` (names TBD).
+  - Admin-only: `trace-dispatcher apply --file <path>`, `trace-dispatcher status [--job <job_id>]`, and `trace-dispatcher chain-sync pause|resume --org-id <uuid> --name <job_name>`.
 - Config semantics:
-  - DAG YAML gains a `chain_sync` entrypoint (two candidate shapes in this spec; one will be selected for v1).
+  - Admin-only `chain_sync` job spec YAML applied via `trace-dispatcher apply --file <job.yaml>` (separate from the DAG YAML jobs list).
 - Persistence format/migration:
   - Postgres *state* requires durable `chain_sync` job definitions + per-stream cursors + scheduled range ledger (semantic model in this spec; SQL not designed here).
 - Entrypoint exports:
@@ -110,7 +125,7 @@ Bullets. Include only what is needed to implement/review safely.
   - `dataset_key` is a stable stream key chosen in YAML (slug; `^[a-z0-9_]{1,64}$`).
   - `cryo_dataset_name` selects the Cryo dataset invoked by tasks in this stream (slug; `^[a-z0-9_]{1,64}$`).
   - Each dataset stream maps to exactly one published dataset UUID in the dataset registry (resolution is part of “apply”).
-- Partition/range: `[start, end)` block interval (end-exclusive).
+- Partition/range: block interval planned by `chain_sync` (see Range semantics).
 - Task: one `{ dataset_key, chain_id, dataset_uuid, range, rpc_pool }` planned unit of work.
   - `rpc_pool` selects an RPC pool owned by the RPC Egress Gateway (API keys are not in YAML).
   - `dataset_uuid` is inserted into the task payload by the Dispatcher at planning time after apply-time resolution.
@@ -123,6 +138,11 @@ Bullets. Include only what is needed to implement/review safely.
 - Tip mode:
   - `fixed_target`: plan from `from_block` until `cursor >= to_block`, then complete.
   - `follow_head`: continuously plan as head advances; does not “complete”.
+
+### Range semantics
+- All block ranges are start-inclusive and end-exclusive: `[range_start, range_end)`.
+- `cryo_ingest` MUST invoke Cryo as `--blocks {range_start}:{range_end}` (do not pre-decrement).
+- Canonical owners: [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md), [data_versioning.md](../architecture/data_versioning.md), and [operators/cryo_ingest.md](operators/cryo_ingest.md).
 
 ### Semantics / invariants (non-negotiable)
 - No external planning loops: Dispatcher continuously tops up in-flight work for each active `chain_sync` job.
@@ -138,10 +158,8 @@ Bullets. Include only what is needed to implement/review safely.
   - `follow_head`: the job never completes; it maintains an in-flight window relative to observed head.
 - Queryability:
   - Every dataset publication MUST resolve to a `storage_ref` that Query Service can attach remotely (no Parquet downloads by Query Service).
-  - Untrusted SQL remains gated by `trace_core::query::validate_sql` and MUST NOT mention file/URL literals, `read_parquet/parquet_scan`, `ATTACH`, `INSTALL/LOAD`, or multi-statements.
 - Security:
-  - Dataset grants in the task capability token MUST bound dataset access (dataset UUID/version + storage ref).
-  - Query Service remote Parquet scans require an egress allowlist (only object-store endpoints allowed) and MUST fail closed if misconfigured.
+  - Query Service safety and egress restrictions are owned by Query Service docs; see [query_sql_gating.md](query_sql_gating.md), [query_service_task_query.md](query_service_task_query.md), [Query Service container](../architecture/containers/query_service.md), and [ADR 0002](../adr/0002-networking.md).
 
 ### Planner algorithm (internal, restart-safe)
 For each active `chain_sync` job, Dispatcher runs a loop (periodic, e.g. every few seconds):
@@ -228,132 +246,29 @@ Operations:
   - last error category + timestamp (no secrets)
   - head observed timestamp (if follow head mode)
 
-### DAG YAML (candidate shapes)
-This section proposes two YAML shapes to express a `chain_sync` entrypoint. One MUST be selected and locked before implementation.
+### Chain sync job YAML (v1)
 
-Constraints (v1):
+`chain_sync` jobs are defined in a standalone YAML document applied by an admin via `trace-dispatcher apply --file <job.yaml>`.
+
+Schema (v1):
+- `kind: chain_sync`
+- `name`: stable job name (unique per org)
+- `chain_id`: positive int
+- `mode`:
+  - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
+  - `follow_head`: `{ from_block, tail_lag, head_poll_interval_seconds, max_head_age_seconds }`
+- `streams`: mapping from `dataset_key` to:
+  - `cryo_dataset_name`, `rpc_pool`, `chunk_size`, `max_inflight`
+
+Constraints:
 - YAML MUST NOT contain secrets, including RPC URLs, API keys, or object store credentials.
 - YAML MUST reference RPC pools by name only (`rpc_pool: traces`), never by URL.
-- Each dataset stream becomes its own planned task stream. Tasks are per `{dataset_key, range}`.
-- The single-output rule remains: one successful task completion yields exactly one dataset publication.
-- Connections are deferred unless explicitly selected for v1 (see Open decisions).
+- `dataset_key` and `cryo_dataset_name` MUST match `^[a-z0-9_]{1,64}$`.
+- `dataset_uuid` is not provided in YAML; it is derived deterministically from `{org_id, chain_id, dataset_key}` at apply-time.
 
-#### Option A: DAG-native entrypoint
-`chain_sync` is a first-class entrypoint inside the DAG YAML.
-
-Minimal schema:
-- `entrypoints[]` list contains:
-  - `name` unique within the DAG
-  - `kind: chain_sync`
-  - `chain_id`
-  - `mode`:
-    - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
-      - Note: to sync through block `N` inclusive, set `to_block = N + 1`.
-    - `follow_head`: `{ from_block, tail_lag, head_poll_interval_seconds, max_head_age_seconds }`
-  - `streams[]` list of dataset streams:
-    - `dataset_key` string (Cryo dataset identifier)
-    - `cryo_dataset_name` string (Cryo CLI dataset name, v1: same as `dataset_key`)
-    - `rpc_pool` string (name only)
-    - `chunk_size` block count
-    - `max_inflight` planned range count cap
-
-Concrete example (bootstrap, end-exclusive):
-```yaml
-name: mainnet_bootstrap
-
-entrypoints:
-  - name: sync_mainnet
-    kind: chain_sync
-    chain_id: 1
-    mode:
-      kind: fixed_target
-      from_block: 0
-      to_block: 20000000 # syncs [0, 20000000)
-    streams:
-      - dataset_key: blocks
-        cryo_dataset_name: blocks
-        rpc_pool: standard
-        chunk_size: 2000
-        max_inflight: 40
-      - dataset_key: logs
-        cryo_dataset_name: logs
-        rpc_pool: standard
-        chunk_size: 1000
-        max_inflight: 20
-      - dataset_key: geth_logs
-        cryo_dataset_name: geth_logs
-        rpc_pool: standard
-        chunk_size: 1000
-        max_inflight: 10
-      - dataset_key: geth_calls
-        cryo_dataset_name: geth_calls
-        rpc_pool: traces
-        chunk_size: 500
-        max_inflight: 5
-```
-
-Pros:
-- Single DAG document remains the unit of review and deployment.
-- Keeps future composition explicit: `chain_sync` streams can be wired to downstream jobs without introducing an out-of-band compiler.
-- Reduces drift risk between the DAG config spec and the chain sync config.
-
-Cons:
-- Expands DAG YAML surface area and validator complexity.
-- Requires stable stream referencing rules to avoid ambiguous connections.
-
-#### Option B: Shorthand job YAML
-`chain_sync` is defined in its own document that compiles into Option A.
-
-Minimal schema:
-- Top-level document:
-  - `kind: chain_sync`
-  - `name`
-  - `chain_id`
-  - `mode`:
-    - `fixed_target`: `{ from_block, to_block }` where `to_block` is end-exclusive
-      - Note: to sync through block `N` inclusive, set `to_block = N + 1`.
-    - `follow_head`: `{ from_block, tail_lag, head_poll_interval_seconds, max_head_age_seconds }`
-  - `streams` mapping from `dataset_key` to:
-    - `cryo_dataset_name` (string)
-    - `rpc_pool` name only
-    - `chunk_size`
-    - `max_inflight`
-
-Concrete example (bootstrap, end-exclusive):
-```yaml
-kind: chain_sync
-name: mainnet_bootstrap
-chain_id: 1
-
-mode:
-  kind: fixed_target
-  from_block: 0
-  to_block: 20000000 # syncs [0, 20000000)
-
-streams:
-  blocks:
-    cryo_dataset_name: blocks
-    rpc_pool: standard
-    chunk_size: 2000
-    max_inflight: 40
-  logs:
-    cryo_dataset_name: logs
-    rpc_pool: standard
-    chunk_size: 1000
-    max_inflight: 20
-  geth_logs:
-    cryo_dataset_name: geth_logs
-    rpc_pool: standard
-    chunk_size: 1000
-    max_inflight: 10
-  geth_calls:
-    cryo_dataset_name: geth_calls
-    rpc_pool: traces
-    chunk_size: 500
-    max_inflight: 5
-```
-
-Concrete example (follow-head):
+Examples:
+- Bootstrap: [chain_sync.monad_mainnet.yaml](../examples/chain_sync.monad_mainnet.yaml)
+- Follow-head:
 ```yaml
 kind: chain_sync
 name: mainnet_follow
@@ -372,36 +287,10 @@ streams:
     rpc_pool: standard
     chunk_size: 2000
     max_inflight: 40
-  logs:
-    cryo_dataset_name: logs
-    rpc_pool: standard
-    chunk_size: 1000
-    max_inflight: 20
-  geth_logs:
-    cryo_dataset_name: geth_logs
-    rpc_pool: standard
-    chunk_size: 1000
-    max_inflight: 10
-  geth_calls:
-    cryo_dataset_name: geth_calls
-    rpc_pool: traces
-    chunk_size: 500
-    max_inflight: 5
 ```
 
-Pros:
-- Minimizes the amount of DAG scaffolding required for the common "sync a chain" use case.
-- Easier to present as an admin-only workflow without coupling to full DAG evolution.
-
-Cons:
-- Introduces a compiler/translation step that can drift from the canonical DAG spec.
-- Future DAG composition becomes harder to review because the compiled DAG is the true executed artifact.
-
-Open decisions:
-- Select Option A or Option B for v1. Current working choice: Option B.
-- Connections are deferred in v1 unless explicitly selected.
-- `dataset_uuid` resolution:
-  - v1 MUST use a deterministic mapping from `{org_id, chain_id, dataset_key}` rather than user-supplied UUIDs in YAML.
+Notes:
+- This spec is intentionally separate from the DAG YAML jobs list; full DAG composition is out of scope for v1.
 
 ## Contract requirements
 Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
@@ -415,22 +304,16 @@ Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
   - The Dispatcher MUST reject completions that omit the publication or attempt to include multiple publications (even if identical).
   - The Dispatcher MUST NOT partially accept a subset of publications.
 - Dataset version registration MUST be idempotent: if a dataset version insert conflicts, the stored `{storage_ref, config_hash, range}` MUST match exactly or the completion MUST fail (no silent divergence).
-- Query Service MUST remain fail-closed: it MUST attach datasets in trusted code and execute only validated SQL; it MUST NOT allow untrusted SQL to read arbitrary files/URLs.
-- If Query Service remote Parquet scans are enabled, the deployment MUST enforce an egress allowlist permitting only object-store endpoints; otherwise Query Service MUST fail closed.
 
 ## Compatibility and migrations
-- This entrypoint is intended to subsume the ms/13 `plan-chain-sync` CLI usage for new deployments.
-- Existing Lite tests that rely on `plan-chain-sync` remain valid until the entrypoint is implemented and adopted.
+- ms/13's `plan-chain-sync` CLI is deprecated and not available on `main`.
+- Use `trace-dispatcher apply --file <spec.yaml>` to create/update `chain_sync` jobs; the Dispatcher owns planning and continuously tops up work.
 
 ## Security considerations
 - Threats:
-  - Untrusted SQL exfiltrates data via file/URL readers once remote Parquet scans exist.
-  - Overbroad dataset grants allow a task to query or scan unrelated storage prefixes.
   - Planner drift causes duplicate/overlapping ranges that produce inconsistent dataset version registry state.
 - Mitigations:
-  - Keep Query Service validation as the single source of truth (`trace_core::query::validate_sql`) plus DuckDB runtime hardening.
-  - Remote Parquet scans make Query Service a network-capable process; the threat model assumes deployment egress is limited to object store endpoints (see ADR-0002).
-  - Capability tokens must pin dataset UUID/version and bound storage access via S3 read prefixes; Query Service must enforce both.
+  - Query Service safety and remote Parquet scan egress restrictions are owned by Query Service docs; see [query_sql_gating.md](query_sql_gating.md), [Query Service container](../architecture/containers/query_service.md), and [ADR 0002](../adr/0002-networking.md).
   - Scheduled-range uniqueness + deterministic dataset versioning at the registry boundary; reject divergence on conflict.
 - Residual risk:
   - Validator denylist incompleteness; mitigated by defense-in-depth and tests.
@@ -448,11 +331,11 @@ Use MUST/SHOULD/MAY only for behavioral/contract requirements (not narrative).
 
 ### Rollout and rollback
 - Rollout:
-  - Introduce entrypoint in DAG YAML behind admin-only apply; do not route via Gateway.
+  - Introduce `chain_sync` apply via admin-only `trace-dispatcher apply --file`; do not route via Gateway.
   - Implement fixed-target first; follow-head mode is feature-complete only when head observation is implemented.
 - Rollback strategy:
   - Pause the job (stop scheduling) without deleting state.
-  - If required, fall back to manual `plan-chain-sync` (ms/13) for bounded ranges.
+  - If required, re-apply a fixed-target spec with an explicit bound; avoid manual scheduling loops.
 
 ## Reduction pass
 Required.
@@ -467,8 +350,10 @@ How does this reduce or avoid expanding surface area?
 
 ## Alternatives considered
 Brief.
-- Alternative: keep planning as an external CLI loop (`plan-chain-sync`) and document runbooks.
+- Alternative: keep planning as an external CLI loop (ms/13-style planner) and document runbooks.
   - Why not: it is operationally fragile and violates “system manages planning internally”.
+- Alternative: embed `chain_sync` as a first-class entrypoint inside DAG YAML.
+  - Why not: expands DAG YAML surface area and makes v1 composition rules ambiguous.
 - Alternative: fully express chain sync as a generic DAG with explicit `range_splitter` nodes and per-dataset ingestion nodes.
   - Why not: heavier YAML surface for the common bootstrap case; harder to keep stable for v1.
 

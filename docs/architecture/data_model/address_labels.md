@@ -1,28 +1,20 @@
 # Address Labels Data Model
 
-Canonical DDL for the `address_labels` table.
+Schema mapping notes for Address Labels tables.
 
 > These tables live in **Postgres data**. Columns like `org_id`/`user_id` refer to entities in **Postgres state** and are **soft references** (no cross-DB foreign keys).
 
-## address_labels
+Where to look:
+- Columns: [data_schema.md](data_schema.md)
 
-```sql
-CREATE TABLE address_labels (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL, -- soft ref: Postgres state orgs(id)
-    user_id UUID NOT NULL, -- soft ref: Postgres state users(id)
-    address TEXT NOT NULL,
-    label TEXT NOT NULL,
-    visibility TEXT NOT NULL DEFAULT 'private',  -- see ../data_model/pii.md
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (org_id, user_id, address, label)
-);
+## data.address_labels (planned)
 
-CREATE INDEX idx_address_labels_org ON address_labels(org_id);
-CREATE INDEX idx_address_labels_user ON address_labels(user_id);
-CREATE INDEX idx_address_labels_address ON address_labels(address);
-```
+User-managed address label records.
+
+- Invariants:
+  - Uniqueness: `(org_id, user_id, address, label)`
+  - Visibility uses the same levels as other user-managed datasets (see [pii.md](pii.md)).
+- Expected indexes: `org_id`, `user_id`, `address`
 
 ## Related
 

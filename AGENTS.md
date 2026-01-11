@@ -29,7 +29,6 @@ The source of truth for behavior and invariants is (in order):
 1. `docs/architecture/*` (contracts, lifecycle, containers)
 2. `docs/specs/*` (feature surfaces)
 3. `docs/adr/*` (decisions)
-4. `docs/standards/*` (security + ops invariants)
 
 ### Context links requirement
 

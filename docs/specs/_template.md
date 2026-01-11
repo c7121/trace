@@ -45,7 +45,7 @@ persistence formats/migrations, and entrypoint exports.
 - Entrypoint exports:
 - Intentionally not supported (surface area control):
 
-## Architecture (C4) - Mermaid-in-Markdown only
+## Architecture (C4) — Mermaid-in-Markdown only
 Use the smallest C4 level(s) that clarify the change (L1/L2/L3).
 No box soup: every box MUST have a responsibility; every relationship MUST be labeled.
 
