@@ -23,10 +23,11 @@ Task list (recommended order):
 - `cleanup_tasks/051-tighten-query-service-specs.md`: Make Query Service query specs consistent and link-first, including Lite token semantics vs AWS OIDC.
 - `cleanup_tasks/052-tighten-udf-specs.md`: Make UDF specs coherent and link-first, and resolve bundle manifest contract drift.
 - `cleanup_tasks/053-tighten-alerting-spec.md`: Make the alerting spec link-first and consistent with alert operator examples and ADR decisions.
+- `cleanup_tasks/054-tighten-metadata-spec.md`: Make metadata and lineage docs link-first and correct about schema ownership.
+- `cleanup_tasks/055-rehome-trace-core-error-contract.md`: Move trace-core error contract to an ADR and remove it from feature specs.
 
 ## Critical assessment tasks (recommended order)
 
-- `cleanup_tasks/034-assess-specs-metadata-and-error-contracts.md`: Assess metadata and error contract specs for completeness and duplication.
 - `cleanup_tasks/035-assess-operator-specs-catalog.md`: Assess operator spec catalog vs examples for structure and drift risk.
 - `cleanup_tasks/036-assess-adrs-structure-and-durability.md`: Assess ADRs for continued relevance and duplication with specs/architecture.
 - `cleanup_tasks/037-assess-examples-folder-cohesion.md`: Assess examples folder for cohesion and discoverability.
@@ -48,6 +49,7 @@ Completed:
 - `031-assess-specs-query-surface`: review complete; follow-up task `051-tighten-query-service-specs` created.
 - `032-assess-specs-udf-surface`: review complete; follow-up task `052-tighten-udf-specs` created.
 - `033-assess-specs-alerting-surface`: review complete; follow-up task `053-tighten-alerting-spec` created.
+- `034-assess-specs-metadata-and-error-contracts`: review complete; follow-up tasks `054-tighten-metadata-spec` and `055-rehome-trace-core-error-contract` created.
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
 - `002-standardize-docs-entrypoint`: renamed the docs entrypoint to `docs/README.md` and updated references.
 - `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.
