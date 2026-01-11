@@ -6,6 +6,11 @@ Last updated: YYYY-MM-DD
 
 Keep this document short. Delete sections that do not apply.
 
+Delete this reminder block before review:
+- Doc typography: no em dashes in docs (use hyphens or colons).
+- Mermaid: label text must not include parentheses.
+- Prefer link-first references to `docs/architecture/*` for contracts and invariants.
+
 ## Summary
 (1–5 sentences: what + why + scope.)
 

@@ -2,6 +2,15 @@
 
 Specs define Trace behavior surfaces (JTBD): what the system does, what inputs and outputs mean, and what must be true at boundaries. When changing behavior, start here and ensure changes remain consistent with system invariants and interface contracts.
 
+## Governance
+
+Canonical rules for when to write a spec and which template to use live in [docs/agent/AGENTS.shared.md](../agent/AGENTS.shared.md).
+
+Minimum workflow for any spec:
+- Declare `Risk` (Low/Medium/High).
+- Declare `Public surface` changes (endpoints, payloads, config, migrations, persistence formats).
+- Link to the relevant owners in `docs/architecture/*` instead of restating contracts.
+
 ## Index
 
 - Platform configuration and operators:

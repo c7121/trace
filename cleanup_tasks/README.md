@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/048-tighten-specs-index-and-templates.md`: Make the specs entrypoint and templates encode governance rules and doc constraints.
 - `cleanup_tasks/049-tighten-dag-configuration-spec.md`: Make the DAG YAML contract schema-first, self-consistent, and aligned with core concept terminology.
 - `cleanup_tasks/050-tighten-chain-sync-and-ingestion-specs.md`: Clarify ownership boundaries across chain sync, ingestion patterns, and the Cryo adapter spike (link-first, no duplication).
 - `cleanup_tasks/051-tighten-query-service-specs.md`: Make Query Service query specs consistent and link-first, including Lite token semantics vs AWS OIDC.
@@ -34,6 +33,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `048-tighten-specs-index-and-templates`: implemented; added governance guidance to the specs index and added template reminders for mini-spec limits and repo doc constraints.
 - `047-tighten-ops-and-deploy-doc-boundaries`: implemented; made ops doc link-first for deep semantics, removed nonexistent Terraform tree claims from deploy infra docs, and clarified rollback boundaries with links.
 - `046-tighten-c4-and-container-docs`: implemented; linkified ADR and cross-doc references in `c4.md` and standardized container docs with consistent `## Related` sections.
 - `045-tighten-data-versioning-and-data-model-docs`: implemented; made schema mapping link-first, added missing audit tables to the data schema sketch, removed duplicated DDL blocks from domain docs, and aligned range examples to end-exclusive semantics.
