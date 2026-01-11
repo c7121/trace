@@ -26,10 +26,10 @@ Task list (recommended order):
 - `cleanup_tasks/054-tighten-metadata-spec.md`: Make metadata and lineage docs link-first and correct about schema ownership.
 - `cleanup_tasks/055-rehome-trace-core-error-contract.md`: Move trace-core error contract to an ADR and remove it from feature specs.
 - `cleanup_tasks/056-tighten-operator-specs-catalog.md`: Standardize operator doc structure and make the operator catalog the clear entrypoint.
+- `cleanup_tasks/057-tighten-adrs-links-and-focus.md`: Make ADRs link-first and decision-focused (add related links and index summaries).
 
 ## Critical assessment tasks (recommended order)
 
-- `cleanup_tasks/036-assess-adrs-structure-and-durability.md`: Assess ADRs for continued relevance and duplication with specs/architecture.
 - `cleanup_tasks/037-assess-examples-folder-cohesion.md`: Assess examples folder for cohesion and discoverability.
 - `cleanup_tasks/038-assess-planning-docs-cohesion.md`: Assess planning docs for usefulness, scope, and ownership.
 - `cleanup_tasks/039-assess-harness-docs-entrypoint.md`: Assess harness docs as an entrypoint for Trace Lite and verification.
@@ -51,6 +51,7 @@ Completed:
 - `033-assess-specs-alerting-surface`: review complete; follow-up task `053-tighten-alerting-spec` created.
 - `034-assess-specs-metadata-and-error-contracts`: review complete; follow-up tasks `054-tighten-metadata-spec` and `055-rehome-trace-core-error-contract` created.
 - `035-assess-operator-specs-catalog`: review complete; follow-up task `056-tighten-operator-specs-catalog` created.
+- `036-assess-adrs-structure-and-durability`: review complete; follow-up task `057-tighten-adrs-links-and-focus` created.
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
 - `002-standardize-docs-entrypoint`: renamed the docs entrypoint to `docs/README.md` and updated references.
 - `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.
