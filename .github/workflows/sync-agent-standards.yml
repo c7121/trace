@@ -25,11 +25,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Setup Node.js (native TypeScript execution)
+      - name: Setup Node.js
         # Pinned SHA (actions/setup-node v6.1.0)
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
         with:
-          # Node runs .cts via built-in TypeScript type stripping (no type-check).
           node-version: "22.18.0"
 
       - name: Checkout agent-standards repo
@@ -47,7 +46,7 @@ jobs:
 
       - name: Sync files
         run: |
-          node scripts/sync_agent_standards.cts .agent-standards-src
+          node scripts/sync_agent_standards.mjs .agent-standards-src
 
       - name: Create Pull Request
         # Pinned SHA (peter-evans/create-pull-request v7.0.11)

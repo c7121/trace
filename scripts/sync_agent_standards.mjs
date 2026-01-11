@@ -3,20 +3,20 @@
  * Sync shared agent standards from a checked-out canonical repo into the current repo.
  *
  * Usage:
- *   node scripts/sync_agent_standards.cts <path-to-agent-standards-repo>
+ *   node scripts/sync_agent_standards.mjs <path-to-agent-standards-repo>
  *
  * Goals:
  * - Deterministic and minimal: copy only a fixed file set.
  * - No network: the workflow checks out upstream; this script only copies.
  *
- * Why .cts:
- * - .cts is always CommonJS (works in repos that are ESM or CJS).
+ * Why .mjs:
+ * - Runs as ESM with plain Node.js (no TS loaders/transpilation).
  */
 
-import fs = require("node:fs");
-import path = require("node:path");
+import * as fs from "node:fs";
+import * as path from "node:path";
 
-const FILES: string[] = [
+const FILES = [
   "docs/agent/AGENTS.shared.md",
   "docs/agent/checklist.md",
   "docs/agent/references.md",
@@ -25,32 +25,32 @@ const FILES: string[] = [
   "docs/adr/_template.md",
 ];
 
-function die(msg: string): never {
-  console.error(msg);
+function die(message) {
+  console.error(message);
   process.exit(2);
 }
 
-function exists(p: string): boolean {
+function exists(filePath) {
   try {
-    fs.accessSync(p);
+    fs.accessSync(filePath);
     return true;
   } catch {
     return false;
   }
 }
 
-function readBytes(p: string): Buffer {
-  return fs.readFileSync(p);
+function readBytes(filePath) {
+  return fs.readFileSync(filePath);
 }
 
-function ensureDir(dir: string): void {
+function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
-function main(): void {
+function main() {
   const args = process.argv.slice(2);
   if (args.length !== 1) {
-    die("Usage: node scripts/sync_agent_standards.cts <path-to-agent-standards-repo>");
+    die("Usage: node scripts/sync_agent_standards.mjs <path-to-agent-standards-repo>");
   }
 
   const srcRoot = path.resolve(args[0]);
