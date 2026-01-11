@@ -2,7 +2,7 @@
 
 Detect when a chain stops producing blocks and emit liveliness events.
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -48,7 +48,7 @@ Periodically polls a chain tip endpoint, computes the time since the last block,
 - RPC provider access
 - Postgres write access to `liveliness_events`
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: chain_liveliness
@@ -69,4 +69,6 @@ Periodically polls a chain tip endpoint, computes the time since the last block,
   timeout_seconds: 60
 ```
 
-Recipe: [Chain liveliness monitoring](../../examples/chain_liveliness_monitoring.md)
+## Related
+
+- Recipe: [chain_liveliness_monitoring.md](../../examples/chain_liveliness_monitoring.md)

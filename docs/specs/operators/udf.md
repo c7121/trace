@@ -2,7 +2,7 @@
 
 Generic UDF execution harness.
 
-Status: Planned
+Status: planned
 
 This operator runs an untrusted user bundle and provides access only to task-scoped APIs authenticated by the per-attempt **task capability token**:
 - Query Service reads (`/v1/task/query`)

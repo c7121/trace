@@ -2,7 +2,7 @@
 
 Compact **finalized** hot data from Postgres into cold Parquet partitions in S3.
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -31,14 +31,14 @@ Status: Planned
 | Compacted data | `s3://{bucket}/cold/{chain}/{dataset}/` | Parquet |
 | Partition manifest | staging prefix | `_manifest.json` + `_SUCCESS` |
 
-## Semantics
+## Behavior
 
 - **Finality is job-defined:** the Dispatcher does not interpret finality/retention. This operator enforces finality using `finality_depth_blocks`.
 - **Idempotent per range:** safe to re-run the same `partition_key`; uses `update_strategy: replace`.
 - **Commit protocol:** writes Parquet to a task staging prefix and finalizes a manifest/marker; the Dispatcher commits and then emits `{dataset_uuid, dataset_version, partition_key}`. See [data_versioning.md](../../architecture/data_versioning.md#replace-output-commit-protocol-s3--parquet).
 - **Hot retention:** if `delete_after_compact=true`, delete is performed only after successful output commit, and should be bounded to the same block range.
 
-## Hot Postgres considerations
+## Notes
 
 If `delete_after_compact=true`, the baseline cleanup method is a bounded range delete after output commit (for example `DELETE ... WHERE chain_id=? AND block_number >= start AND block_number < end`). This keeps the operator table-agnostic, but large deletes can create bloat - ensure autovacuum is tuned accordingly.
 
@@ -64,3 +64,8 @@ If `delete_after_compact=true`, the baseline cleanup method is a bounded range d
   update_strategy: replace
   timeout_seconds: 1800
 ```
+
+## Related
+
+- Replace output commit protocol: [data_versioning.md](../../architecture/data_versioning.md)
+- Range manifest producers: [range_aggregator.md](range_aggregator.md)

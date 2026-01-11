@@ -2,7 +2,7 @@
 
 Split a range manifest into per-unit events (inverse of `range_aggregator`).
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -16,7 +16,6 @@ Status: Planned
 ## Description
 
 **Note:** `config.chunk_size` controls partition granularity. Smaller chunks increase parallelism (and overhead); use `scaling.max_concurrency` on downstream batch jobs to cap throughput.
-
 
 Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010000"`) and emits a stream of finer-grained events (e.g., per-block or per-subrange). This is useful when you need parallelism/fan-out downstream while keeping upstream aggregation explicit.
 
@@ -41,7 +40,7 @@ Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010
 - Emits one event per subrange (deterministically) based on `chunk_size`, including `partition_key` plus explicit `start`/`end` fields on each emitted event.
 - Idempotent under retries (deterministic subdivision).
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: block_range_split
@@ -57,3 +56,8 @@ Consumes a partitioned range manifest event (e.g., `partition_key: "1000000-1010
   update_strategy: replace
   timeout_seconds: 60
 ```
+
+## Related
+
+- Task-scoped event shapes: [task_scoped_endpoints.md](../../architecture/contracts/task_scoped_endpoints.md)
+- Range manifest producers: [range_aggregator.md](range_aggregator.md)

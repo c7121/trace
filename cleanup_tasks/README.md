@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/056-tighten-operator-specs-catalog.md`: Standardize operator doc structure and make the operator catalog the clear entrypoint.
 - `cleanup_tasks/057-tighten-adrs-links-and-focus.md`: Make ADRs link-first and decision-focused (add related links and index summaries).
 - `cleanup_tasks/058-tighten-examples-diagnostics-and-runbooks.md`: Make diagnostics docs correct and link-first, and reduce duplication with runnable harness diagnostics.
 - `cleanup_tasks/059-tighten-trace-lite-example-guide.md`: Make the Trace Lite end-to-end guide more link-first and less repetitive without losing key details.
@@ -26,6 +25,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `056-tighten-operator-specs-catalog`: implemented; standardized operator doc `Status:` lines and headings, deduped recipe lists, and made `docs/specs/operators/README.md` the stable entrypoint.
 - `055-rehome-trace-core-error-contract`: implemented; moved the error contract decision to `docs/adr/0010-trace-core-error-contract.md` and removed it from specs.
 - `054-tighten-metadata-spec`: implemented; made metadata and lineage spec link-first and corrected schema ownership (migrations are canonical).
 - `053-tighten-alerting-spec`: implemented; made alerting docs link-first, added `severity` as a first-class alert event field, and moved chain context guidance into `payload`.

@@ -2,7 +2,7 @@
 
 Track validator performance and emit per-epoch stats.
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -48,7 +48,7 @@ Periodically fetches validator duties/attestations/rewards from chain APIs and w
 - RPC / beacon API access via the RPC Egress Gateway (or in-VPC nodes)
 - Postgres write access to `validator_performance`
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: validator_stats
@@ -69,4 +69,6 @@ Periodically fetches validator duties/attestations/rewards from chain APIs and w
   timeout_seconds: 60
 ```
 
-Recipe: [Validator monitoring](../../examples/validator_monitoring.md)
+## Related
+
+- Recipe: [validator_monitoring.md](../../examples/validator_monitoring.md)

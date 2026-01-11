@@ -2,7 +2,7 @@
 
 Aggregate an ordered stream of events into deterministic range manifests (EIP Aggregator).
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -58,9 +58,9 @@ See [task_scoped_endpoints.md](../../architecture/contracts/task_scoped_endpoint
 
 Aggregation state is persisted in a platform-managed Postgres operator state table keyed by `(org_id, job_id)` (and optionally a `state_key` such as `input_dataset_uuid` if a job needs multiple independent cursors).
 
-See `docs/architecture/data_model/orchestration.md` (`operator_state`) for the schema sketch.
+See [orchestration.md](../../architecture/data_model/orchestration.md) (`operator_state`) for the schema sketch.
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: block_range_aggregate
@@ -78,3 +78,9 @@ See `docs/architecture/data_model/orchestration.md` (`operator_state`) for the s
   unique_key: [dedupe_key]
   timeout_seconds: 60
 ```
+
+## Related
+
+- Task-scoped event shapes: [task_scoped_endpoints.md](../../architecture/contracts/task_scoped_endpoints.md)
+- Operator state schema sketch: [orchestration.md](../../architecture/data_model/orchestration.md)
+- Inverse operator: [range_splitter.md](range_splitter.md)

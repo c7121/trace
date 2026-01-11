@@ -2,7 +2,7 @@
 
 Follow chain tip in real-time and maintain canonical blocks/logs in **hot storage** (Postgres).
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -32,7 +32,7 @@ Status: Planned
 | Logs | `postgres://hot_logs` | Rows |
 | Dataset events | Dispatcher | `{dataset_uuid, dataset_version, cursor|partition_key}` |
 
-## Semantics
+## Behavior
 
 - Tracks the canonical chain tip and fills gaps when the head jumps forward.
 - On reorg, rewrites the affected `block_number` range in hot Postgres and emits a row-range invalidation to the Dispatcher (attempt-fenced) so downstream jobs can rematerialize only what changed. See [data_versioning.md](../../architecture/data_versioning.md#reorg-handling).
@@ -72,3 +72,8 @@ Hot chain tables should be designed for frequent **range rewrites** (reorgs) and
   update_strategy: replace
   heartbeat_timeout_seconds: 60
 ```
+
+## Related
+
+- Data versioning and reorg handling: [data_versioning.md](../../architecture/data_versioning.md)
+- DAG schema: [dag_configuration.md](../dag_configuration.md)

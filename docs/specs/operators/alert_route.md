@@ -2,7 +2,7 @@
 
 Create alert delivery work items for the platform Delivery Service.
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -42,12 +42,12 @@ External delivery is handled by a platform Delivery Service which leases `alert_
 ## Behavior
 
 - Applies an optional input edge filter (`where`) to select which alert events to route.
-  - `where` is a **structured filter map**, not an arbitrary SQL predicate. See `docs/specs/dag_configuration.md`.
+  - `where` is a **structured filter map**, not an arbitrary SQL predicate. See [dag_configuration.md](../dag_configuration.md).
 - Applies staleness gating using the alert’s contextual time (e.g., `alert_events.event_time`) vs `config.max_delivery_age`.
 - Creates `alert_deliveries` rows idempotently (unique key `(org_id, alert_event_id, channel)`).
 - Does not attempt delivery, retry, or rate limit. Those are Delivery Service responsibilities.
 
-## Reliability + Idempotency
+## Reliability and idempotency
 
 - Treats `alert_deliveries` as a durable work queue (one row per `(org_id, alert_event_id, channel)`).
 - Creating deliveries is idempotent via unique constraints/upserts.
@@ -62,7 +62,7 @@ External delivery is handled by a platform Delivery Service which leases `alert_
 - Postgres read access (`alert_events`, `alert_definitions`) and write access (`alert_deliveries`)
 - No external API keys required (Delivery Service holds and uses them).
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: route_critical
@@ -83,3 +83,9 @@ External delivery is handled by a platform Delivery Service which leases `alert_
     max_delivery_age: 7d
   timeout_seconds: 60
 ```
+
+## Related
+
+- Alerting model: [alerting.md](../alerting.md)
+- Delivery trust boundary: [delivery_service.md](../../architecture/containers/delivery_service.md)
+- Alert evaluation operator: [alert_evaluate.md](alert_evaluate.md)

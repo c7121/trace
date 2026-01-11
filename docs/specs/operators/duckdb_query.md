@@ -2,7 +2,7 @@
 
 Execute federated queries across hot and cold storage.
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -61,7 +61,7 @@ See [query_sql_gating.md](../query_sql_gating.md) for the supported SQL feature 
 - S3 write access for results
 - Postgres write access to `query_results` (see [ADR 0005](../../adr/0005-query-results.md) and [Query Service data model](../../architecture/data_model/query_service.md))
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: daily_summary
@@ -90,3 +90,8 @@ See [query_sql_gating.md](../query_sql_gating.md) for the supported SQL feature 
 - `unified_transactions` is a virtual table spanning hot + cold
 - DuckDB handles partition pruning automatically
 - Large result sets should use Parquet output, not JSON
+
+## Related
+
+- SQL safety gate: [query_sql_gating.md](../query_sql_gating.md)
+- Query results: [ADR 0005](../../adr/0005-query-results.md)

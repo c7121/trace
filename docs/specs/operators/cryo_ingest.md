@@ -2,7 +2,7 @@
 
 Bootstrap historical onchain data using [Cryo](https://github.com/paradigmxyz/cryo).
 
-Status: Implemented (Lite/harness stub)
+Status: implemented (Lite)
 
 ## Overview
 

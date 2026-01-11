@@ -2,7 +2,7 @@
 
 Evaluate alert conditions against Trace data and emit `alert_events`.
 
-Status: Planned
+Status: planned
 
 This operator executes **untrusted user-supplied code** (a UDF bundle) and is intentionally constrained:
 - reads only via Query Service (capability token)
@@ -39,7 +39,7 @@ The batch artifact format and the required alert event schema are defined in [al
 
 - Buffered dataset: `alert_events` (append; row-level idempotency required)
 
-## Reliability + Idempotency
+## Reliability and idempotency
 
 - Alert evaluation runs under **at-least-once** execution. Retries and duplicates are expected.
 - Each emitted row MUST include a deterministic `dedupe_key` that is stable across retries/reorg replays.
@@ -73,3 +73,9 @@ The batch artifact format and the required alert event schema are defined in [al
 
 - The `udf` block is required for user-defined evaluation logic. Built-in evaluation engines are intentionally out of scope for v1.
 - Untrusted code must never call `/internal/*` endpoints.
+
+## Related
+
+- Alerting model and event schema: [alerting.md](../alerting.md)
+- UDF operator: [udf.md](udf.md)
+- Buffered dataset pointer pattern: [buffered_datasets.md](../../architecture/contracts/buffered_datasets.md)

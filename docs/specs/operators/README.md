@@ -4,15 +4,22 @@ Operator docs define the DAG surface area for built-in operators: operator name,
 
 Most operators described here are planned. Each operator doc includes a `Status:` line indicating whether it is implemented and in which profiles.
 
+## Status legend
+
+- `planned`: surface documented, not implemented in code yet.
+- `implemented (Lite)`: implemented in Trace Lite and harness.
+- `implemented (AWS)`: implemented in AWS profile.
+- `implemented (Lite,AWS)`: implemented in both Lite and AWS profiles.
+
 ## Index
 
 | Operator | Status | Runtime | Activation | Execution | Description |
 |----------|--------|---------|------------|-----------|-------------|
 | [address_labels](address_labels.md) | planned | lambda | source | - | User-defined address labels dataset |
-| [udf](udf.md) | planned | lambda | reactive | - | Generic UDF execution harness |
+| [udf](udf.md) | planned | lambda | reactive | PerUpdate or PerPartition | Generic UDF execution harness |
 | [block_follower](block_follower.md) | planned | ecs_platform | source | - | Follow chain tip, write to hot storage |
 | [liveliness_monitor](liveliness_monitor.md) | planned | lambda | source | - | Detect chain stalls and emit liveliness events |
-| [cryo_ingest](cryo_ingest.md) | implemented (Lite/harness stub) | ecs_platform | reactive | PerPartition | Bootstrap historical sync to object storage |
+| [cryo_ingest](cryo_ingest.md) | implemented (Lite) | ecs_platform | reactive | PerPartition | Bootstrap historical sync to object storage |
 | [range_aggregator](range_aggregator.md) | planned | ecs_platform | reactive | PerUpdate | Aggregate ordered events into ranges |
 | [range_splitter](range_splitter.md) | planned | ecs_platform | reactive | PerPartition | Split ranges into smaller ranges or events |
 | [parquet_compact](parquet_compact.md) | planned | ecs_platform | reactive | PerPartition | Compact hot to cold Parquet |
@@ -25,9 +32,7 @@ Most operators described here are planned. Each operator doc includes a `Status:
 
 ## Recipes
 
-- [Chain liveliness monitoring](../../examples/chain_liveliness_monitoring.md) (operator: [liveliness_monitor](liveliness_monitor.md))
-- [RPC integrity checking](../../examples/rpc_integrity_checking.md) (operator: [rpc_integrity_check](rpc_integrity_check.md))
-- [Validator monitoring](../../examples/validator_monitoring.md) (operator: [validator_stats](validator_stats.md))
+See [examples/README.md](../../examples/README.md) for operator recipes and end-to-end runs.
 
 ## Related
 

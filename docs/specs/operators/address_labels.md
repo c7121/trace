@@ -2,7 +2,7 @@
 
 User-defined labels for blockchain addresses, stored as a joinable dataset.
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -34,7 +34,7 @@ Allows users to upload or define labels for blockchain addresses. Produces a dat
 
 PII column: `address_labels.label` (user-provided). Mark it as PII in dataset metadata; see [pii.md](../../architecture/data_model/pii.md) for visibility and audit rules.
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: address_labels

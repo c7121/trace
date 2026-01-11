@@ -2,7 +2,7 @@
 
 Defense-in-depth verification and repair against canonical chain state.
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -63,7 +63,7 @@ This operator targets **finalized data only**. It does not check hot storage (Po
 - Read access to hot/cold storage
 - Postgres write access to `integrity_checks`
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: integrity_check
@@ -82,3 +82,8 @@ This operator targets **finalized data only**. It does not check hot storage (Po
   update_strategy: replace
   timeout_seconds: 300
 ```
+
+## Related
+
+- Data versioning and invalidations: [data_versioning.md](../../architecture/data_versioning.md)
+- Hot chain reorg handling: [block_follower.md](block_follower.md)

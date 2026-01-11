@@ -2,7 +2,7 @@
 
 Cross-check RPC providers and emit divergence events.
 
-Status: Planned
+Status: planned
 
 ## Overview
 
@@ -51,7 +51,7 @@ For each new block event, fetch the same block from a configured set of RPC prov
 - RPC provider access via the RPC Egress Gateway (or in-VPC nodes)
 - Postgres write access to `rpc_divergence_events`
 
-## Example DAG Config
+## Example DAG config
 
 ```yaml
 - name: rpc_integrity_check
@@ -73,4 +73,6 @@ For each new block event, fetch the same block from a configured set of RPC prov
   timeout_seconds: 60
 ```
 
-Recipe: [RPC integrity checking](../../examples/rpc_integrity_checking.md)
+## Related
+
+- Recipe: [rpc_integrity_checking.md](../../examples/rpc_integrity_checking.md)
