@@ -31,10 +31,17 @@ UDF jobs MUST include an `udf` block in DAG config:
 ```yaml
 udf:
   bundle_id: "<bundle-id>"
-  entrypoint: "trace.handler"
+  entrypoint: "index.js"
 ```
 
 ## Notes
 
 - UDF jobs MUST NOT request `secrets`.
 - UDFs are untrusted; they must not call `/internal/*` endpoints.
+- `entrypoint` is a relative file path inside the bundle and MUST match `bundle_manifest.json.entrypoint`.
+- `entrypoint` is runtime-dependent (example: `index.js` for node, `main.py` for python, `bootstrap` for rust custom runtime).
+
+## Related
+
+- UDF model and trust boundary: [udf.md](../udf.md)
+- Bundle manifest schema: [udf_bundle_manifest.md](../udf_bundle_manifest.md)

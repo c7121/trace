@@ -2,7 +2,7 @@
 
 Status: Draft
 Owner: Platform
-Last updated: 2026-01-09
+Last updated: 2026-01-11
 
 ## Summary
 Define a trace-owned `bundle_manifest.json` inside UDF zip bundles so trusted runners can validate and extract bundles safely (fail-closed) before executing untrusted code.
@@ -13,7 +13,7 @@ Medium
 This introduces untrusted input parsing and local code execution, but it is gated behind opt-in runtime modes and strict size and path caps.
 
 ## Related ADRs
-- ADR 0003 (UDF Bundles)
+- [ADR 0003](../adr/0003-udf-bundles.md) - UDF bundles
 
 ## Context
 Today, Trace Lite uses harness-specific runner logic and ad hoc "bundle" JSON blobs. We need a real bundle artifact model that:
@@ -25,11 +25,11 @@ Today, Trace Lite uses harness-specific runner logic and ad hoc "bundle" JSON bl
 ## Goals
 - Provide a strict, versioned manifest format for UDF bundles.
 - Enable safe extraction (no zip-slip), bounded resource use, and deterministic validation.
-- Support multi-language runtimes: Node and Python first.
+- Support multi-language runtimes: Node and Python first, Rust custom runtime planned.
 
 ## Non-goals
 - Bundle signing and public key distribution.
-- User-facing bundle upload APIs.
+- User-facing bundle upload APIs (see [udf.md](udf.md)).
 - Full UDF output contracts (publish/complete semantics are defined elsewhere).
 
 ## Public surface changes
@@ -62,31 +62,54 @@ flowchart LR
 The manifest is versioned and strict (`deny_unknown_fields`).
 
 - `schema_version` (int): MUST be `1`.
-- `runtime` (string enum): `node` or `python` (v1).
+- `runtime` (string enum): `node` or `python` (v1). `rust` is planned.
 - `entrypoint` (string): relative path to the file executed by the runtime.
 - `files` (array):
   - `path` (string): relative path inside the bundle.
   - `sha256` (string): lowercase hex SHA-256 of the file contents.
   - `bytes` (int): uncompressed byte length of the file.
-- `env_allowlist` (optional array of strings): names of environment variables the runner MAY pass through.
+- `env_allowlist` (optional array of strings): env var names the runner MAY pass through (intersected with a runner-owned allowlist, deny by default).
 
 ### Validation and caps
 Trusted runners MUST validate:
 - manifest size is capped (max bytes).
 - `files.len` is capped.
 - `bytes` is capped per file and in total.
+- file paths are unique.
 - path safety:
   - MUST NOT be absolute
   - MUST NOT contain `..` path traversal segments
+  - MUST NOT contain `.` segments
+  - MUST NOT end with `/`
   - MUST NOT contain backslashes
   - MUST NOT contain NUL bytes
 - the `entrypoint` MUST be a valid safe path and MUST exist in `files`.
 - the zip MUST NOT contain any file entries not declared in `files` (excluding `bundle_manifest.json`).
+- `bundle_manifest.json` is reserved and MUST NOT appear in `files`.
+- `env_allowlist` values MUST match `^[A-Z_][A-Z0-9_]*$`.
 
 ### Extraction
 - Extraction MUST be zip-slip safe: extracted paths MUST be joined to a private work dir using the validated relative `path` values only.
 - Extraction MUST verify `sha256` and `bytes` for each extracted file.
 - Extraction MUST create directories as needed under the private work dir and MUST NOT create symlinks.
+
+### Entrypoint execution contract (v1)
+
+For `runtime: node` and `runtime: python`, the runner executes:
+
+- `node <entrypoint>` or `python <entrypoint>` (in the private work dir)
+- stdin: the invocation payload JSON
+- stdout: a single JSON object (fail closed if not JSON, not an object, or too large)
+- stderr: captured for diagnostics but size-limited
+
+### Planned: Rust custom runtime
+
+Rust is not supported by the current v1 implementation. It is planned as part of milestone 18 (see `docs/plan/milestones.md`).
+
+When implemented, for `runtime: rust`, the runner will:
+- execute `<entrypoint>` as an executable from the private work dir (recommended: `entrypoint: "bootstrap"` at the archive root, matching AWS Lambda custom runtime convention)
+- keep stdin and stdout semantics identical to Node/Python (stdin invocation JSON, stdout JSON object)
+- fail closed if the entrypoint cannot be executed or output is invalid
 
 ## Contract requirements
 - The runner MUST treat `bundle_manifest.json` and zip contents as untrusted input.

@@ -217,13 +217,14 @@ Add an `udf` block to the job:
 ```yaml
 udf:
   bundle_id: "<bundle-id>"
-  entrypoint: "trace.handler"
+  entrypoint: "index.js"
 ```
 
 Notes:
 - A single DAG may mix languages by referencing different bundles.
-- Bundle language (node/python/rust) is recorded at upload time; Dispatcher selects the appropriate Lambda runner.
-- For Rust custom runtime bundles, `entrypoint` is ignored (the bundle's `bootstrap` is executed).
+- `entrypoint` is a relative file path inside the bundle and MUST match `bundle_manifest.json.entrypoint` (see [udf_bundle_manifest.md](udf_bundle_manifest.md)).
+- Bundle runtime (node/python) is recorded at upload time; Dispatcher selects the appropriate runner.
+- Rust custom runtime is planned (see [ADR 0003](../adr/0003-udf-bundles.md)).
 
 Constraints:
 - UDF jobs MUST NOT request `secrets`.

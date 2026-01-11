@@ -33,7 +33,7 @@ The task payload MUST include enough information to evaluate without direct data
 2. Execute the user bundle’s evaluation logic over the inputs.
 3. Write an **alert event batch artifact** (object storage) and publish it via `POST /v1/task/buffer-publish` to the buffered dataset `alert_events`.
 
-The batch artifact format and the required alert event schema are defined in `docs/specs/alerting.md`.
+The batch artifact format and the required alert event schema are defined in [alerting.md](../alerting.md).
 
 ## Outputs
 
@@ -66,7 +66,7 @@ The batch artifact format and the required alert event schema are defined in `do
   # UDF bundle reference
   udf:
     bundle_id: "<bundle-id>"
-    entrypoint: "trace.handler"
+    entrypoint: "index.js"
 ```
 
 ## Notes

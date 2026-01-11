@@ -55,7 +55,7 @@ The table is the short index. Detailed deliverables + STOP gates follow.
 
 | Milestone | Title | Notes |
 |----------:|-------|-------|
-| 18 | Bundle manifest + real multi-language UDF runtime | Signed bundle manifests + hash/size checks; Node/Python first; Rust via common tooling |
+| 18 | Bundle manifest + multi-language UDF runtime | Signed bundle manifests + hash/size checks; Node/Python and Rust custom runtime |
 | 19 | Minimal user API v1 | Bundle upload + DAG registration + publish datasets + alert definition CRUD |
 | 20 | AWS deployable MVP | IaC + IAM/network boundaries + S3/SQS/Lambda wiring + smoke tests |
 | S1 | Security gate: Query Service egress allowlist | Mandatory before any non-dev deployment that allows remote Parquet scans |
@@ -367,18 +367,29 @@ Docs
 
 ---
 
-## Milestone 18: Bundle manifest + real multi-language UDF runtime
+## Milestone 18: Bundle manifest + multi-language UDF runtime
 
 Goal: replace harness-only runner logic with a real bundle model that is safe under retries and supports multiple languages.
 
 Notes:
 - Signed manifests, hash/size checks, and fail-closed fetch/execution rules.
-- Node/Python first; Rust follows common packaging/tooling.
+- Node/Python and Rust custom runtime support using common packaging/tooling.
 
 ### Context links
 - `docs/specs/udf_bundle_manifest.md`
 - `docs/specs/udf.md`
 - `docs/adr/0003-udf-bundles.md`
+
+### Deliverables
+- Implement `bundle_manifest.json` validation and fail-closed extraction rules in `trace-core`.
+- Execute Node and Python bundles using the manifest entrypoint contract.
+- Add Rust custom runtime support using the AWS Lambda `bootstrap` convention:
+  - accept `runtime: rust` in the bundle manifest
+  - execute the `bootstrap` entrypoint with stdin invocation JSON and stdout JSON result (same contract as Node/Python)
+- Add harness tests covering Node, Python, and Rust bundles.
+
+### STOP gate
+- `cd harness && cargo test -- --nocapture`
 
 ---
 

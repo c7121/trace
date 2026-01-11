@@ -2,10 +2,23 @@
 
 Status: Draft
 Owner: Platform
-Last updated: 2026-01-02
+Last updated: 2026-01-11
 
 ## Summary
 UDFs are user-supplied code bundles executed by the platform to implement alert conditions and (later) custom transforms/enrichments. UDFs are treated as **untrusted** and interact with the platform only through task-scoped APIs authenticated by a per-attempt **task capability token**.
+
+## Doc ownership
+
+This spec defines:
+- The UDF trust boundary model (user code is always untrusted).
+- What UDFs are allowed to do and how they authenticate (task-scoped APIs only).
+
+This spec depends on (canonical details live in):
+- Dispatcher to Lambda invocation payload and fencing: [lambda_invocation.md](../architecture/contracts/lambda_invocation.md) and [task_lifecycle.md](../architecture/task_lifecycle.md)
+- Task capability token claims: [task_capability_tokens.md](../architecture/contracts/task_capability_tokens.md)
+- Task-scoped endpoint contracts: [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)
+- Bundle manifest schema and validation: [udf_bundle_manifest.md](udf_bundle_manifest.md)
+- Bundling decision: [ADR 0003](../adr/0003-udf-bundles.md)
 
 ## Risk
 High
@@ -55,29 +68,28 @@ flowchart LR
 - `runtime: lambda` executes UDF bundles inside a **platform-managed Lambda runner**.
   - The runner is **VPC-attached** in private subnets (no NAT) so it can reach internal-only services (Dispatcher/Query Service) without exposing them publicly.
   - Required AWS APIs (S3 for pre-signed bundle fetch, STS/KMS if used) are reached via VPC endpoints.
-  - The runner fetches the bundle via a **pre-signed URL** minted by Dispatcher.
-  - The runner receives a per-attempt **task capability token** plus `{task_id, attempt, lease_token}` in the invocation payload.
-  - The runner uses the capability token for:
-    - Query Service reads (`/v1/task/query`),
-    - scoped credential minting (`/v1/task/credentials`),
-    - fenced heartbeats/completions/events (`/v1/task/*`).
-  - The runner Lambda execution role is near-zero (logs + networking only). It should not have broad S3/SQS/Secrets permissions.
+  - The Dispatcher supplies the invocation payload (including the per-attempt task capability token and a bundle URL). Canonical contract: [lambda_invocation.md](../architecture/contracts/lambda_invocation.md).
+  - The runner Lambda execution role is near-zero (logs + networking only). It should not have broad AWS permissions.
 - Invocation is abstracted via `trace_core::runtime::RuntimeInvoker` so the same payload and callback semantics apply across profiles.
-  - Lite profiles use local invokers (`LocalProcessInvoker` and `FakeRunner`) without changing Dispatcher contracts.
   - AWS profiles use `trace_core::aws::AwsLambdaInvoker` behind the `aws` feature.
 
-> The **worker token** is not a task-scoped credential. It is reserved for trusted ECS worker wrappers calling `/internal/*` endpoints.
-> For `runtime: lambda` there is no wrapper boundary; Lambda must use the capability token only and must not call `/internal/*`.
+> The **worker token** is not a task-scoped credential. It is reserved for trusted ECS worker wrappers calling `/internal/*` endpoints (see [worker_only_endpoints.md](../architecture/contracts/worker_only_endpoints.md)).
+> For `runtime: lambda` there is no wrapper boundary. Lambda must use the per-attempt capability token only and must not call `/internal/*`.
 
-### Language support (v1)
-UDF bundles are Lambda-style zip artifacts. v1 supports three language families:
+### Bundle runtime support
+UDF bundles are zip artifacts with a required `bundle_manifest.json` (schema: [udf_bundle_manifest.md](udf_bundle_manifest.md)).
 
-- **Node.js (JavaScript/TypeScript)**
-  - TypeScript is compiled to JavaScript and runs on the Node runner.
-- **Python**
-- **Rust (Lambda custom runtime)**
-  - Bundle contains a `bootstrap` executable.
-  - Recommended tooling: use `cargo-lambda` (or equivalent AWS Lambda Rust tooling) to build a custom runtime zip that places `bootstrap` at the archive root.
+v1 bundle manifest supports two runtimes:
+- `node`
+- `python`
+
+Rust custom runtime is planned (see [ADR 0003](../adr/0003-udf-bundles.md)) and tracked in [milestones.md](../plan/milestones.md) (milestone 18).
+
+Planned Rust bundle model:
+- `runtime: rust`
+- `entrypoint: "bootstrap"` (AWS Lambda custom runtime convention)
+
+Until milestone 18 lands, runners reject Rust bundles.
 
 A single DAG can run multiple languages by referencing different bundle IDs in different jobs.
 
@@ -98,14 +110,15 @@ A DAG job that runs user code MUST include an `udf` block:
   unique_key: [dedupe_key]
   udf:
     bundle_id: "<bundle-id>"
-    entrypoint: "trace.handler"  # required for python/node; ignored for rust custom runtimes
+    entrypoint: "index.js" # example: node "index.js", python "main.py", rust "bootstrap"
 ```
 
 - `bundle_id` is the immutable identifier of a previously uploaded bundle.
-- `entrypoint` is the handler function inside the bundle when the language runtime supports it.
+- `entrypoint` is the relative file path executed by the runner and MUST match `bundle_manifest.json.entrypoint`.
 
 ### Bundle format and provenance
-- Bundle format and entrypoints are defined in [ADR 0003](../adr/0003-udf-bundles.md).
+- Bundle format and packaging is defined in [ADR 0003](../adr/0003-udf-bundles.md).
+- Bundle manifest schema and validation is defined in [udf_bundle_manifest.md](udf_bundle_manifest.md).
 - Bundles are immutable artifacts and MUST be pinned by a content hash (SHA-256).
 - Bundle upload associates the bundle with an org + user for auditability.
 

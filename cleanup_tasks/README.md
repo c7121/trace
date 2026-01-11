@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/052-tighten-udf-specs.md`: Make UDF specs coherent and link-first, and resolve bundle manifest contract drift.
 - `cleanup_tasks/053-tighten-alerting-spec.md`: Make the alerting spec link-first and consistent with alert operator examples and ADR decisions.
 - `cleanup_tasks/054-tighten-metadata-spec.md`: Make metadata and lineage docs link-first and correct about schema ownership.
 - `cleanup_tasks/055-rehome-trace-core-error-contract.md`: Move trace-core error contract to an ADR and remove it from feature specs.
@@ -30,6 +29,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `052-tighten-udf-specs`: implemented; aligned UDF entrypoint semantics to the bundle manifest, made UDF docs link-first, and clarified Node/Python-only v1 support with Rust custom runtime tracked in milestone 18.
 - `051-tighten-query-service-specs`: implemented; made task and user query specs consistent, clarified Lite dev token semantics vs AWS/OIDC, and made hardening and ops defaults link-first.
 - `050-tighten-chain-sync-and-ingestion-specs`: implemented; made chain sync YAML v1 explicit, clarified bootstrap orchestration in ingestion docs, and marked the Cryo library adapter doc as a spike.
 - `049-tighten-dag-configuration-spec`: implemented; aligned Task vs Attempt terminology, replaced the example DAG YAML with only documented operators, expanded job field coverage, and clarified v1 publish as metadata-only.
