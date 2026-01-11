@@ -33,7 +33,8 @@ Assumptions:
 
 - Docs portal: [docs/README.md](docs/README.md)
 - Implementers: [docs/architecture/README.md](docs/architecture/README.md)
-- Trace Lite harness: [harness/README.md](harness/README.md)
+- Trace Lite runbook: [docs/examples/lite_local_cryo_sync.md](docs/examples/lite_local_cryo_sync.md)
+- Harness (contract-freeze integration harness): [harness/README.md](harness/README.md)
 
 ## Status
 

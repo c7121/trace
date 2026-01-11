@@ -26,7 +26,9 @@ If you are working on operators:
 - Operator specs: [specs/operators/README.md](specs/operators/README.md)
 
 If you are using Trace Lite:
-- Harness: [harness/README.md](../harness/README.md)
+- Trace Lite runbook: [examples/lite_local_cryo_sync.md](examples/lite_local_cryo_sync.md)
+- Trace Lite runner notes: [plan/trace_lite.md](plan/trace_lite.md)
+- Harness (contract-freeze integration harness): [harness/README.md](../harness/README.md)
 
 ## Workflow
 
