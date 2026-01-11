@@ -33,12 +33,15 @@ Task list (recommended order):
 - `cleanup_tasks/061-shrink-milestones-ledger.md`: Reduce `docs/plan/milestones.md` section count by moving completed milestone notes into an archive without losing history.
 - `cleanup_tasks/062-tighten-harness-docs-entrypoint.md`: Make harness docs link-first, harness-scoped, and consistent with current plan and contract locations.
 - `cleanup_tasks/063-fix-trace-lite-entrypoint-links.md`: Route repo entrypoints to the canonical Trace Lite runbook, keeping harness docs as a secondary reference.
+- `cleanup_tasks/064-tighten-agent-docs-entrypoint.md`: Make `docs/agent/` docs discoverable from `AGENTS.md` without expanding the main docs portal.
+- `cleanup_tasks/065-reconcile-agent-doc-sync-with-doc-style-rules.md`: Resolve the mismatch between synced `docs/agent/*` content and repo doc style rules.
 
 ## Critical assessment tasks (recommended order)
 
-- `cleanup_tasks/040-audit-orphaned-or-duplicate-docs.md`: Audit unlinked or duplicated docs and propose disposition.
+All critical assessment tasks are complete.
 
 Completed:
+- `040-audit-orphaned-or-duplicate-docs`: review complete; follow-up tasks `064-tighten-agent-docs-entrypoint` and `065-reconcile-agent-doc-sync-with-doc-style-rules` created.
 - `039-assess-harness-docs-entrypoint`: review complete; follow-up tasks `062-tighten-harness-docs-entrypoint` and `063-fix-trace-lite-entrypoint-links` created.
 - `021-assess-docs-portal-and-entrypoints`: review complete; follow-up task `041-tighten-docs-navigation-entrypoints` created.
 - `022-assess-architecture-index-and-core-concepts`: review complete; follow-up task `042-tighten-architecture-index-core-concepts` created.
