@@ -70,7 +70,7 @@ Propagates upstream through DAG edges. When a queue trips its threshold (depth o
 
 - **v1:** Backpressure is global and operational (protect the system), not per-job configurable.
 - Per-job backpressure knobs are **reserved** and MUST be rejected in v1: `max_queue_depth`, `max_queue_age`, `backpressure_mode`.
-  See `docs/specs/dag_configuration.md` (“Reserved fields”).
+  See [dag_configuration.md](../../specs/dag_configuration.md) ("Reserved fields").
 - Priority/tiers (e.g., shedding bulk bootstrap work first) is a future optimization and is not required for v1 correctness.
 
 ## Out of Scope
@@ -144,3 +144,11 @@ flowchart LR
 
 `runtime` is a string used by the Dispatcher to decide how to execute a job (in-process, Lambda, or ECS queue).
 The mapping from `runtime` to worker image, queue, and resource defaults is configured in the Dispatcher.
+
+## Related
+
+- C4 overview: [../c4.md](../c4.md)
+- Invariants: [../invariants.md](../invariants.md)
+- Security model: [../security.md](../security.md)
+- Operations: [../operations.md](../operations.md)
+- Task lifecycle: [../task_lifecycle.md](../task_lifecycle.md)

@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/046-tighten-c4-and-container-docs.md`: Keep C4 as the top narrative and make container docs consistently link-first with standardized Related links.
 - `cleanup_tasks/047-tighten-ops-and-deploy-doc-boundaries.md`: Make operations and deployment guidance link-first, non-duplicative, and actionable (no drift).
 - `cleanup_tasks/048-tighten-specs-index-and-templates.md`: Make the specs entrypoint and templates encode governance rules and doc constraints.
 - `cleanup_tasks/049-tighten-dag-configuration-spec.md`: Make the DAG YAML contract schema-first, self-consistent, and aligned with core concept terminology.
@@ -36,6 +35,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `046-tighten-c4-and-container-docs`: implemented; linkified ADR and cross-doc references in `c4.md` and standardized container docs with consistent `## Related` sections.
 - `045-tighten-data-versioning-and-data-model-docs`: implemented; made schema mapping link-first, added missing audit tables to the data schema sketch, removed duplicated DDL blocks from domain docs, and aligned range examples to end-exclusive semantics.
 - `044-tighten-security-and-contract-doc-ownership`: implemented; clarified invariants vs security model ownership, refined task principal categories, and made v1 org derivation explicit in user API contracts.
 - `043-tighten-correctness-docs`: implemented; made correctness docs link-first, clarified runtime lambda vs ecs in task lifecycle, and aligned event flow wording with outbox durability.

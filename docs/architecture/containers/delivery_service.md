@@ -7,7 +7,7 @@ Delivery is intentionally centralized:
 - **Operators/UDFs never perform external side effects.**
 - Delivery Service is the only component with outbound internet egress for alerting.
 
-See also: `docs/specs/alerting.md` and ADR 0004.
+See also: [alerting.md](../../specs/alerting.md) and [ADR 0004](../../adr/0004-alert-event-sinks.md).
 
 ## Responsibilities
 
@@ -67,3 +67,11 @@ v1 policy:
 - Always include a stable idempotency key (`Idempotency-Key: <delivery_id>`), and include `delivery_id` in the payload for receiver-side dedupe.
 
 This service is the only internet-egress component in the alerting path; it must audit outbound requests and attribute them to `(org_id, delivery_id)`.
+
+## Related
+
+- C4 overview: [../c4.md](../c4.md)
+- Invariants: [../invariants.md](../invariants.md)
+- Security model: [../security.md](../security.md)
+- Operations: [../operations.md](../operations.md)
+- Alerting spec: [alerting.md](../../specs/alerting.md)

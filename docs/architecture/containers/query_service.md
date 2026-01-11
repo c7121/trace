@@ -69,3 +69,10 @@ Query Service supports a constrained SQL surface and is designed to fail closed.
 ## Query results
 
 Query executions that produce persisted results use the platform-managed `query_results` table. See [ADR 0005](../../adr/0005-query-results.md) and [Query Service data model](../data_model/query_service.md).
+
+## Related
+
+- C4 overview: [../c4.md](../c4.md)
+- Invariants: [../invariants.md](../invariants.md)
+- Security model: [../security.md](../security.md)
+- Operations: [../operations.md](../operations.md)

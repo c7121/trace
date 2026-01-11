@@ -64,6 +64,9 @@ Allowed origins configured per environment. Default: same-origin only.
 
 ## Related
 
+- C4 overview: [../c4.md](../c4.md)
+- Invariants: [../invariants.md](../invariants.md)
 - [security.md](../security.md) - canonical auth model and trust boundaries
+- [operations.md](../operations.md) - default limits and operational guidance
 - [contracts.md](../contracts.md) - worker/task contracts (internal-only)
 - [query_service.md](query_service.md) - query endpoint behavior
