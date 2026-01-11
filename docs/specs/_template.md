@@ -6,11 +6,6 @@ Last updated: YYYY-MM-DD
 
 Keep this document short. Delete sections that do not apply.
 
-Delete this reminder block before review:
-- Doc typography: no em dashes in docs (use hyphens or colons).
-- Mermaid: label text must not include parentheses.
-- Prefer link-first references to `docs/architecture/*` for contracts and invariants.
-
 ## Summary
 (1–5 sentences: what + why + scope.)
 
@@ -50,7 +45,7 @@ persistence formats/migrations, and entrypoint exports.
 - Entrypoint exports:
 - Intentionally not supported (surface area control):
 
-## Architecture (C4) - Mermaid-in-Markdown only
+## Architecture (C4) — Mermaid-in-Markdown only
 Use the smallest C4 level(s) that clarify the change (L1/L2/L3).
 No box soup: every box MUST have a responsibility; every relationship MUST be labeled.
 

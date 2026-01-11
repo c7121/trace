@@ -84,9 +84,17 @@ The agent MUST attempt to simplify:
 The agent MUST ask before running any commands.
 It SHOULD propose the exact command(s) and why (format/lint/test/build/run).
 
-## Git commits
-- The agent MUST suggest git commit messages accompanying each code change.
-- The commits MUST follow git-cliff conventional commits formatting (if unsure see https://git-cliff.org/docs/#how-should-i-write-my-commits)
+## Git commits (git-cliff / Conventional Commits)
+- The agent MUST suggest commit message(s) for each logical change (or the final squash commit message, if using squash merges).
+- Commit messages MUST follow the Conventional Commits format as used/recommended by git-cliff:
+  <type>(<scope>)!: <description>
+  Scope is OPTIONAL. "!" is OPTIONAL (required for breaking changes). Description is REQUIRED.
+  (See: https://git-cliff.org/docs/#how-should-i-write-my-commits) :contentReference[oaicite:0]{index=0}
+- Types SHOULD be one of: feat, fix, refactor, perf, docs, test, build, ci, chore, revert.
+- Breaking changes MUST be indicated with "!" in the header and/or a footer:
+  BREAKING CHANGE: <explanation> :contentReference[oaicite:1]{index=1}
+- Scope SHOULD be a short, stable area name (e.g., crate/module/package/component). Avoid vague scopes.
+- Commit messages MUST NOT include secrets, tokens, or sensitive incident details; keep security-related messages factual and minimal.
 
 ## Security bar (minimum posture)
 Unless explicitly out of scope, the agent MUST:
