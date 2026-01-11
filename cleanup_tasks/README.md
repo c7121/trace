@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/041-tighten-docs-navigation-entrypoints.md`: Replace directory links with canonical entrypoints, add a containers index, and resolve the orphan `docs/architecture/operators/README.md`.
 - `cleanup_tasks/042-tighten-architecture-index-core-concepts.md`: Improve `docs/architecture/README.md` core concepts and reading order to reduce lookup friction.
 - `cleanup_tasks/043-tighten-correctness-docs.md`: Make correctness docs link-first and non-duplicative across invariants, lifecycle, and event flow.
 - `cleanup_tasks/044-tighten-security-and-contract-doc-ownership.md`: Clarify ownership boundaries across `security.md`, `invariants.md`, the contract index, and user API allowlist docs.
@@ -41,6 +40,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `041-tighten-docs-navigation-entrypoints`: implemented; entrypoints link to canonical README pages, `docs/architecture/containers/README.md` added, and the unlinked `docs/architecture/operators/README.md` stub removed.
 - `040-audit-orphaned-or-duplicate-docs`: review complete; follow-up tasks `064-tighten-agent-docs-entrypoint` and `065-reconcile-agent-doc-sync-with-doc-style-rules` created.
 - `039-assess-harness-docs-entrypoint`: review complete; follow-up tasks `062-tighten-harness-docs-entrypoint` and `063-fix-trace-lite-entrypoint-links` created.
 - `021-assess-docs-portal-and-entrypoints`: review complete; follow-up task `041-tighten-docs-navigation-entrypoints` created.

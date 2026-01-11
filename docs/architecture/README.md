@@ -26,8 +26,8 @@ After reading Core concepts above:
 6. **User API contracts**: [user_api_contracts.md](user_api_contracts.md) (Gateway-exposed `/v1/*` routes and authz invariants)
 7. **Operations**: [operations.md](operations.md) (operational targets, defaults, and examples)
 8. **Data versioning**: [data_versioning.md](data_versioning.md) (behavior and invariants; schema mapping in [data_model/data_versioning.md](data_model/data_versioning.md))
-9. **Data model**: [data_model/](data_model/) (DDL-level schemas)
-10. **Containers**: [containers/](containers/) (service responsibilities and deployment units)
+9. **Data model**: [data_model/README.md](data_model/README.md) (DDL-level schemas)
+10. **Containers**: [containers/README.md](containers/README.md) (service responsibilities and deployment units)
 11. **Operators**: [Operator specs](../specs/operators/README.md) (built-in operator surfaces and status)
 
 
@@ -39,5 +39,5 @@ After reading Core concepts above:
 | Wire-level contracts (payloads, auth, fencing) | [contracts.md](contracts.md) |
 | User-facing routes and authz | [user_api_contracts.md](user_api_contracts.md) |
 | Trust boundaries and identity | [security.md](security.md) |
-| Product and feature intent | [specs/](../specs/) |
+| Product and feature intent | [../specs/README.md](../specs/README.md) |
 | Decision rationale | [adr/README.md](../adr/README.md) |
