@@ -18,7 +18,6 @@ Orphan audit summary:
 | `docs/agent/checklist.md` | Not linked from any index | Link from `AGENTS.md` | `docs/agent/` (agent workflow) |
 | `docs/agent/references.md` | Not linked from any index | Link from `AGENTS.md` | `docs/agent/` (anchor list) |
 | `docs/agent/SETUP_SYNC.md` | Not linked from any index | Link from `AGENTS.md` | `docs/agent/` + `.github/workflows/` |
-| `docs/architecture/operators/README.md` | Not linked from any index | Leave as-is or delete (no inbound links). See `cleanup_tasks/041-tighten-docs-navigation-entrypoints.md` | `docs/specs/operators/README.md` |
 
 ## Plan
 
