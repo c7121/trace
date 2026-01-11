@@ -2,10 +2,10 @@
 
 Status: Draft
 Owner: Platform
-Last updated: 2026-01-02
+Last updated: 2026-01-11
 
 ## Summary
-Ingestion defines how onchain and offchain data enters Trace. Ingestion is implemented as operators (source and reactive jobs) that write to versioned datasets (Postgres hot tables and/or S3 Parquet) with reorg-safe semantics.
+Ingestion defines how onchain and offchain data enters Trace. Ingestion is implemented as operators (source and reactive jobs) that write to versioned datasets (Postgres hot tables and/or S3 Parquet) with reorg-safe semantics. Orchestration is either DAG composition or system-managed planning (for example `chain_sync`).
 
 ## Risk
 Low
@@ -18,7 +18,7 @@ We need standard, pluggable ingestion patterns for:
 while keeping ingestion logic outside the core platform and preserving idempotency under retries.
 
 ## Goals
-- Treat ingestion as operators configured in DAG YAML, not special-case code.
+- Treat ingestion work as operator tasks that publish datasets; orchestration may be DAG YAML or system-managed planning.
 - Support both:
   - realtime chain-tip ingestion, and
   - bounded historical range ingestion (bootstrap sync).
@@ -29,7 +29,7 @@ while keeping ingestion logic outside the core platform and preserving idempoten
 - Exactly-once ingestion.
 
 ## Public surface changes
-- Config semantics: DAG job configs for ingestion operators (see operator docs).
+- Config semantics: DAG job configs for ingestion operators plus `chain_sync` job YAML for system-managed bootstrap orchestration (see [chain_sync_entrypoint.md](chain_sync_entrypoint.md)).
 - Persistence: ingestion outputs are datasets (Postgres/S3) using the standard publishing and versioning model.
 
 ## Architecture (C4) - Mermaid-in-Markdown only
@@ -75,9 +75,18 @@ Ingestion operators MUST:
 - Hardcode ingestion into the platform.
   - Why not: locks in specific tools; increases core surface area.
 
-## Bootstrap sync (historical ingestion)
+## Bootstrap orchestration (v1)
 
-Trace does not have a special historical-ingestion primitive. Bootstrap sync is modeled as normal jobs over a bounded range:
+Preferred v1 bootstrap path is a system-managed `chain_sync` job (no external planning loop):
+
+- Apply via `trace-dispatcher apply --file <job.yaml>`.
+- `chain_sync` plans `cryo_ingest` tasks per dataset stream and block range.
+- Canonical contract: [chain_sync_entrypoint.md](chain_sync_entrypoint.md).
+- Example: [chain_sync.monad_mainnet.yaml](../examples/chain_sync.monad_mainnet.yaml).
+
+### Alternative: explicit DAG composition (manual)
+
+If you need explicit DAG composition (for example to add downstream steps), bootstrap can be modeled as normal jobs over a bounded range:
 
 - A range manifest (e.g., `start_block..end_block`) is emitted by an external system or a source operator.
 - `range_splitter` fans out the range into partitions (`chunk_size`).

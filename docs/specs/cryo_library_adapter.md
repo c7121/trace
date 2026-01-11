@@ -2,11 +2,20 @@
 
 Status: Draft
 Owner: Platform
-Last updated: 2026-01-09
+Last updated: 2026-01-11
 
 ## Summary
 Today the Cryo worker shells out to the Cryo CLI, writes Parquet to a local staging directory, then uploads to object storage.
 This spike proposes embedding Cryo as a Rust library in the worker and introducing a writer abstraction so Parquet can be streamed directly to the configured object store without local staging.
+
+Note: This document is a design spike. It is not a v1 behavior contract.
+
+## Doc ownership
+
+This spike must preserve the v1 contracts owned elsewhere:
+- `chain_sync` job surface and planner invariants: [chain_sync_entrypoint.md](chain_sync_entrypoint.md)
+- `cryo_ingest` task payload and invocation semantics: [operators/cryo_ingest.md](operators/cryo_ingest.md)
+- Task lifecycle, fencing, and capability tokens: [task_lifecycle.md](../architecture/task_lifecycle.md) and [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)
 
 ## Risk
 Medium

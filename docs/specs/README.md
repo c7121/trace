@@ -19,7 +19,7 @@ Minimum workflow for any spec:
 - Chain sync and ingestion:
   - Chain sync entrypoint: [chain_sync_entrypoint.md](chain_sync_entrypoint.md)
   - Ingestion patterns: [ingestion.md](ingestion.md)
-  - Cryo adapter: [cryo_library_adapter.md](cryo_library_adapter.md)
+  - Cryo library adapter spike (non-normative): [cryo_library_adapter.md](cryo_library_adapter.md)
 - Query:
   - User query API: [query_service_user_query.md](query_service_user_query.md)
   - Task query API: [query_service_task_query.md](query_service_task_query.md)
