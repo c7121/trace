@@ -8,7 +8,8 @@ End-to-end runs, diagnostics, and operator recipes.
 
 ## Diagnostics
 
-- [data_verification.md](data_verification.md)
+- Start here: [data_verification.md](data_verification.md)
+- Runnable diagnostics live in: [harness/diagnostics/](../../harness/diagnostics/)
 
 ## Operator recipes
 
@@ -19,4 +20,3 @@ End-to-end runs, diagnostics, and operator recipes.
 ## Example configs
 
 - [chain_sync.monad_mainnet.yaml](chain_sync.monad_mainnet.yaml)
-

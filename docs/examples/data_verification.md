@@ -1,109 +1,46 @@
-# Data Verification Runbook
+# Data verification
 
-Procedures for verifying data integrity in trace pipelines.
+This page is a link-first index of runnable diagnostics for verifying data integrity in Trace Lite.
 
-## Duplicate Transaction Detection
+## Start here
 
-Identifies transaction hashes appearing in multiple blocks - a sign of data corruption or sync issues.
+- Bring up the Trace Lite local stack and sync some data: [lite_local_cryo_sync.md](lite_local_cryo_sync.md)
+- Run diagnostics from `harness/diagnostics/*`. The runnable scripts and READMEs are the canonical home for SQL, DuckDB commands, and object-store paths.
 
-### Query
+## Runnable diagnostics
 
-```sql
-SELECT
-  transaction_hash,
-  MIN(block_number) AS first_block,
-  MAX(block_number) AS last_block,
-  COUNT(DISTINCT block_number) AS num_blocks
-FROM transactions  -- or read_parquet(...) for file-based queries
-GROUP BY transaction_hash
-HAVING COUNT(DISTINCT block_number) > 1
-ORDER BY num_blocks DESC;
-```
+### Duplicate transaction detection
 
-**Expected result:** 0 rows. Any rows indicate duplicate transaction data.
+Detect transaction hashes that appear in multiple blocks.
 
-### Running in Trace Lite (local/harness)
+- Diagnostic: [harness/diagnostics/duplicate_tx_detection/](../../harness/diagnostics/duplicate_tx_detection/)
+- Run fixture test: `cd harness/diagnostics/duplicate_tx_detection && ./run_test.sh`
 
-Use DuckDB to query parquet files in MinIO:
+### Staking withdrawal verification
 
-```bash
-# From repo root, with harness running (docker compose up -d)
-docker run --rm --network=harness_default datacatering/duckdb:v1.1.3 -c "
-  SET s3_endpoint='minio:9000';
-  SET s3_access_key_id='trace';
-  SET s3_secret_access_key='tracepassword';
-  SET s3_use_ssl=false;
-  SET s3_url_style='path';
+Verify that every Monad staking `Withdraw` has a corresponding prior `Undelegate`.
 
-  SELECT
-    transaction_hash,
-    MIN(block_number) AS first_block,
-    MAX(block_number) AS last_block,
-    COUNT(DISTINCT block_number) AS num_blocks
-  FROM read_parquet(
-    's3://trace-data/datasets/<DATASET_UUID>/data/**/*.parquet',
-    hive_partitioning=false
-  )
-  GROUP BY transaction_hash
-  HAVING COUNT(DISTINCT block_number) > 1;
-"
-```
+- Diagnostic: [harness/diagnostics/staking_withdrawal_verification/](../../harness/diagnostics/staking_withdrawal_verification/)
+- Run: `cd harness/diagnostics/staking_withdrawal_verification && ./run.sh`
+- Requires: logs data synced
 
-To find the dataset UUID for a chain's transactions:
+### TVL drop detection
 
-```bash
-docker run --rm --network=harness_default datacatering/duckdb:v1.1.3 -c "
-  SET s3_endpoint='minio:9000';
-  SET s3_access_key_id='trace';
-  SET s3_secret_access_key='tracepassword';
-  SET s3_use_ssl=false;
-  SET s3_url_style='path';
+Detect large TVL drops over a sliding window of blocks.
 
-  SELECT id, name FROM read_parquet('s3://trace-data/datasets/*/metadata.parquet')
-  WHERE name LIKE '%transactions%';
-"
-```
+- Diagnostic: [harness/diagnostics/tvl_drop_detection/](../../harness/diagnostics/tvl_drop_detection/)
+- Run:
+  - `cd harness/diagnostics/tvl_drop_detection && ./run.sh native <contract_address>`
+  - `cd harness/diagnostics/tvl_drop_detection && ./run.sh erc20 <contract_address> <token_address|any>`
+- Requires:
+  - native: `geth_balance_diffs` data synced
+  - erc20: logs data synced
 
-### Running in Production
+## Notes
 
-Query the data warehouse directly:
+- Local harness diagnostics assume MinIO inside the `harness_default` docker network and the default bucket `trace-harness`. Prefer running the scripts instead of copying commands into other docs.
 
-```sql
--- Adjust table name to match your deployment
-SELECT
-  transaction_hash,
-  MIN(block_number) AS first_block,
-  MAX(block_number) AS last_block,
-  COUNT(DISTINCT block_number) AS num_blocks
-FROM blockchain.transactions
-WHERE chain_id = <CHAIN_ID>
-GROUP BY transaction_hash
-HAVING COUNT(DISTINCT block_number) > 1
-ORDER BY num_blocks DESC
-LIMIT 100;
-```
+## Adding new diagnostics
 
-### Harness Test Fixture
-
-A self-contained test with mock data lives in:
-
-- [harness/diagnostics/duplicate_tx_detection/](../../harness/diagnostics/duplicate_tx_detection/)
-
-This includes real parquet files plus a synthetic duplicate for validating the query catches issues:
-
-```bash
-cd harness/diagnostics/duplicate_tx_detection
-./run_test.sh
-```
-
-The test should output `PASS` and show 2 detected duplicates (the intentional fakes).
-
----
-
-## Block Gap Detection
-
-*TODO: Add procedure for detecting missing blocks in sync ranges.*
-
-## Schema Validation
-
-*TODO: Add procedure for validating parquet schema consistency.*
+- Add a folder under `harness/diagnostics/` with a `README.md` and a runnable script (`run.sh` or `run_test.sh`).
+- Keep the diagnostic SQL in the same folder as the script to avoid drift.
