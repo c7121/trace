@@ -55,6 +55,8 @@ See: [db_boundaries.md](db_boundaries.md), [data_model/README.md](data_model/REA
 
 ## Trust boundaries
 
+This section states the minimal, enforceable trust boundary rules. The full security model (threats, principals, auth primitives) lives in [security.md](security.md).
+
 - User-supplied code (UDFs) is **untrusted** by default.
 - Untrusted code MUST NOT receive long-lived platform credentials (Postgres writers, broad S3 access, internal service auth).
 - Untrusted code may only use:

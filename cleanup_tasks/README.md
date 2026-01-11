@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/044-tighten-security-and-contract-doc-ownership.md`: Clarify ownership boundaries across `security.md`, `invariants.md`, the contract index, and user API allowlist docs.
 - `cleanup_tasks/045-tighten-data-versioning-and-data-model-docs.md`: Reduce drift and duplication across data versioning behavior docs and DDL-level schema mapping docs.
 - `cleanup_tasks/046-tighten-c4-and-container-docs.md`: Keep C4 as the top narrative and make container docs consistently link-first with standardized Related links.
 - `cleanup_tasks/047-tighten-ops-and-deploy-doc-boundaries.md`: Make operations and deployment guidance link-first, non-duplicative, and actionable (no drift).
@@ -38,6 +37,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `044-tighten-security-and-contract-doc-ownership`: implemented; clarified invariants vs security model ownership, refined task principal categories, and made v1 org derivation explicit in user API contracts.
 - `043-tighten-correctness-docs`: implemented; made correctness docs link-first, clarified runtime lambda vs ecs in task lifecycle, and aligned event flow wording with outbox durability.
 - `042-tighten-architecture-index-core-concepts`: implemented; added Dataset and Operator core concepts with best-next-hop links and added `db_boundaries.md` to the recommended reading order.
 - `041-tighten-docs-navigation-entrypoints`: implemented; entrypoints link to canonical README pages, `docs/architecture/containers/README.md` added, and the unlinked `docs/architecture/operators/README.md` stub removed.

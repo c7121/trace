@@ -4,7 +4,15 @@ Status: Draft
 Owner: Platform
 Last updated: 2026-01-02
 
-This document is the canonical security artifact for Trace v1. It defines the **trust boundaries** and **enforceable invariants** the implementation MUST uphold.
+This document is the canonical security artifact for Trace v1. It defines the **trust boundaries**, identity model, and security primitives the implementation MUST uphold.
+
+Global platform invariants are enumerated in [invariants.md](invariants.md). This document must be consistent with them. If there is a conflict, [invariants.md](invariants.md) is authoritative.
+
+## Doc map
+
+- Global invariants: [invariants.md](invariants.md)
+- User-reachable route allowlist: [user_api_contracts.md](user_api_contracts.md)
+- Internal wire contracts: [contracts.md](contracts.md) and [contracts/](contracts/)
 
 ## Scope and non-goals
 
@@ -32,10 +40,17 @@ Primary threats Trace must be correct against:
 Trace uses three distinct identity contexts. Treat them as different “principals”:
 
 1. **User principal** (end-user requests)
-2. **Task principal** (untrusted compute: Lambda UDF runner)
-3. **Worker principal** (trusted platform pollers/launchers)
+2. **Task principal** (code executing a task attempt)
+3. **Worker principal** (trusted platform wrappers and pollers)
 
 The implementation MUST prevent principals from impersonating one another.
+
+Task principal has two categories:
+
+- **Untrusted task runtime**: user-supplied UDF bundle code executed via `runtime: lambda` runner.
+- **Trusted task runtime**: platform-owned operator code executed by platform workers (for example `runtime: ecs_platform`).
+
+Both categories use the same attempt and lease fencing for mutations and the same task-scoped capability tokens for authenticated calls. Task runtimes never have Postgres state credentials.
 
 ## Authentication and authorization
 
@@ -66,7 +81,7 @@ Authorization rules:
 
 ### Task-scoped APIs (capability tokens)
 
-Task-scoped endpoints are callable by **untrusted** execution (the Lambda UDF runner). They are authenticated with a per-attempt **task capability token** (JWT) plus strict attempt fencing.
+Task-scoped endpoints are callable by task execution runtimes (trusted operators and untrusted UDF runners). They are authenticated with a per-attempt **task capability token** (JWT) plus strict attempt and lease fencing.
 
 Invariants:
 - The capability token is minted by Dispatcher per `(task_id, attempt)` and is time-limited (TTL must cover the task timeout, but it should not be long-lived).

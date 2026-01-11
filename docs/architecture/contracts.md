@@ -12,6 +12,15 @@ Scope:
 - Dispatcher to Lambda invocation payload (`runtime: lambda`)
 - Buffered dataset publish and sink contract
 
+This document is an index. Normative details live in the linked contract pages under [contracts/](contracts/).
+
+## Related owner docs
+
+- Global invariants: [invariants.md](invariants.md)
+- Security model and principal definitions: [security.md](security.md)
+- Execution model and recovery loops: [task_lifecycle.md](task_lifecycle.md)
+- User route allowlist: [user_api_contracts.md](user_api_contracts.md)
+
 ## Invariants
 
 `/internal/*` endpoints are internal-only and are not exposed to end users. They are callable only by trusted platform components (worker wrappers and platform services). Untrusted runtimes (UDF code, including `runtime: lambda`) must not call `/internal/*`.
