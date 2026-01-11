@@ -4,29 +4,41 @@ This document defines the durable execution model for tasks: how tasks are creat
 
 Core concepts (task, attempt, lease, outbox): [Architecture index - Core concepts](README.md#core-concepts).
 
-**Summary:** **Postgres state** is the source of truth. Side effects are recorded in an **outbox**. **SQS** is a wake-up mechanism.
+Canonical invariants live in [invariants.md](invariants.md). A high-level sequence view is in [event_flow.md](event_flow.md).
+
+**Summary:** **Postgres state** is the source of truth. Side effects are recorded in an **outbox**. The task queue is a wake-up mechanism (SQS in AWS, pgqueue in Trace Lite).
 
 ## Guarantees
 
-- **At-least-once delivery**: SQS may deliver duplicates; workers may retry calls; the platform may restart.
+- **At-least-once delivery**: the wake-up queue may deliver duplicates; workers may retry calls; the platform may restart.
 - **Single active attempt**: for a given `task_id`, only one attempt is considered current.
 - **No concurrent execution**: a task is executed only by the worker that holds the current lease.
 - **Rehydratable**: after Dispatcher restarts, queued work resumes without losing tasks.
 
 These guarantees are achieved by **leasing** (in Postgres state) plus **idempotent output commit** (replace/append + unique keys).
+For the compact, canonical statement of correctness rules, see [invariants.md - Correctness under failure](invariants.md#correctness-under-failure) and [invariants.md - Queues](invariants.md#queues).
 
 ## Mental Model
 
 - **Postgres state** stores tasks, attempts, leases, and retry scheduling.
-- **SQS** delivers a pointer (`task_id`) so workers don't poll Postgres.
+- The **wake-up queue** delivers a pointer (`task_id`) so workers don't poll Postgres.
 - **Workers are dumb**: they do not decide retries or scheduling. They:
-  1) receive a `task_id` from SQS,
+  1) receive a `task_id` from the wake-up queue,
   2) claim the task (acquire a lease) from Dispatcher,
   3) execute,
   4) heartbeat,
   5) complete.
 
-If SQS loses a message or redelivers duplicates, the system still works because the task row remains in Postgres state.
+If the wake-up queue loses a message or redelivers duplicates, the system still works because the task row remains in Postgres state.
+
+## Execution modes
+
+Trace executes tasks in two ways:
+
+- **Queue-woken workers** (`runtime: ecs_platform`): the worker receives `task_id` and claims the task via a worker-only endpoint before executing operator code. See [worker_only_endpoints.md](contracts/worker_only_endpoints.md).
+- **Dispatcher-invoked Lambda** (`runtime: lambda`): the Dispatcher acquires a lease and invokes the Lambda directly (no task queue). The invocation payload includes `(attempt, lease_token)` plus a task capability token so the runner can call task-scoped endpoints. See [lambda_invocation.md](contracts/lambda_invocation.md).
+
+Both execution modes follow the same fencing rule for mutations: `task_id`, `attempt`, and `lease_token` must match the current task attempt. Task-scoped endpoints are defined in [task_scoped_endpoints.md](contracts/task_scoped_endpoints.md).
 
 ## Task States
 
@@ -38,7 +50,7 @@ Tasks move through these states:
 - `Failed`: finished unsuccessfully and may be retried.
 - `Canceled`: explicitly canceled (e.g., during rollback).
 
-> **Note:** SQS delivery is not a task state. A task can be `Queued` in Postgres state even if no SQS message exists.
+> **Note:** wake-up queue delivery is not a task state. A task can be `Queued` in Postgres state even if no wake-up message exists.
 
 ## Leasing
 
@@ -52,7 +64,9 @@ A **lease** is a time-bounded right to execute the current attempt of a task.
 
 ### Claim
 
-When a worker receives a `task_id` from SQS it calls the Dispatcher task claim endpoint (see [worker_only_endpoints.md](contracts/worker_only_endpoints.md)).
+When a worker receives a `task_id` from the wake-up queue it calls the Dispatcher task claim endpoint (see [worker_only_endpoints.md](contracts/worker_only_endpoints.md)).
+
+For `runtime: lambda`, there is no worker claim call. The Dispatcher acquires a lease and transitions the task to `Running` before invoking the Lambda (see [lambda_invocation.md](contracts/lambda_invocation.md)).
 
 Dispatcher performs an atomic transition:
 
@@ -80,11 +94,11 @@ Dispatcher accepts completion only if:
 
 This prevents stale completions from prior attempts from mutating state (including output commits).
 
-## SQS Visibility
+## Queue Visibility
 
-SQS visibility timeout is not a correctness mechanism; the lease is.
+Queue visibility timeout is not a correctness mechanism; the lease is.
 
-Workers **must extend** message visibility for long-running tasks.
+If you are using SQS (AWS), workers **must extend** message visibility for long-running tasks.
 
 - Default queue visibility can be relatively short (minutes).
 - The worker wrapper calls `ChangeMessageVisibility` periodically until completion.
@@ -93,7 +107,7 @@ If the worker dies:
 
 - the lease expires,
 - the reaper reschedules the task (see below), and
-- a fresh SQS message is published for the same `task_id`.
+- a fresh wake-up message is published for the same `task_id`.
 
 ## Retries
 
@@ -111,7 +125,7 @@ Three loops make the system rehydratable:
 
 1) **Outbox worker**
    - drains `outbox` rows created by Dispatcher transactions
-   - performs side effects: enqueue SQS wake-ups (`enqueue_task`) and route upstream events (`route_event`)
+   - performs side effects: enqueue wake-ups (`enqueue_task`), invoke untrusted runtimes (runtime: lambda), and route upstream events (`route_event`)
    - on restart, resumes from `Pending` rows (no lost work)
 
 2) **Retry scheduler**
@@ -122,7 +136,7 @@ Three loops make the system rehydratable:
    - finds tasks with expired leases (`status='Running'` and `lease_expires_at < now()`)
    - marks them timed out and schedules a retry (or terminal failure)
 
-If SQS drops a wake-up, the task is still durable in Postgres state; it can be safely re-enqueued by writing another `enqueue_task` outbox row (leasing prevents concurrent execution).
+If the wake-up queue drops a wake-up, the task is still durable in Postgres state; it can be safely re-enqueued by writing another `enqueue_task` outbox row (leasing prevents concurrent execution).
 
 
 
@@ -130,12 +144,14 @@ If SQS drops a wake-up, the task is still durable in Postgres state; it can be s
 
 Ordering is enforced by **DAG dependencies** and **dataset versioning**, not by queue ordering.
 
-- SQS is treated as unordered at-least-once.
+- Wake-up queues are treated as unordered at-least-once.
 - Schema evolution is a first-class ETL concern: jobs may add/rename/recode fields as part of their output.
 - Correctness comes from pinning to `{dataset_uuid, dataset_version}` and committing outputs atomically; avoid in-place DDL on shared Postgres tables (especially from untrusted code).
 
 ## Related
 
+- [invariants.md](invariants.md) - canonical correctness invariants
+- [event_flow.md](event_flow.md) - end-to-end sequence view
 - [contracts.md](contracts.md) - endpoints and payload shapes
 - [orchestration.md](data_model/orchestration.md) - task schema
 - [dispatcher.md](containers/dispatcher.md) - orchestration responsibilities

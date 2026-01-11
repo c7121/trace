@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/043-tighten-correctness-docs.md`: Make correctness docs link-first and non-duplicative across invariants, lifecycle, and event flow.
 - `cleanup_tasks/044-tighten-security-and-contract-doc-ownership.md`: Clarify ownership boundaries across `security.md`, `invariants.md`, the contract index, and user API allowlist docs.
 - `cleanup_tasks/045-tighten-data-versioning-and-data-model-docs.md`: Reduce drift and duplication across data versioning behavior docs and DDL-level schema mapping docs.
 - `cleanup_tasks/046-tighten-c4-and-container-docs.md`: Keep C4 as the top narrative and make container docs consistently link-first with standardized Related links.
@@ -39,6 +38,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `043-tighten-correctness-docs`: implemented; made correctness docs link-first, clarified runtime lambda vs ecs in task lifecycle, and aligned event flow wording with outbox durability.
 - `042-tighten-architecture-index-core-concepts`: implemented; added Dataset and Operator core concepts with best-next-hop links and added `db_boundaries.md` to the recommended reading order.
 - `041-tighten-docs-navigation-entrypoints`: implemented; entrypoints link to canonical README pages, `docs/architecture/containers/README.md` added, and the unlinked `docs/architecture/operators/README.md` stub removed.
 - `040-audit-orphaned-or-duplicate-docs`: review complete; follow-up tasks `064-tighten-agent-docs-entrypoint` and `065-reconcile-agent-doc-sync-with-doc-style-rules` created.
