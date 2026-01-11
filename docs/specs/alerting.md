@@ -2,10 +2,26 @@
 
 Status: Draft
 Owner: Platform
-Last updated: 2026-01-02
+Last updated: 2026-01-11
 
 ## Summary
 Alerting lets users define rules over Trace data and receive notifications. Untrusted alert evaluation code emits **alert events**; routing jobs transform events into **delivery work items**; the **Delivery Service** is the only component that performs outbound sends and records outcomes.
+
+## Doc ownership
+
+This spec defines:
+- The alerting surface and end-to-end responsibilities (evaluate, route, deliver).
+- The alert event batch artifact record schema.
+
+Canonical related docs:
+- Alert sink and delivery decisions: [ADR 0004](../adr/0004-alert-event-sinks.md)
+- Buffered dataset pointer pattern and fail-closed behavior: [ADR 0006](../adr/0006-buffered-postgres-datasets.md) and [buffered_datasets.md](../architecture/contracts/buffered_datasets.md)
+- Delivery trust boundary and outbound safety: [delivery_service.md](../architecture/containers/delivery_service.md)
+- Operator surfaces:
+  - [alert_evaluate.md](operators/alert_evaluate.md)
+  - [alert_route.md](operators/alert_route.md)
+- UDF trust boundary: [udf.md](udf.md)
+- Table schemas: [data_model/alerting.md](../architecture/data_model/alerting.md)
 
 ## Risk
 Medium
@@ -33,9 +49,9 @@ Constraints:
 Public surface includes API endpoints, schemas, config semantics, and persistence formats.
 
 - Endpoints/RPC: Alert CRUD + delivery status endpoints (see [user_api_contracts.md](../architecture/user_api_contracts.md)); task buffer publish for `alert_events` (see [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)).
-- Events/schemas: `alert_events` buffered dataset batch format (see [ADR 0006](../adr/0006-buffered-postgres-datasets.md)).
+- Events/schemas: `alert_events` buffered dataset batch format (see [ADR 0004](../adr/0004-alert-event-sinks.md) and [ADR 0006](../adr/0006-buffered-postgres-datasets.md)).
 - CLI: None.
-- Config semantics: DAG jobs `alert_evaluate` and `alert_route` (see [dag_configuration.md](dag_configuration.md) and operator docs).
+- Config semantics: DAG jobs `alert_evaluate` and `alert_route` (see [dag_configuration.md](dag_configuration.md), [alert_evaluate.md](operators/alert_evaluate.md), and [alert_route.md](operators/alert_route.md)).
 - Persistence format/migration: Postgres data tables `alert_definitions`, `alert_events`, `alert_deliveries` (DDL in [data_model/alerting.md](../architecture/data_model/alerting.md)).
 - Intentionally not supported (surface area control): direct webhook calls from UDFs; custom provider integrations inside UDF runtime.
 
@@ -86,21 +102,18 @@ Required:
 - `alert_definition_id` (UUID)
 - `dedupe_key` (string) - deterministic, stable across retries
 - `event_time` (RFC3339 timestamp)
-- `chain_id` (int)
-- `block_number` (int)
-- `block_hash` (string)
-- `tx_hash` (string)
+- `severity` (string enum) - `info`, `warning`, or `critical` (see [ADR 0004](../adr/0004-alert-event-sinks.md))
 - `payload` (object) - producer-defined details (the only extensible field; may be `{}`)
 
-Note: the platform normalizes common chain context fields (`chain_id`, `block_number`, `block_hash`, `tx_hash`) into dedicated columns for indexing. Producers MAY also copy these values into `payload` for convenience; the sink does not validate or interpret `payload` beyond being a JSON object.
+Note: chain context is not a required part of the alert event contract. If an alert is derived from onchain data, producers SHOULD include context in `payload` using conventional keys like `chain_id`, `block_number`, `block_hash`, and `tx_hash`. If routing or querying needs indexes on those fields, create a derived table or view that projects keys out of `payload`.
 
 Rules:
 - Top-level unknown fields are rejected (use `payload` for extensions).
 - Tenant attribution is not trusted from payload; the sink assigns `org_id` and producer ids from the trusted publish record.
 
 Validation + refusal behavior:
-- The sink consumer MUST validate the batch artifact strictly. If any row fails to parse or violates the schema, the entire batch is rejected and the message is dead-lettered (no partial writes).
-- This is intentional: malformed alert outputs should fail loudly, not corrupt data silently.
+- The sink consumer MUST validate the batch artifact strictly and fail closed: any invalid row rejects the entire batch (no partial writes).
+- Canonical buffered dataset refusal behavior: [buffered_datasets.md](../architecture/contracts/buffered_datasets.md) and [ADR 0006](../adr/0006-buffered-postgres-datasets.md).
 
 ### Idempotency and retries
 
