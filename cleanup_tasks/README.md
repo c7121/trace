@@ -13,10 +13,10 @@ Task list (recommended order):
 - `cleanup_tasks/041-tighten-docs-navigation-entrypoints.md`: Replace directory links with canonical entrypoints, add a containers index, and resolve the orphan `docs/architecture/operators/README.md`.
 - `cleanup_tasks/042-tighten-architecture-index-core-concepts.md`: Improve `docs/architecture/README.md` core concepts and reading order to reduce lookup friction.
 - `cleanup_tasks/043-tighten-correctness-docs.md`: Make correctness docs link-first and non-duplicative across invariants, lifecycle, and event flow.
+- `cleanup_tasks/044-tighten-security-and-contract-doc-ownership.md`: Clarify ownership boundaries across `security.md`, `invariants.md`, the contract index, and user API allowlist docs.
 
 ## Critical assessment tasks (recommended order)
 
-- `cleanup_tasks/024-assess-architecture-security-and-contracts.md`: Assess security model and contract docs for boundary clarity and drift risk.
 - `cleanup_tasks/025-assess-architecture-data-versioning-and-data-model.md`: Assess data versioning behavior and schema docs for structure and duplication.
 - `cleanup_tasks/026-assess-architecture-c4-and-containers.md`: Assess C4 and container docs for cohesion and link-first navigation.
 - `cleanup_tasks/027-assess-architecture-operations-and-deployment.md`: Assess ops vs deploy docs boundary and eliminate overlap.
@@ -38,6 +38,7 @@ Completed:
 - `021-assess-docs-portal-and-entrypoints`: review complete; follow-up task `041-tighten-docs-navigation-entrypoints` created.
 - `022-assess-architecture-index-and-core-concepts`: review complete; follow-up task `042-tighten-architecture-index-core-concepts` created.
 - `023-assess-architecture-correctness-and-lifecycle`: review complete; follow-up task `043-tighten-correctness-docs` created.
+- `024-assess-architecture-security-and-contracts`: review complete; follow-up task `044-tighten-security-and-contract-doc-ownership` created.
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
 - `002-standardize-docs-entrypoint`: renamed the docs entrypoint to `docs/README.md` and updated references.
 - `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.
