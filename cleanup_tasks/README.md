@@ -8,9 +8,12 @@ How to use:
 - I will implement only that task, keeping the diff focused.
 
 Task list (recommended order):
+## Implementation tasks (recommended order)
+
+- `cleanup_tasks/041-tighten-docs-navigation-entrypoints.md`: Replace directory links with canonical entrypoints, add a containers index, and resolve the orphan `docs/architecture/operators/README.md`.
+
 ## Critical assessment tasks (recommended order)
 
-- `cleanup_tasks/021-assess-docs-portal-and-entrypoints.md`: Critically assess high-level docs navigation and entrypoints.
 - `cleanup_tasks/022-assess-architecture-index-and-core-concepts.md`: Assess `docs/architecture/README.md` for ownership, reading order, and discoverability.
 - `cleanup_tasks/023-assess-architecture-correctness-and-lifecycle.md`: Assess invariants, task lifecycle, and event flow docs for correctness and duplication.
 - `cleanup_tasks/024-assess-architecture-security-and-contracts.md`: Assess security model and contract docs for boundary clarity and drift risk.
@@ -32,6 +35,7 @@ Task list (recommended order):
 - `cleanup_tasks/040-audit-orphaned-or-duplicate-docs.md`: Audit unlinked or duplicated docs and propose disposition.
 
 Completed:
+- `021-assess-docs-portal-and-entrypoints`: review complete; follow-up task `041-tighten-docs-navigation-entrypoints` created.
 - `001-slim-docs-portal`: `docs/README.md` is now a portal; product overview moved to `README.md`; design principles moved to `docs/architecture/invariants.md`.
 - `002-standardize-docs-entrypoint`: renamed the docs entrypoint to `docs/README.md` and updated references.
 - `003-remove-standards-folder`: rehomed security and operations under `docs/architecture/`; folded doc ownership into `docs/architecture/README.md`; removed `docs/standards/`.
