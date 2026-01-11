@@ -2,6 +2,10 @@
 
 Non-phase-specific items deferred from v1.
 
+Rules:
+- Backlog items should link to an owning doc, or be promoted into a spec or ADR when they become actionable.
+- Avoid restating contracts here - link to the canonical owners.
+
 ## Platform
 
 - Untrusted `ecs_udf` execution (v2) once a zero-trust isolation/credential story exists.
