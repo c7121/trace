@@ -15,4 +15,4 @@ Template: [_template.md](_template.md)
 - [0007-input-edge-filters.md](0007-input-edge-filters.md)
 - [0008-dataset-registry-and-publishing.md](0008-dataset-registry-and-publishing.md)
 - [0009-atomic-cutover-and-query-pinning.md](0009-atomic-cutover-and-query-pinning.md)
-
+- [0010-trace-core-error-contract.md](0010-trace-core-error-contract.md)

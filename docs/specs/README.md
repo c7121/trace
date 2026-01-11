@@ -32,7 +32,7 @@ Minimum workflow for any spec:
   - Alerting model: [alerting.md](alerting.md)
 - Cross-cutting:
   - Metadata surfaces: [metadata.md](metadata.md)
-  - Error contract: [trace_core_error_contract.md](trace_core_error_contract.md)
+  - Error contract decision: [ADR 0010](../adr/0010-trace-core-error-contract.md)
 
 ## Related (architecture and decisions)
 
