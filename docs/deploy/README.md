@@ -7,6 +7,7 @@ Start here if you are deploying or operating Trace.
 - Infrastructure and network boundaries: [infrastructure.md](infrastructure.md)
 - Deployment profiles and adapters: [deployment_profiles.md](deployment_profiles.md)
 - Monitoring signals: [monitoring.md](monitoring.md)
+- Operational defaults and runbooks: [operations.md](../architecture/operations.md)
 
 ## Trace Lite
 

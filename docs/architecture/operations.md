@@ -1,8 +1,11 @@
 # Operations
 
-This document defines Trace v1 operational targets and the invariants that must hold under failures, restarts, duplicates, and partial outages.
+Doc ownership: this document defines Trace v1 operational targets, defaults, and runbooks.
 
-It is intentionally **self-contained** so operators and engineers can reason about correctness without jumping across many files.
+Canonical architecture invariants live in:
+- [invariants.md](invariants.md) - correctness and non-negotiable system truths
+- [task_lifecycle.md](task_lifecycle.md) - leases, retries, outbox, and rehydration
+- [security.md](security.md) - trust boundaries, auth model, and egress and secrets invariants
 
 ## Non-functional requirements
 
