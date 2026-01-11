@@ -10,7 +10,6 @@ How to use:
 Task list (recommended order):
 ## Implementation tasks (recommended order)
 
-- `cleanup_tasks/054-tighten-metadata-spec.md`: Make metadata and lineage docs link-first and correct about schema ownership.
 - `cleanup_tasks/055-rehome-trace-core-error-contract.md`: Move trace-core error contract to an ADR and remove it from feature specs.
 - `cleanup_tasks/056-tighten-operator-specs-catalog.md`: Standardize operator doc structure and make the operator catalog the clear entrypoint.
 - `cleanup_tasks/057-tighten-adrs-links-and-focus.md`: Make ADRs link-first and decision-focused (add related links and index summaries).
@@ -28,6 +27,7 @@ Task list (recommended order):
 All critical assessment tasks are complete.
 
 Completed:
+- `054-tighten-metadata-spec`: implemented; made metadata and lineage spec link-first and corrected schema ownership (migrations are canonical).
 - `053-tighten-alerting-spec`: implemented; made alerting docs link-first, added `severity` as a first-class alert event field, and moved chain context guidance into `payload`.
 - `052-tighten-udf-specs`: implemented; aligned UDF entrypoint semantics to the bundle manifest, made UDF docs link-first, and clarified Node/Python-only v1 support with Rust custom runtime tracked in milestone 18.
 - `051-tighten-query-service-specs`: implemented; made task and user query specs consistent, clarified Lite dev token semantics vs AWS/OIDC, and made hardening and ops defaults link-first.

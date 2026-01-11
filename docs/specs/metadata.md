@@ -2,10 +2,25 @@
 
 Status: Draft
 Owner: Platform
-Last updated: 2026-01-02
+Last updated: 2026-01-11
 
 ## Summary
 Trace records lineage and run metadata for jobs, tasks, datasets, partitions, and dataset versions. This metadata supports discovery, debugging, rollback/query pinning, and operational visibility.
+
+## Doc ownership
+
+This spec is a link-first index for metadata and lineage.
+
+Canonical related docs:
+- Task and retry semantics (at-least-once): [task_lifecycle.md](../architecture/task_lifecycle.md)
+- Postgres state vs data boundary: [db_boundaries.md](../architecture/db_boundaries.md)
+- Dataset publishing and registry: [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)
+- Atomic cutover and query pinning: [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md)
+- Versioning and invalidations: [data_versioning.md](../architecture/data_versioning.md)
+- User-facing dataset routes: [user_api_contracts.md](../architecture/user_api_contracts.md)
+- Task-scoped write paths for metadata (task completion, publishing): [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md)
+- Schema mapping docs: [data_model/README.md](../architecture/data_model/README.md)
+- Canonical schema source of truth: `harness/migrations/state/` and `harness/migrations/data/`
 
 ## Risk
 Low
@@ -17,9 +32,9 @@ Users and operators need to answer:
 - what ran, when, and why did it fail?
 without scraping logs or reconstructing state from S3.
 
-Constraints:
-- The platform is at-least-once; metadata must be resilient to duplicate task completion.
-- We maintain a hard boundary between Postgres **state** (control-plane) and Postgres **data** (data-plane). Cross-DB referential integrity is application-enforced.
+Constraints are owned elsewhere:
+- At-least-once execution and idempotent completion: [task_lifecycle.md](../architecture/task_lifecycle.md)
+- State vs data boundaries and soft references: [db_boundaries.md](../architecture/db_boundaries.md)
 
 ## Goals
 - Provide a consistent metadata model for:
@@ -34,8 +49,10 @@ Constraints:
 - User-defined metadata schemas beyond JSON.
 
 ## Public surface changes
-- Query surfaces: dataset registry + version pinning behaviors (see ADRs).
-- Persistence: metadata tables in Postgres state and (where applicable) Postgres data.
+- Query surfaces: dataset registry + version pinning behaviors (see [ADR 0008](../adr/0008-dataset-registry-and-publishing.md) and [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md)).
+- User API: dataset discovery and metadata routes are defined in [user_api_contracts.md](../architecture/user_api_contracts.md).
+- Task-scoped writes: the metadata write paths used during task completion are defined in [task_scoped_endpoints.md](../architecture/contracts/task_scoped_endpoints.md).
+- Persistence: metadata tables in Postgres state and (where applicable) Postgres data (canonical DDL: `harness/migrations/`).
 
 ## Architecture (C4) - Mermaid-in-Markdown only
 
@@ -51,11 +68,11 @@ flowchart LR
 
 ### What the system tracks
 At minimum:
-- **Organizations and users** (identity and ownership; see security model for auth).
-- **DAG versions** and the active DAG mapping.
-- **Jobs and tasks** including attempt history, leases, and failure reasons.
-- **Datasets** (registry mapping from name → UUID).
-- **Dataset versions** and published pointers (atomic cutover, query pinning).
+- **Organizations and users** (identity and ownership; see [security.md](../architecture/security.md)).
+- **DAG versions** and the active DAG mapping (see [dag_deployment.md](../architecture/dag_deployment.md)).
+- **Jobs and tasks** including attempt history, leases, and failure reasons (see [task_lifecycle.md](../architecture/task_lifecycle.md)).
+- **Datasets** (registry mapping from name to UUID, see [ADR 0008](../adr/0008-dataset-registry-and-publishing.md)).
+- **Dataset versions** and published pointers (atomic cutover, query pinning, see [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md)).
 - **Partitions/materializations** for datasets that are partitioned.
 - **Custom metadata** (JSON) emitted by operators and stored with materializations.
 
@@ -70,6 +87,11 @@ V1 constraint (be explicit):
 
 ### Data model references
 Canonical DDL lives in:
+- `harness/migrations/state/`
+- `harness/migrations/data/`
+
+Schema mapping docs live in:
+- [data_model/README.md](../architecture/data_model/README.md)
 - [orchestration.md](../architecture/data_model/orchestration.md)
 - [data_versioning.md](../architecture/data_model/data_versioning.md)
 - [address_labels.md](../architecture/data_model/address_labels.md)
