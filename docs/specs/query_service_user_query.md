@@ -2,7 +2,7 @@
 
 Status: Implemented
 Owner: Platform
-Last updated: 2026-01-09
+Last updated: 2026-01-11
 
 ## Summary
 Add a minimal user-facing `POST /v1/query` endpoint to Query Service so a human can run validated, read-only SQL against an authorized dataset. The endpoint is intentionally a thin wrapper around `trace_core::query::validate_sql`, trusted dataset attach, and dataset-level audit logging.
@@ -13,16 +13,17 @@ High
 This is a new public endpoint that executes untrusted SQL and introduces a new authn context (user principal).
 
 ## Related ADRs
-- ADR 0008 (Dataset Registry + Publishing)
-- ADR 0009 (Atomic cutover and query pinning)
-- ADR 0002 (Networking, no egress by default)
+- [ADR 0008](../adr/0008-dataset-registry-and-publishing.md) - dataset registry and publishing
+- [ADR 0009](../adr/0009-atomic-cutover-and-query-pinning.md) - atomic cutover and query pinning
+- [ADR 0002](../adr/0002-networking.md) - networking and egress allowlist
 
 ## Context
 Query Service already implements task-scoped queries (`POST /v1/task/query`) gated by a task capability token.
 
 We need a user query surface to enable interactive inspection after a local sync without relying on task-only capability tokens.
 
-For Lite, user authn is dev-only and uses an HS256 JWT. AWS/OIDC integration is out of scope here.
+For Lite, `POST /v1/query` uses a Trace-minted dev token (HS256) that carries dataset and storage grants.
+This is not an IdP OIDC JWT. The AWS/OIDC user principal model is described in [security.md](../architecture/security.md).
 
 ## Goals
 - Provide `POST /v1/query` for user-scoped interactive reads.
@@ -32,9 +33,9 @@ For Lite, user authn is dev-only and uses an HS256 JWT. AWS/OIDC integration is 
 
 ## Non-goals
 - Dataset registry lookup by dataset name.
-- Pagination, exports, caching, or persisted query results (future shape: `docs/specs/query_service_query_results.md`).
+- Pagination, exports, caching, or persisted query results (future shape: [query_service_query_results.md](query_service_query_results.md)).
 - Any non-SELECT SQL or multi-statement queries.
-- OIDC/JWKS verification (Lite uses HS256 only).
+- AWS/OIDC user auth for `/v1/query` (Lite uses HS256 only).
 
 ## Public surface changes
 - Endpoints/RPC:
@@ -75,6 +76,13 @@ flowchart LR
   - Owns `query::validate_sql`.
   - Owns dataset grant types (`DatasetGrant`, `DatasetStorageRef`, `S3Grants`).
 
+### Lite user token (dev-only)
+In Trace Lite, `POST /v1/query` authenticates with a Trace-minted HS256 Bearer token. This is a capability-like token, not an IdP OIDC JWT.
+
+Required claims (Lite):
+- Standard: `iss`, `aud`, `sub`, `exp`, `iat`
+- Custom: `org_id`, `datasets[]` (dataset grants), `s3` (read prefixes)
+
 ### Data flow and trust boundaries
 - Untrusted inputs:
   - Request JSON (`dataset_id`, `sql`, `limit`)
@@ -98,7 +106,7 @@ flowchart LR
 - MUST reject requests for datasets not granted in the token (403).
 - MUST reject if the granted dataset storage reference is missing or outside token S3 read prefixes (fail closed).
 - MUST call `trace_core::query::validate_sql` before execution and reject failures (400).
-- MUST clamp `limit` to `[1, 10_000]` (default 1000) and return `truncated` when clipped.
+- MUST clamp `limit` to `[1, inline_row_limit]` and return `truncated` when clipped (defaults: [operations.md](../architecture/operations.md)).
 - MUST write a dataset-level audit row on successful execution without storing raw SQL.
 
 ## Compatibility and migrations
@@ -115,7 +123,7 @@ flowchart LR
   - Query endpoint used for data exfiltration.
 - Mitigations:
   - Primary control is `validate_sql` (fail closed).
-  - Defense-in-depth is DuckDB runtime hardening plus an egress allowlist that permits only the object store endpoint.
+  - Defense-in-depth is DuckDB runtime hardening plus an egress allowlist that permits only the object store endpoint (see [query_sql_gating.md](query_sql_gating.md) and [ADR 0002](../adr/0002-networking.md)).
   - Dataset storage refs are authorized by prefix grants (fail closed).
 - Residual risk:
   - Validator incompleteness; mitigated by runtime hardening and tests.

@@ -2,7 +2,7 @@
 
 Status: Draft
 Owner: Platform
-Last updated: 2026-01-10
+Last updated: 2026-01-11
 
 ## Summary
 Define the future Query Service contract for large result sets: inline vs exported responses, batch mode, and how exports map to `query_results`.
@@ -14,12 +14,12 @@ This expands public surface and persistence semantics for query execution result
 
 ## Context
 Today the Query Service endpoints return inline JSON results only:
-- User queries: `docs/specs/query_service_user_query.md`
-- Task-scoped queries: `docs/specs/query_service_task_query.md`
+- User queries: [query_service_user_query.md](query_service_user_query.md)
+- Task-scoped queries: [query_service_task_query.md](query_service_task_query.md)
 
 This document defines the future result handling contract without re-specifying authn/authz or SQL gating:
-- SQL gate: `docs/specs/query_sql_gating.md`
-- Token/claims: `docs/architecture/contracts/task_capability_tokens.md`
+- SQL gate: [query_sql_gating.md](query_sql_gating.md)
+- Token/claims: [task_capability_tokens.md](../architecture/contracts/task_capability_tokens.md)
 
 ## Goals
 - Keep small results inline for interactive use.
@@ -54,13 +54,13 @@ Additional fields:
 |-------|------|---------|---------|
 | `mode` | string | `interactive` | `interactive` or `batch` |
 | `format` | string | `json` | `json`, `csv` (inline when small), `parquet` (exported) |
-| `timeout_seconds` | int | (see operations) | Max execution time (clamped; see `docs/architecture/operations.md`) |
+| `timeout_seconds` | int | (see operations) | Max execution time (clamped; see [operations.md](../architecture/operations.md)) |
 
 ### Responses
 
 Interactive queries return results in one of two ways:
 
-- **Inline** for small results (bounded by `inline_row_limit` and `inline_byte_limit`, see `docs/architecture/operations.md`).
+- **Inline** for small results (bounded by `inline_row_limit` and `inline_byte_limit`, see [operations.md](../architecture/operations.md)).
 - **Exported** to object storage for larger results (and always when `format: parquet`).
 
 Exported results are written to caller-scoped prefixes:
@@ -135,7 +135,7 @@ Returned when `mode: batch` is requested or when interactive limits are exceeded
 
 ## Interactive constraints
 
-Interactive execution is bounded. Default values live in `docs/architecture/operations.md`.
+Interactive execution is bounded. Default values live in [operations.md](../architecture/operations.md).
 
 | Constraint | Default | Rationale |
 |------------|---------|-----------|
@@ -149,9 +149,9 @@ Interactive execution is bounded. Default values live in `docs/architecture/oper
 
 Query executions (interactive and batch) are recorded in a platform-managed Postgres data table: `query_results`.
 
-Normative decision: `docs/adr/0005-query-results.md`.
+Normative decision: [ADR 0005](../adr/0005-query-results.md).
 
-Schema: `docs/architecture/data_model/query_service.md`.
+Schema: [Query Service data model](../architecture/data_model/query_service.md).
 
 Rules:
 - `query_id` in API responses is `query_results.id`.

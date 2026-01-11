@@ -2,7 +2,7 @@
 
 Status: Accepted (v1)
 Owner: Platform
-Last updated: 2026-01-03
+Last updated: 2026-01-11
 
 Risk: Medium
 Public surface: trace-core `query::validate_sql(sql: &str) -> trace_core::Result<()>`
@@ -26,14 +26,25 @@ Acceptance:
 - Negative tests verify rejection without logging raw SQL.
 
 Non-goals:
-- Perfect SQL parsing. This gate is intentionally conservative and SHOULD be paired with DuckDB runtime hardening:
-  - disable host filesystem access (e.g. `SET disabled_filesystems='LocalFileSystem'` + `SET lock_configuration=true`),
-  - forbid extension installation (no `INSTALL ...` / `LOAD ...` from untrusted SQL; disable autoinstall),
-  - no host filesystem mounts,
-  - restricted catalog attachment,
-  - OS-level network egress restrictions.
+- Perfect SQL parsing.
 
-  Note: if the Query Service allows querying *authorized* remote Parquet datasets (HTTP/S3), DuckDB needs network access for those scans. In that case, the OS-level egress policy becomes mandatory (only allow the configured object-store endpoint(s)).
+## DuckDB runtime hardening (defense in depth)
+
+The SQL gate is necessary but not sufficient. Query execution MUST fail closed if these controls cannot be applied.
+
+Recommended baseline:
+- Disable extension auto-install and auto-load: `SET autoinstall_known_extensions=false; SET autoload_known_extensions=false;`
+- Lock configuration: `SET lock_configuration=true;`
+- Disable host filesystem access: `SET disabled_filesystems='LocalFileSystem';`
+- Attach datasets in trusted code only; do not allow untrusted SQL to attach arbitrary catalogs or filesystems.
+- Constrain spill-to-disk:
+  - Set DuckDB `temp_directory` to an isolated per-query directory with `0700` permissions.
+  - Prefer tmpfs (`/dev/shm`) when available; otherwise use a dedicated `/tmp` subdirectory.
+  - Delete spill directories after the query completes.
+- Do not mount host filesystem paths into the Query Service container.
+- If remote Parquet scans are enabled (HTTP/S3), restrict OS/container egress to only the configured object store endpoints (see [ADR 0002](../adr/0002-networking.md)).
+
+Defaults and timeouts: [operations.md](../architecture/operations.md).
 
 Reduction:
 - No new dependencies; pure Rust scanning.
